@@ -32,6 +32,7 @@ data Term = Term_IntLiteral Integer
 
 data Constraint = Constraint_Eq   RhoType RhoType
                 | Constraint_Inst PolyType RhoType
+                deriving Show
 
 -- Derive `unbound` instances
 $(derive [''PolyType, ''RhoType, ''MonoType, ''Term, ''Constraint])
