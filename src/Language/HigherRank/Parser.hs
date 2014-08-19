@@ -1,7 +1,7 @@
 module Language.HigherRank.Parser (
   parseTerm
 , parsePolyType
-, parseRhoType
+, parseClosedPolyType
 , parseMonoType
 ) where
 
@@ -17,44 +17,75 @@ parseTerm :: Parsec String s Term
 parseTerm = parseAtom `chainl1` (pure Term_App)
 
 parseAtom :: Parsec String s Term
-parseAtom = -- Type annotation
-            try (uncurry Term_Ann <$> parens ((,) <$> parseTerm
-                                                  <*  reservedOp "::"
-                                                  <*> parsePolyType))
-        <|> -- Parenthesized expression
+parseAtom = -- Parenthesized expression
             parens parseTerm
         <|> -- Type annotated abstraction
-            try (createTermAnnAbs <$> braces ((,) <$> identifier
-                                                    <*  reservedOp "::"
-                                                    <*> parsePolyType)
+            try (createTermAbsAnn <$> braces ((,) <$> identifier
+                                                  <*  reservedOp "::"
+                                                  <*> parseClosedPolyType)
                                   <*> parseTerm)
         <|> -- Abstraction
             createTermAbs <$> braces identifier <*> parseTerm
+        <|> -- Type annotated let
+            try (createTermLetAbs <$  reserved "let"
+                                  <*> identifier
+                                  <*  reservedOp "::"
+                                  <*> parseClosedPolyType
+                                  <*  reservedOp "="
+                                  <*> parseTerm
+                                  <*  reserved "in"
+                                  <*> parseTerm)
+        <|> -- Let
+            createTermLet <$  reserved "let"
+                          <*> identifier
+                          <*  reservedOp "="
+                          <*> parseTerm
+                          <*  reserved "in"
+                          <*> parseTerm
         <|> -- Literal
             Term_IntLiteral <$> integer
         <|> -- Variable
             Term_Var . string2Name <$> identifier
 
+createTermAbsAnn :: (String, PolyType) -> Term -> Term
+createTermAbsAnn (x,t) e = Term_AbsAnn (bind (string2Name x) e) t
+
 createTermAbs :: String -> Term -> Term
 createTermAbs x e = Term_Abs (bind (string2Name x) e)
 
-createTermAnnAbs :: (String, PolyType) -> Term -> Term
-createTermAnnAbs (x,t) e = Term_AnnAbs (bind (string2Name x) e) t
+createTermLetAbs :: String -> PolyType -> Term -> Term -> Term
+createTermLetAbs x t e1 e2 = Term_LetAnn (bind (string2Name x, embed e1) e2) t
+
+createTermLet :: String -> Term -> Term -> Term
+createTermLet x e1 e2 = Term_Let (bind (string2Name x, embed e1) e2)
 
 parsePolyType :: Parsec String s PolyType
-parsePolyType = createPolyType <$> braces (commaSep identifier)
-                               <*> parseRhoType
-            <|> parens parsePolyType
+parsePolyType = try (createPolyType PolyType_Inst
+                     <$> braces ((,) <$> identifier
+                                     <*  reservedOp ">"
+                                     <*> parsePolyType)
+                     <*> parsePolyType)
+            <|> try (createPolyType PolyType_Equal
+                     <$> braces ((,) <$> identifier
+                                     <*  reservedOp "="
+                                     <*> parsePolyType)
+                     <*> parsePolyType)
+            <|> try (createPolyType PolyType_Inst
+                     <$> braces ((,) <$> identifier
+                                     <*> pure PolyType_Bottom)
+                     <*> parsePolyType)
+            <|> PolyType_Bottom <$ reservedOp "_|_"
+            <|> PolyType_Mono <$> parseMonoType
 
-createPolyType :: [String] -> RhoType -> PolyType
-createPolyType vars rho = PolyType_Quant (bind (map string2Name vars) rho)
+parseClosedPolyType :: Parsec String s PolyType
+parseClosedPolyType = do t <- parsePolyType
+                         if null $ fvAny t
+                            then return t
+                            else fail "Closed type expected"
 
-parseRhoType :: Parsec String s RhoType
-parseRhoType = RhoType_Arrow <$> parsePolyType
-                             <*  reservedOp "->"
-                             <*> parseRhoType
-           <|> RhoType_Mono <$> parseMonoType
-           <|> parens parseRhoType
+createPolyType :: ((Bind (TyVar, Embed PolyType) PolyType) -> PolyType)
+               -> (String,PolyType) -> PolyType -> PolyType
+createPolyType f (x,s) r = f (bind (string2Name x, embed s) r)
 
 parseMonoType :: Parsec String s MonoType
 parseMonoType = foldr1 MonoType_Arrow <$> parseMonoAtom `sepBy1` reservedOp "->"
@@ -72,7 +103,7 @@ parseMonoAtom = const MonoType_Int <$> reserved "Integer"
 -- Lexer for Haskell-like language
 
 lexer :: T.TokenParser t
-lexer = T.makeTokenParser haskellStyle
+lexer = T.makeTokenParser haskellDef
 
 parens :: Parsec String s a -> Parsec String s a
 parens = T.parens lexer
@@ -85,9 +116,6 @@ brackets = T.brackets lexer
 
 comma :: Parsec String s String
 comma = T.comma lexer
-
-commaSep :: Parsec String s a -> Parsec String s [a]
-commaSep = T.commaSep lexer
 
 identifier :: Parsec String s String
 identifier = T.identifier lexer

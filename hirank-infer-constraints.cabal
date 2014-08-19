@@ -9,13 +9,15 @@ build-type:          Simple
 cabal-version:       >=1.10
 
 library
-  exposed-modules:     Language.HigherRank.Syntax,
-                       Language.HigherRank.Parser
+  exposed-modules:   Language.HigherRank.Infer,
+                     Language.HigherRank.Syntax,
+                     Language.HigherRank.Parser
   -- other-modules:       
   -- other-extensions:    
-  build-depends:       base >= 4 && < 5,
-                       unbound,
-                       parsec
-  hs-source-dirs:      src
-  default-language:    Haskell2010
-  ghc-options:         -Wall
+  build-depends:     base >= 4 && < 5,
+                     unbound,
+                     parsec,
+                     mtl
+  hs-source-dirs:    src
+  default-language:  Haskell2010
+  ghc-options:       -Wall
