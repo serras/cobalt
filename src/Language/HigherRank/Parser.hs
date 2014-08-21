@@ -91,9 +91,9 @@ parseMonoType :: Parsec String s MonoType
 parseMonoType = foldr1 MonoType_Arrow <$> parseMonoAtom `sepBy1` reservedOp "->"
 
 parseMonoAtom :: Parsec String s MonoType
-parseMonoAtom = const MonoType_Int <$> reserved "Integer"
-            <|> MonoType_List <$> brackets parseMonoType
-            <|> try (uncurry MonoType_Tuple <$>
+parseMonoAtom = const intTy <$> reserved "Integer"
+            <|> listTy <$> brackets parseMonoType
+            <|> try (uncurry tupleTy <$>
                        parens ((,) <$> parseMonoType
                                    <*  comma
                                    <*> parseMonoType))

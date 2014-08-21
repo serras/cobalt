@@ -9,7 +9,8 @@ build-type:          Simple
 cabal-version:       >=1.10
 
 library
-  exposed-modules:   Language.HigherRank.Infer,
+  exposed-modules:   Language.HigherRank.Test,
+                     Language.HigherRank.Infer,
                      Language.HigherRank.Syntax,
                      Language.HigherRank.Parser
   -- other-modules:       
@@ -17,8 +18,7 @@ library
   build-depends:     base >= 4 && < 5,
                      unbound,
                      parsec,
-                     mtl,
-                     groom
+                     mtl > 2
   hs-source-dirs:    src
   default-language:  Haskell2010
   ghc-options:       -Wall

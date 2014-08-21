@@ -5,6 +5,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 module Language.HigherRank.Syntax where
 
+import Data.List
 import Unbound.LocallyNameless
 
 type TyVar = Name MonoType
@@ -19,22 +20,33 @@ instance Show PolyType where
   show (PolyType_Mono  m) = show m
   show (PolyType_Bottom)  = "_|_"
 
-data MonoType = MonoType_Int
-              | MonoType_List  MonoType
-              | MonoType_Tuple MonoType MonoType
+data MonoType = MonoType_Con   String [MonoType]
+              -- | MonoType_Int
+              -- | MonoType_List  MonoType
+              -- | MonoType_Tuple MonoType MonoType
               | MonoType_Arrow MonoType MonoType
               | MonoType_Var   TyVar
 
+intTy :: MonoType
+intTy = MonoType_Con "Integer" []
+
+listTy :: MonoType -> MonoType
+listTy a = MonoType_Con "[]" [a]
+
+tupleTy :: MonoType -> MonoType -> MonoType
+tupleTy a b = MonoType_Con "(,)" [a,b]
+
 instance Show MonoType where
-  show (MonoType_Int) = "Integer"
-  show (MonoType_List t) = "[" ++ show t ++ "]"
-  show (MonoType_Tuple t1 t2) = "(" ++ show t1 ++ "," ++ show t2 ++ ")"
-  show (MonoType_Arrow s t) = let ss = show s
-                               in if ' ' `elem` ss
-                                     then "(" ++ ss ++ ")"
-                                     else ss
-                                  ++ "->" ++ show t
+  show (MonoType_Con "Integer" []) = "Integer"
+  show (MonoType_Con "[]"  [t]) = "[" ++ show t ++ "]"
+  show (MonoType_Con "(,)" [t1,t2]) = "(" ++ show t1 ++ "," ++ show t2 ++ ")"
+  show (MonoType_Con c a) = c ++ " " ++ intercalate " " (map (doParens . show) a)
+  show (MonoType_Arrow s t) = doParens (show s) ++ " -> " ++ show t
   show (MonoType_Var v) = show v
+
+doParens :: String -> String
+doParens s | ' ' `elem` s = '(' : s ++ ")"
+           | otherwise    = s
 
 pVar :: TyVar -> PolyType
 pVar = PolyType_Mono . mVar
@@ -63,7 +75,40 @@ data AnnTerm = AnnTerm_IntLiteral Integer MonoType
              | AnnTerm_App    AnnTerm AnnTerm MonoType
              | AnnTerm_Let    (Bind (AnnTermVar, Embed AnnTerm) AnnTerm) MonoType
              | AnnTerm_LetAnn (Bind (AnnTermVar, Embed AnnTerm) AnnTerm) PolyType MonoType
-             deriving Show
+
+instance Show AnnTerm where
+  show = showAnnTerm id
+
+showAnnTerm :: Show a => (MonoType -> a) -> AnnTerm -> String
+showAnnTerm f = unlines . runFreshM . (showAnnTerm' f)
+
+showAnnTerm' :: Show a => (MonoType -> a) -> AnnTerm -> FreshM [String]
+showAnnTerm' f (AnnTerm_IntLiteral n t) = return $ [show n ++ " ==> " ++ show (f t)]
+showAnnTerm' f (AnnTerm_Var v t) = return $ [show v ++ " ==> " ++ show (f t)]
+showAnnTerm' f (AnnTerm_Abs b t) = do
+  (x,e) <- unbind b
+  inner <- showAnnTerm' f e
+  let line1 = "{" ++ show x ++ "} ==> " ++ show (f t)
+  return $ line1 : map ("  " ++) inner
+showAnnTerm' f (AnnTerm_AbsAnn b p t) = do
+  (x,e) <- unbind b
+  inner <- showAnnTerm' f e
+  let line1 = "{" ++ show x ++ " :: " ++ show p ++ "} ==> " ++ show (f t)
+  return $ line1 : map ("  " ++) inner
+showAnnTerm' f (AnnTerm_App a b t) = do
+  e1 <- showAnnTerm' f a
+  e2 <- showAnnTerm' f b
+  let line1 = "@ ==> " ++ show (f t)
+  return $ line1 : map ("  " ++) (e1 ++ e2)
+
+getAnn :: AnnTerm -> MonoType
+getAnn (AnnTerm_IntLiteral _ t) = t
+getAnn (AnnTerm_Var _ t)        = t
+getAnn (AnnTerm_Abs _ t)        = t
+getAnn (AnnTerm_AbsAnn _ _ t)   = t
+getAnn (AnnTerm_App _ _ t)      = t
+getAnn (AnnTerm_Let _ t)        = t
+getAnn (AnnTerm_LetAnn _ _ t)   = t
 
 data BasicConstraint = BasicConstraint_Inst  TyVar PolyType
                      | BasicConstraint_Equal TyVar PolyType
