@@ -1,0 +1,9 @@
+import nil   :: {a} [a]
+import cons  :: {a} a -> [a] -> [a]
+import tuple :: {a} {b} a -> b -> (a,b)
+import fst   :: {a} {b} (a,b) -> a
+import snd   :: {a} {b} (a,b) -> b
+
+example1 = \x -> \(y :: {a} a -> a) -> cons (x (tuple y 3)) nil;;
+example2 = \(x :: {a} a -> a) -> \y -> cons (x (tuple y 3)) nil;;
+example3 = \x -> \y -> cons (x y) nil;;

@@ -4,7 +4,29 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
-module Language.Cobalt.Syntax where
+module Language.Cobalt.Syntax (
+  TyVar
+, PolyType(..)
+, MonoType(..)
+, intTy
+, listTy
+, tupleTy
+, pVar
+, mVar
+, (-->)
+, TermVar
+, Term(..)
+, AnnTermVar
+, AnnTerm(..)
+, showAnnTerm
+, atAnn
+, getAnn
+, BasicConstraint(..)
+, Constraint(..)
+, Env
+, Defn
+, AnnDefn
+) where
 
 import Data.List
 import Unbound.LocallyNameless
@@ -89,12 +111,12 @@ showAnnTerm' f (AnnTerm_Var v t) = return $ [show v ++ " ==> " ++ show (f t)]
 showAnnTerm' f (AnnTerm_Abs b t) = do
   (x,e) <- unbind b
   inner <- showAnnTerm' f e
-  let line1 = "{" ++ show x ++ "} ==> " ++ show (f t)
+  let line1 = "\\" ++ show x ++ " -> ==> " ++ show (f t)
   return $ line1 : map ("  " ++) inner
 showAnnTerm' f (AnnTerm_AbsAnn b p t) = do
   (x,e) <- unbind b
   inner <- showAnnTerm' f e
-  let line1 = "{" ++ show x ++ " :: " ++ show p ++ "} ==> " ++ show (f t)
+  let line1 = "\\" ++ show x ++ " :: " ++ show p ++ " -> ==> " ++ show (f t)
   return $ line1 : map ("  " ++) inner
 showAnnTerm' f (AnnTerm_App a b t) = do
   e1 <- showAnnTerm' f a
@@ -115,6 +137,35 @@ showAnnTerm' f (AnnTerm_LetAnn b p t) = do
   let line1 = "let " ++ show x ++ " :: " ++ show p ++ " = "
       line2 = "in ==> " ++ show t
   return $ (line1 : map ("  " ++) s1) ++ (line2 : map ("  " ++) s2)
+
+atAnn :: (MonoType -> MonoType) -> AnnTerm -> AnnTerm
+atAnn f = runFreshM . atAnn' f
+
+atAnn' :: (MonoType -> MonoType) -> AnnTerm -> FreshM AnnTerm
+atAnn' f (AnnTerm_IntLiteral n t) = return $ AnnTerm_IntLiteral n (f t)
+atAnn' f (AnnTerm_Var v t) = return $ AnnTerm_Var v (f t)
+atAnn' f (AnnTerm_Abs b t) = do
+  (x,e) <- unbind b
+  inner <- atAnn' f e
+  return $ AnnTerm_Abs (bind x inner) (f t)
+atAnn' f (AnnTerm_AbsAnn b p t) = do
+  (x,e) <- unbind b
+  inner <- atAnn' f e
+  return $ AnnTerm_AbsAnn (bind x inner) p (f t)
+atAnn' f (AnnTerm_App a b t) = do
+  e1 <- atAnn' f a
+  e2 <- atAnn' f b
+  return $ AnnTerm_App e1 e2 (f t)
+atAnn' f (AnnTerm_Let b t) = do
+  ((x, unembed -> e1),e2) <- unbind b
+  s1 <- atAnn' f e1
+  s2 <- atAnn' f e2
+  return $ AnnTerm_Let (bind (x, embed s1) s2) (f t)
+atAnn' f (AnnTerm_LetAnn b p t) = do
+  ((x, unembed -> e1),e2) <- unbind b
+  s1 <- atAnn' f e1
+  s2 <- atAnn' f e2
+  return $ AnnTerm_LetAnn (bind (x, embed s1) s2) p (f t)
 
 getAnn :: AnnTerm -> MonoType
 getAnn (AnnTerm_IntLiteral _ t) = t
@@ -142,6 +193,10 @@ instance Show Constraint where
   show (Constraint_Inst  t p) = show t ++ " > " ++ show p
   show (Constraint_Equal t p) = show t ++ " = " ++ show p
   show (Constraint_Exists vs cs c) = "exists " ++ show vs ++ "(" ++ show cs ++ " => " ++ show c ++ ")"
+
+type Env     = [(TermVar, PolyType)]
+type Defn    = (TermVar, Term)
+type AnnDefn = (TermVar, AnnTerm)
 
 -- Derive `unbound` instances
 $(derive [''PolyType, ''MonoType, ''Term, ''AnnTerm, ''BasicConstraint, ''Constraint])

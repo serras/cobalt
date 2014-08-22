@@ -1,10 +1,11 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE ViewPatterns #-}
 module Language.Cobalt.Infer (
-  Env
-, infer
+  infer
 , Solution
 , solve
 , prettyType
+, prettyTypePhase1
 ) where
 
 import Control.Applicative
@@ -14,9 +15,12 @@ import Unbound.LocallyNameless
 
 import Language.Cobalt.Syntax
 
+#define TRACE_SOLVER 0
+#if TRACE_SOLVER
 import Debug.Trace
+#else
+#endif
 
-type Env = [(TermVar, PolyType)]
 type Result = (MonoType, AnnTerm, [Constraint], [BasicConstraint])
 type TcMonad = FreshMT (ReaderT Env (Either String))
 
@@ -57,7 +61,7 @@ infer (Term_AbsAnn b t) = -- Case polytype
      alpha <- fresh (string2Name "alpha")
      (tau,ann,c,ex) <- extendEnv x t $ infer e
      let arrow = mVar alpha --> tau
-     return (arrow, AnnTerm_Abs (bind (translate x) ann) arrow,
+     return (arrow, AnnTerm_AbsAnn (bind (translate x) ann) t arrow,
              c, ex ++ [BasicConstraint_Equal alpha t])
 infer (Term_App e1 e2) =
   do (tau1,ann1,c1,ex1) <- infer e1
@@ -186,11 +190,11 @@ interact_ (Constraint_Unify (MonoType_Var v1) s1) (Constraint_Equal t2 s2)
   = return $ Applied [Constraint_Equal (subst v1 s1 t2) (subst v1 s1 s2)]
 interact_ _ _ = return NotApplicable
 
-prettyType :: MonoType -> Solution -> PolyType
+prettyType :: Solution -> MonoType -> PolyType
 prettyType mt sln = PolyType_Mono (prettyTypePhase1 mt sln)
 
-prettyTypePhase1 :: MonoType -> [Constraint] -> MonoType
-prettyTypePhase1 mt cs =
+prettyTypePhase1 :: [Constraint] -> MonoType -> MonoType
+prettyTypePhase1 cs mt =
   let s = concatMap (\v -> filter (\c -> case c of
                                            Constraint_Unify (MonoType_Var v1) _ | v1 == v -> True
                                            Constraint_Unify _ (MonoType_Var v1) | v1 == v -> True
@@ -206,5 +210,8 @@ prettyTypePhase1 mt cs =
         _  -> applySubst mt s
 
 myTrace :: String -> a -> a
--- myTrace = trace
+#if TRACE_SOLVER
+myTrace = trace
+#else
 myTrace _ x = x
+#endif

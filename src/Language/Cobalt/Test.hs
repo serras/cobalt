@@ -14,13 +14,13 @@ import Debug.Trace
 newtype TestResult = TestResult (AnnTerm, [BasicConstraint], [Constraint], Solution)
 instance Show TestResult where
   show (TestResult (ann, given, wanted, soln)) =
-    "Term: \n" ++ showAnnTerm (\x -> prettyType x soln) ann ++ "\n" ++
+    "Term: \n" ++ showAnnTerm (prettyType soln) ann ++ "\n" ++
     "Give: " ++ show given ++ "\n" ++
     "Want: " ++ show wanted ++ "\n" ++
     "Soln: " ++ show soln
 
 testEnv :: Env
-testEnv = rights . map (parse parseSig "parse") $
+testEnv = rights . map (parse parseSig "parse") . map ("import " ++) $
             [ "nil :: {a} [a]"
             , "cons :: {a} a -> [a] -> [a]"
             , "tuple :: {a} {b} a -> b -> (a,b)"
@@ -30,9 +30,9 @@ testEnv = rights . map (parse parseSig "parse") $
 
 testString :: String -> Either String TestResult
 testString s =
-  case parse parseTerm "parse" s of
-    Left  e -> Left (show e)
-    Right t -> case runReaderT (runFreshMT $ infer t) testEnv of
+  case parse parseDefn "parse" (s ++ ";;") of
+    Left  e     -> Left (show e)
+    Right (_,t) -> case runReaderT (runFreshMT $ infer t) testEnv of
       Left  e         -> Left e
       Right (_,a,c,q) -> case runFreshMT $ solve q c of
         Left  e  -> trace (show $ TestResult (a,q,c,[])) $ Left e

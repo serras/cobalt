@@ -4,9 +4,11 @@ module Language.Cobalt.Parser (
 , parseClosedPolyType
 , parseMonoType
 , parseSig
+, parseDefn
+, parseFile
 ) where
 
-import Control.Applicative
+import Control.Applicative hiding (many)
 import Text.Parsec hiding ((<|>))
 import Text.Parsec.Language
 import qualified Text.Parsec.Token as T
@@ -21,12 +23,17 @@ parseAtom :: Parsec String s Term
 parseAtom = -- Parenthesized expression
             parens parseTerm
         <|> -- Type annotated abstraction
-            try (createTermAbsAnn <$> braces ((,) <$> identifier
+            try (createTermAbsAnn <$  reservedOp "\\"
+                                  <*> parens ((,) <$> identifier
                                                   <*  reservedOp "::"
                                                   <*> parseClosedPolyType)
+                                  <*  reservedOp "->"
                                   <*> parseTerm)
         <|> -- Abstraction
-            createTermAbs <$> braces identifier <*> parseTerm
+            createTermAbs <$  reservedOp "\\"
+                          <*> identifier
+                          <*  reservedOp "->"
+                          <*> parseTerm
         <|> -- Type annotated let
             try (createTermLetAbs <$  reserved "let"
                                   <*> identifier
@@ -101,9 +108,20 @@ parseMonoAtom = const intTy <$> reserved "Integer"
             <|> MonoType_Var . string2Name <$> identifier
 
 parseSig :: Parsec String s (TermVar,PolyType)
-parseSig = (,) <$> (string2Name <$> identifier)
+parseSig = (,) <$  reserved "import"
+               <*> (string2Name <$> identifier)
                <*  reservedOp "::"
                <*> parsePolyType
+
+parseDefn :: Parsec String s Defn
+parseDefn = (,) <$> (string2Name <$> identifier)
+                <*  reservedOp "="
+                <*> parseTerm
+                <*  reservedOp ";;"
+
+parseFile :: Parsec String s (Env,[Defn])
+parseFile = (,) <$> many parseSig
+                <*> many parseDefn
 
 -- Lexer for Haskell-like language
 
