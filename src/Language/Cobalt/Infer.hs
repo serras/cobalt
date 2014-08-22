@@ -1,5 +1,5 @@
 {-# LANGUAGE ViewPatterns #-}
-module Language.HigherRank.Infer (
+module Language.Cobalt.Infer (
   Env
 , infer
 , Solution
@@ -12,7 +12,7 @@ import Control.Monad.Reader
 import Control.Monad.Error
 import Unbound.LocallyNameless
 
-import Language.HigherRank.Syntax
+import Language.Cobalt.Syntax
 
 import Debug.Trace
 

@@ -1,6 +1,6 @@
-name:                hirank-infer-constraints
+name:                cobalt
 version:             0.1.0.0
-synopsis:            Higher-rank type inference using constraints
+synopsis:            COnstraint-BAsed Language which resembles Haskell
 author:              Alejandro Serrano
 maintainer:          A.SerranoMena@uu.nl
 category:            Language
@@ -9,10 +9,10 @@ build-type:          Simple
 cabal-version:       >=1.10
 
 library
-  exposed-modules:   Language.HigherRank.Test,
-                     Language.HigherRank.Infer,
-                     Language.HigherRank.Syntax,
-                     Language.HigherRank.Parser
+  exposed-modules:   Language.Cobalt.Test,
+                     Language.Cobalt.Infer,
+                     Language.Cobalt.Syntax,
+                     Language.Cobalt.Parser
   -- other-modules:       
   -- other-extensions:    
   build-depends:     base >= 4 && < 5,

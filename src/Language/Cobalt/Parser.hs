@@ -1,4 +1,4 @@
-module Language.HigherRank.Parser (
+module Language.Cobalt.Parser (
   parseTerm
 , parsePolyType
 , parseClosedPolyType
@@ -12,7 +12,7 @@ import Text.Parsec.Language
 import qualified Text.Parsec.Token as T
 import Unbound.LocallyNameless
 
-import Language.HigherRank.Syntax
+import Language.Cobalt.Syntax
 
 parseTerm :: Parsec String s Term
 parseTerm = parseAtom `chainl1` (pure Term_App)

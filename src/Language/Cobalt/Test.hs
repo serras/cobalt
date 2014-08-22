@@ -1,13 +1,13 @@
-module Language.HigherRank.Test where
+module Language.Cobalt.Test where
 
 import Control.Monad.Reader
 import Data.Either
 import Text.Parsec
 import Unbound.LocallyNameless
 
-import Language.HigherRank.Infer
-import Language.HigherRank.Parser
-import Language.HigherRank.Syntax
+import Language.Cobalt.Infer
+import Language.Cobalt.Parser
+import Language.Cobalt.Syntax
 
 import Debug.Trace
 

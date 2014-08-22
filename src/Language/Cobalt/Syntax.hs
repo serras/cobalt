@@ -4,7 +4,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
-module Language.HigherRank.Syntax where
+module Language.Cobalt.Syntax where
 
 import Data.List
 import Unbound.LocallyNameless
