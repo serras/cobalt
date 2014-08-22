@@ -105,13 +105,21 @@ parseMonoAtom = const intTy <$> reserved "Integer"
                        parens ((,) <$> parseMonoType
                                    <*  comma
                                    <*> parseMonoType))
+            <|> MonoType_Con <$> parseDataName
+                             <*> many (    (\x -> MonoType_Con x []) <$> parseDataName
+                                       <|> MonoType_Var . string2Name <$> identifier
+                                       <|> parens parseMonoType)
             <|> MonoType_Var . string2Name <$> identifier
+
+parseDataName :: Parsec String s String
+parseDataName = id <$ char '\'' <*> identifier
 
 parseSig :: Parsec String s (TermVar,PolyType)
 parseSig = (,) <$  reserved "import"
                <*> (string2Name <$> identifier)
                <*  reservedOp "::"
                <*> parsePolyType
+               <*  reservedOp ";;"
 
 parseDefn :: Parsec String s Defn
 parseDefn = (,) <$> (string2Name <$> identifier)

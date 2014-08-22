@@ -11,7 +11,7 @@ import Language.Cobalt.Syntax
 
 import Debug.Trace
 
-newtype TestResult = TestResult (AnnTerm, [BasicConstraint], [Constraint], Solution)
+newtype TestResult = TestResult (AnnTerm, [Constraint], [Constraint], Solution)
 instance Show TestResult where
   show (TestResult (ann, given, wanted, soln)) =
     let (_,sb) = toSubst soln in
@@ -21,7 +21,7 @@ instance Show TestResult where
     "Soln: " ++ show soln
 
 testEnv :: Env
-testEnv = rights . map (parse parseSig "parse") . map ("import " ++) $
+testEnv = rights . map (parse parseSig "parse") . map (\x -> "import " ++ x ++ ";;") $
             [ "nil :: {a} [a]"
             , "cons :: {a} a -> [a] -> [a]"
             , "tuple :: {a} {b} a -> b -> (a,b)"
@@ -34,7 +34,7 @@ testString s =
   case parse parseDefn "parse" (s ++ ";;") of
     Left  e     -> Left (show e)
     Right (_,t) -> case runReaderT (runFreshMT $ infer t) testEnv of
-      Left  e         -> Left e
-      Right (_,a,c,q) -> case runFreshMT $ solve q c of
+      Left  e -> Left e
+      Right (Result _ a c q) -> case runFreshMT $ solve q c of
         Left  e  -> trace (show $ TestResult (a,q,c,[])) $ Left e
         Right sl -> Right $ TestResult (a,q,c,sl)

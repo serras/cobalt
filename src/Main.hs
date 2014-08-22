@@ -31,13 +31,13 @@ tcDefns _ []         = return []
 tcDefns e ((n,t):xs) =
   case runReaderT (runFreshMT $ infer t) e of
     Left err -> Left err
-    Right (_,a,c,q) -> case runFreshMT $ solve q c of
+    Right (Result _ a g w) -> case runFreshMT $ solve g w of
       Left err -> Left err
       Right sl -> do
         let (smallC,sb) = toSubst sl
             thisAnn = atAnn (substs sb) a
-            basicS = map (substs sb) q
-            finalT = closeType basicS smallC (getAnn thisAnn)
+            basicS = map (substs sb) g
+            finalT = closeType (basicS ++ smallC) (getAnn thisAnn)
         restAnn <- tcDefns ((n,finalT):e) xs
         return $ (n,thisAnn,finalT) : restAnn
 

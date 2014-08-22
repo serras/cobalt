@@ -1,7 +1,8 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE ViewPatterns #-}
 module Language.Cobalt.Infer (
-  infer
+  Result(..)
+, infer
 , Solution
 , solve
 , toSubst
@@ -21,7 +22,11 @@ import Debug.Trace
 #else
 #endif
 
-type Result = (MonoType, AnnTerm, [Constraint], [BasicConstraint])
+data Result = Result { ty      :: MonoType
+                     , annTerm :: AnnTerm
+                     , givenC  :: [Constraint]
+                     , wantedC :: [Constraint]
+                     }
 type TcMonad = FreshMT (ReaderT Env (Either String))
 
 lookupEnv :: TermVar -> TcMonad PolyType
@@ -35,67 +40,64 @@ extendEnv v s = local ((v,s) :)
 
 infer :: Term -> TcMonad Result
 infer (Term_IntLiteral n) =
-  return (intTy, AnnTerm_IntLiteral n intTy,
-          [], [])
+  return $ Result intTy (AnnTerm_IntLiteral n intTy) [] []
 infer (Term_Var x) =
   do sigma <- lookupEnv x
      tau <- mVar <$> fresh (string2Name "tau")
-     return (tau, AnnTerm_Var (translate x) tau,
-             [Constraint_Inst tau sigma], [])
+     return $ Result tau (AnnTerm_Var (translate x) tau)
+                     [] [Constraint_Inst tau sigma]
 infer (Term_Abs b) =
   do (x,e) <- unbind b
      alpha <- fresh (string2Name "alpha")
-     (tau,ann,c,ex) <- extendEnv x (pVar alpha) $ infer e
+     Result tau ann ex c <- extendEnv x (pVar alpha) $ infer e
      let arrow = mVar alpha --> tau
-     return (arrow, AnnTerm_Abs (bind (translate x) ann) arrow,
-             c, ex)
+     return $ Result arrow (AnnTerm_Abs (bind (translate x) ann) arrow) ex c
 infer (Term_AbsAnn b mt@(PolyType_Mono m)) = -- Case monotype
   do (x,e) <- unbind b
-     (tau,ann,c,ex) <- extendEnv x mt $ infer e
+     Result tau ann ex c <- extendEnv x mt $ infer e
      let arrow = m --> tau
-     return (arrow, AnnTerm_Abs (bind (translate x) ann) arrow,
-             c, ex)
+     return $ Result arrow (AnnTerm_Abs (bind (translate x) ann) arrow) ex c
 infer (Term_AbsAnn b t) = -- Case polytype
   do (x,e) <- unbind b
      -- Check that dom(t) `subset` ftv(\Gamma)
      alpha <- fresh (string2Name "alpha")
-     (tau,ann,c,ex) <- extendEnv x t $ infer e
+     Result tau ann ex c <- extendEnv x t $ infer e
      let arrow = mVar alpha --> tau
-     return (arrow, AnnTerm_AbsAnn (bind (translate x) ann) t arrow,
-             c, ex ++ [BasicConstraint_Equal alpha t])
+     return $ Result arrow (AnnTerm_AbsAnn (bind (translate x) ann) t arrow)
+                     (ex ++ [Constraint_Equal (mVar alpha) t]) c
 infer (Term_App e1 e2) =
-  do (tau1,ann1,c1,ex1) <- infer e1
-     (tau2,ann2,c2,ex2) <- infer e2
+  do Result tau1 ann1 ex1 c1 <- infer e1
+     Result tau2 ann2 ex2 c2 <- infer e2
      alpha <- mVar <$> fresh (string2Name "alpha")
-     return (alpha, AnnTerm_App ann1 ann2 alpha,
-             c1 ++ c2 ++ [Constraint_Unify tau1 (tau2 --> alpha)],
-             ex1 ++ ex2)
+     return $ Result alpha (AnnTerm_App ann1 ann2 alpha)
+                     (ex1 ++ ex2)
+                     (c1 ++ c2 ++ [Constraint_Unify tau1 (tau2 --> alpha)])
 infer (Term_Let b) =
   do ((x, unembed -> e1),e2) <- unbind b
-     (tau1,ann1,c1,ex1) <- infer e1
-     (tau2,ann2,c2,ex2) <- extendEnv x (PolyType_Mono tau1) $ infer e2
-     return (tau2, AnnTerm_Let (bind (translate x, embed ann1) ann2) tau2,
-             c1 ++ c2, ex1 ++ ex2)
+     Result tau1 ann1 ex1 c1 <- infer e1
+     Result tau2 ann2 ex2 c2 <- extendEnv x (PolyType_Mono tau1) $ infer e2
+     return $ Result tau2 (AnnTerm_Let (bind (translate x, embed ann1) ann2) tau2)
+                     (ex1 ++ ex2) (c1 ++ c2)
 infer (Term_LetAnn b mt@(PolyType_Mono m)) = -- Case monotype
   do ((x, unembed -> e1),e2) <- unbind b
-     (tau1,ann1,c1,ex1) <- infer e1
-     (tau2,ann2,c2,ex2) <- extendEnv x mt $ infer e2
-     return (tau2, AnnTerm_Let (bind (translate x, embed ann1) ann2) tau2,
-             c1 ++ c2 ++ [Constraint_Unify tau1 m], ex1 ++ ex2)
+     Result tau1 ann1 ex1 c1 <- infer e1
+     Result tau2 ann2 ex2 c2 <- extendEnv x mt $ infer e2
+     return $ Result tau2 (AnnTerm_Let (bind (translate x, embed ann1) ann2) tau2)
+                     (ex1 ++ ex2) (c1 ++ c2 ++ [Constraint_Unify tau1 m])
 {-
 infer (Term_LetAnn b t) = -- Case polytype
   do ((x, unembed -> e1),e2) <- unbind b
      -- Check that dom(t) `subset` ftv(\Gamma)
-     (tau1,ann1,c1,ex1) <- infer e1
-     (tau2,ann2,c2,ex2) <- extendEnv x mt $ infer e2
-     return (tau2, AnnTerm_Let (bind (translate x, embed ann1) ann2) tau2,
-             c1 ++ c2 ++ [Constraint_Unify tau1 m], ex1 ++ ex2)
+     Result tau1 ann1 ex1 c1 <- infer e1
+     Result tau2 ann2 ex2 c2 <- extendEnv x mt $ infer e2
+     return $ Result tau2 (AnnTerm_Let (bind (translate x, embed ann1) ann2) tau2)
+                     (ex1 ++ ex2) (c1 ++ c2 ++ [Constraint_Unify tau1 m])
 -}
 
 type Solution = [Constraint]
 type SMonad = FreshMT (Either String)
 
-solve :: [BasicConstraint] -> [Constraint] -> SMonad Solution
+solve :: [Constraint] -> [Constraint] -> SMonad Solution
 solve given wanted = do (s,_) <- whileApplicable (\c -> do
                            (canonical,apC)  <- whileApplicable (stepOverList "canon" canon) c
                            (interacted,apI) <- whileApplicable (stepOverProductList "inter" interact_) canonical
@@ -206,18 +208,14 @@ toSubst cs = let initialSubst = map (\x -> (x, mVar x)) (fv cs)
                                               Constraint_Unify _ _ -> False
                                               _ -> True)
 
-closeType :: [BasicConstraint] -> [Constraint] -> MonoType -> PolyType
+closeType :: [Constraint] -> MonoType -> PolyType
 -- closeType bs cs m = -- TODO: change this stupid implementation
-closeType ((BasicConstraint_Inst v t) : rest) c m =
-  PolyType_Inst $ bind (v,embed t) (closeType rest c m)
-closeType ((BasicConstraint_Equal v t) : rest) c m =
-  PolyType_Equal $ bind (v,embed t) (closeType rest c m)
-closeType [] ((Constraint_Inst (MonoType_Var v) t) : rest) m =
-  PolyType_Inst $ bind (v,embed t) (closeType [] rest m)
-closeType [] ((Constraint_Equal (MonoType_Var v) t) : rest) m =
-  PolyType_Equal $ bind (v,embed t) (closeType [] rest m)
-closeType [] (_ : rest) m = closeType [] rest m
-closeType [] [] m = PolyType_Mono m
+closeType ((Constraint_Inst (MonoType_Var v) t) : rest) m =
+  PolyType_Inst $ bind (v,embed t) (closeType rest m)
+closeType ((Constraint_Equal (MonoType_Var v) t) : rest) m =
+  PolyType_Equal $ bind (v,embed t) (closeType rest m)
+closeType (_ : rest) m = closeType rest m
+closeType [] m = PolyType_Mono m
 
 myTrace :: String -> a -> a
 #if TRACE_SOLVER

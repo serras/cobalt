@@ -21,14 +21,13 @@ module Language.Cobalt.Syntax (
 , showAnnTerm
 , atAnn
 , getAnn
-, BasicConstraint(..)
+-- , BasicConstraint(..)
 , Constraint(..)
 , Env
 , Defn
 , AnnDefn
 ) where
 
-import Data.List
 import Unbound.LocallyNameless
 
 type TyVar = Name MonoType
@@ -76,7 +75,7 @@ instance Show MonoType where
   show (MonoType_Con "Integer" []) = "Integer"
   show (MonoType_Con "[]"  [t]) = "[" ++ show t ++ "]"
   show (MonoType_Con "(,)" [t1,t2]) = "(" ++ show t1 ++ "," ++ show t2 ++ ")"
-  show (MonoType_Con c a) = c ++ " " ++ intercalate " " (map (doParens . show) a)
+  show (MonoType_Con c a) = '\'':c ++ concatMap (\x -> " " ++ doParens (show x)) a
   show (MonoType_Arrow s t) = doParens (show s) ++ " -> " ++ show t
   show (MonoType_Var v) = show v
 
@@ -189,17 +188,19 @@ getAnn (AnnTerm_App _ _ t)      = t
 getAnn (AnnTerm_Let _ t)        = t
 getAnn (AnnTerm_LetAnn _ _ t)   = t
 
+{-
 data BasicConstraint = BasicConstraint_Inst  TyVar PolyType
                      | BasicConstraint_Equal TyVar PolyType
 
 instance Show BasicConstraint where
   show (BasicConstraint_Inst  v p) = show v ++ " > " ++ show p
   show (BasicConstraint_Equal v p) = show v ++ " = " ++ show p
+-}
 
 data Constraint = Constraint_Unify MonoType MonoType
                 | Constraint_Inst  MonoType PolyType
                 | Constraint_Equal MonoType PolyType
-                | Constraint_Exists [TyVar] [BasicConstraint] [Constraint]
+                | Constraint_Exists [TyVar] [Constraint] [Constraint]
 
 instance Show Constraint where
   show (Constraint_Unify t p) = show t ++ " ~ " ++ show p
@@ -212,7 +213,7 @@ type Defn    = (TermVar, Term)
 type AnnDefn = (TermVar, AnnTerm, PolyType)
 
 -- Derive `unbound` instances
-$(derive [''PolyType, ''MonoType, ''Term, ''AnnTerm, ''BasicConstraint, ''Constraint])
+$(derive [''PolyType, ''MonoType, ''Term, ''AnnTerm, ''Constraint])
 
 instance Alpha PolyType
 instance Subst MonoType PolyType
@@ -238,8 +239,10 @@ instance Subst AnnTerm AnnTerm where
   isvar _                 = Nothing
 instance Subst MonoType AnnTerm
 
+{-
 instance Alpha BasicConstraint
 instance Subst MonoType BasicConstraint
+-}
 
 instance Alpha Constraint
 instance Subst MonoType Constraint
