@@ -10,6 +10,7 @@ cabal-version:       >=1.10
 
 library
   exposed-modules:   Language.Cobalt.Test,
+                     Language.Cobalt.Step,
                      Language.Cobalt.Infer,
                      Language.Cobalt.Syntax,
                      Language.Cobalt.Parser

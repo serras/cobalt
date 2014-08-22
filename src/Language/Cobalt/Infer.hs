@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE ViewPatterns #-}
 module Language.Cobalt.Infer (
   Result(..)
@@ -14,13 +13,8 @@ import Control.Monad.Reader
 import Control.Monad.Error
 import Unbound.LocallyNameless
 
+import Language.Cobalt.Step
 import Language.Cobalt.Syntax
-
-#define TRACE_SOLVER 0
-#if TRACE_SOLVER
-import Debug.Trace
-#else
-#endif
 
 data Result = Result { ty      :: MonoType
                      , annTerm :: AnnTerm
@@ -95,49 +89,14 @@ infer (Term_LetAnn b t) = -- Case polytype
 -}
 
 type Solution = [Constraint]
-type SMonad = FreshMT (Either String)
 
 solve :: [Constraint] -> [Constraint] -> SMonad Solution
-solve given wanted = do (s,_) <- whileApplicable (\c -> do
+solve given wanted = do (_g,_) <- whileApplicable (stepOverList "canon" canon) given
+                        (s,_) <- whileApplicable (\c -> do
                            (canonical,apC)  <- whileApplicable (stepOverList "canon" canon) c
                            (interacted,apI) <- whileApplicable (stepOverProductList "inter" interact_) canonical
                            return (interacted, apC || apI)) wanted
                         return s
-
-data StepResult = NotApplicable | Applied [Constraint]
-
-whileApplicable :: ([Constraint] -> SMonad ([Constraint], Bool))
-                -> [Constraint] -> SMonad ([Constraint], Bool)
-whileApplicable f c = innerApplicable' c False
-  where innerApplicable' cs atAll = do
-          r <- f cs
-          case r of
-            (_,   False) -> return (cs, atAll)
-            (newC,True)  -> innerApplicable' newC True
-
-stepOverList :: String -> (Constraint -> SMonad StepResult)
-             -> [Constraint] -> SMonad ([Constraint], Bool)
-stepOverList s f lst = stepOverList' lst [] False False
-  where -- Finish cases: last two args are changed-in-this-loop, and changed-at-all
-        stepOverList' [] accum True  _     = stepOverList' accum [] False True
-        stepOverList' [] accum False atAll = return (accum, atAll)
-        -- Rest of cases
-        stepOverList' (x:xs) accum thisLoop atAll = do
-          r <- f x
-          case r of
-            NotApplicable -> stepOverList' xs (x:accum) thisLoop atAll
-            Applied newX  -> myTrace (s ++ " " ++ show x ++ " ==> " ++ show newX) $
-                             stepOverList' xs (newX ++ accum) True True
-
-stepOverProductList :: String -> (Constraint -> Constraint -> SMonad StepResult)
-                    -> [Constraint] -> SMonad ([Constraint], Bool)
-stepOverProductList s f lst = stepOverProductList' lst [] False
-  where stepOverProductList' [] accum atAll = return (accum, atAll)
-        stepOverProductList' (x:xs) accum atAll =
-          do r <- stepOverList (s ++ " " ++ show x) (f x) (xs ++ accum)
-             case r of
-               (_,     False) -> stepOverProductList' xs (x:accum) atAll
-               (newLst,True)  -> stepOverProductList' (x:newLst) [] True
 
 canon :: Constraint -> SMonad StepResult
 canon (Constraint_Unify t1 t2) = case (t1,t2) of
@@ -216,10 +175,3 @@ closeType ((Constraint_Equal (MonoType_Var v) t) : rest) m =
   PolyType_Equal $ bind (v,embed t) (closeType rest m)
 closeType (_ : rest) m = closeType rest m
 closeType [] m = PolyType_Mono m
-
-myTrace :: String -> a -> a
-#if TRACE_SOLVER
-myTrace = trace
-#else
-myTrace _ x = x
-#endif
