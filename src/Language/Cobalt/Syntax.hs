@@ -38,10 +38,23 @@ data PolyType = PolyType_Inst   (Bind (TyVar, Embed PolyType) PolyType)
               | PolyType_Bottom
 
 instance Show PolyType where
-  show (PolyType_Inst  b) = show b
-  show (PolyType_Equal b) = show b
-  show (PolyType_Mono  m) = show m
-  show (PolyType_Bottom)  = "_|_"
+  show = runFreshM . showPolyType'
+
+showPolyType' :: PolyType -> FreshM String
+showPolyType' (PolyType_Inst b) = do
+  ((x, unembed -> p),r) <- unbind b
+  showR <- showPolyType' r
+  case p of
+    PolyType_Bottom -> return $ "{" ++ show x ++ "} " ++ showR
+    _ -> do showP <- showPolyType' p
+            return $ "{" ++ show x ++ " > " ++ showP ++ "} " ++ showR
+showPolyType' (PolyType_Equal b) = do
+  ((x, unembed -> p),r) <- unbind b
+  showR <- showPolyType' r
+  showP <- showPolyType' p
+  return $ "{" ++ show x ++ " = " ++ showP ++ "} " ++ showR
+showPolyType' (PolyType_Mono m) = return $ show m
+showPolyType' PolyType_Bottom   = return "_|_"
 
 data MonoType = MonoType_Con   String [MonoType]
               -- | MonoType_Int
@@ -196,7 +209,7 @@ instance Show Constraint where
 
 type Env     = [(TermVar, PolyType)]
 type Defn    = (TermVar, Term)
-type AnnDefn = (TermVar, AnnTerm)
+type AnnDefn = (TermVar, AnnTerm, PolyType)
 
 -- Derive `unbound` instances
 $(derive [''PolyType, ''MonoType, ''Term, ''AnnTerm, ''BasicConstraint, ''Constraint])

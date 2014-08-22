@@ -33,16 +33,21 @@ tcDefns e ((n,t):xs) =
     Left err -> Left err
     Right (_,a,c,q) -> case runFreshMT $ solve q c of
       Left err -> Left err
-      Right sl -> do let thisAnn = atAnn (prettyTypePhase1 sl) a
-                     -- TODO: extend e with thisAnn type
-                     restAnn <- tcDefns e xs
-                     return $ (n,thisAnn) : restAnn
+      Right sl -> do
+        let (smallC,sb) = toSubst sl
+            thisAnn = atAnn (substs sb) a
+            basicS = map (substs sb) q
+            finalT = closeType basicS smallC (getAnn thisAnn)
+        restAnn <- tcDefns ((n,finalT):e) xs
+        return $ (n,thisAnn,finalT) : restAnn
 
 showAnns :: [AnnDefn] -> IO ()
 showAnns []         = return ()
-showAnns ((n,t):xs) = do
+showAnns ((n,t,p):xs) = do
   setSGR [SetColor Foreground Vivid Blue]
-  putStrLn (name2String n)
+  putStr (name2String n)
   setSGR [Reset]
+  putStr " ==> "
+  putStrLn (show p)
   putStrLn (show t)
   showAnns xs

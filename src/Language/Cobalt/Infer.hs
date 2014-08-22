@@ -4,8 +4,8 @@ module Language.Cobalt.Infer (
   infer
 , Solution
 , solve
-, prettyType
-, prettyTypePhase1
+, toSubst
+, closeType
 ) where
 
 import Control.Applicative
@@ -190,24 +190,34 @@ interact_ (Constraint_Unify (MonoType_Var v1) s1) (Constraint_Equal t2 s2)
   = return $ Applied [Constraint_Equal (subst v1 s1 t2) (subst v1 s1 s2)]
 interact_ _ _ = return NotApplicable
 
-prettyType :: Solution -> MonoType -> PolyType
-prettyType mt sln = PolyType_Mono (prettyTypePhase1 mt sln)
+toSubst :: [Constraint] -> ([Constraint], [(TyVar,MonoType)])
+toSubst cs = let initialSubst = map (\x -> (x, mVar x)) (fv cs)
+                 finalSubst = runSubst initialSubst
+              in (map (substs finalSubst) (notUnifyConstraints cs), runSubst initialSubst)
+  where runSubst s = let vars = concatMap (\(_,mt) -> fv mt) s
+                         unif = concatMap (\v -> filter (\c -> case c of
+                                                                 Constraint_Unify (MonoType_Var v1) _ -> v1 == v
+                                                                 _ -> False) cs) vars
+                         sub = map (\(Constraint_Unify (MonoType_Var v) t) -> (v,t)) unif
+                      in case s of
+                           [] -> s
+                           _  -> map (\(v,t) -> (v, substs sub t)) s
+        notUnifyConstraints = filter (\c -> case c of
+                                              Constraint_Unify _ _ -> False
+                                              _ -> True)
 
-prettyTypePhase1 :: [Constraint] -> MonoType -> MonoType
-prettyTypePhase1 cs mt =
-  let s = concatMap (\v -> filter (\c -> case c of
-                                           Constraint_Unify (MonoType_Var v1) _ | v1 == v -> True
-                                           Constraint_Unify _ (MonoType_Var v1) | v1 == v -> True
-                                           _ -> False) cs) (fv mt)
-      applySubst m [] = m
-      applySubst m ((Constraint_Unify (MonoType_Var v1) t1) : rest) | v1 `elem` fv mt
-        = applySubst (subst v1 t1 m) rest
-      applySubst m ((Constraint_Unify t1 (MonoType_Var v1)) : rest) | v1 `elem` fv mt
-        = applySubst (subst v1 t1 m) rest
-      applySubst _ _ = error "This should never happen"
-   in case s of
-        [] -> mt
-        _  -> applySubst mt s
+closeType :: [BasicConstraint] -> [Constraint] -> MonoType -> PolyType
+-- closeType bs cs m = -- TODO: change this stupid implementation
+closeType ((BasicConstraint_Inst v t) : rest) c m =
+  PolyType_Inst $ bind (v,embed t) (closeType rest c m)
+closeType ((BasicConstraint_Equal v t) : rest) c m =
+  PolyType_Equal $ bind (v,embed t) (closeType rest c m)
+closeType [] ((Constraint_Inst (MonoType_Var v) t) : rest) m =
+  PolyType_Inst $ bind (v,embed t) (closeType [] rest m)
+closeType [] ((Constraint_Equal (MonoType_Var v) t) : rest) m =
+  PolyType_Equal $ bind (v,embed t) (closeType [] rest m)
+closeType [] (_ : rest) m = closeType [] rest m
+closeType [] [] m = PolyType_Mono m
 
 myTrace :: String -> a -> a
 #if TRACE_SOLVER

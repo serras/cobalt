@@ -14,7 +14,8 @@ import Debug.Trace
 newtype TestResult = TestResult (AnnTerm, [BasicConstraint], [Constraint], Solution)
 instance Show TestResult where
   show (TestResult (ann, given, wanted, soln)) =
-    "Term: \n" ++ showAnnTerm (prettyType soln) ann ++ "\n" ++
+    let (_,sb) = toSubst soln in
+    "Term: \n" ++ showAnnTerm (substs sb) ann ++ "\n" ++
     "Give: " ++ show given ++ "\n" ++
     "Want: " ++ show wanted ++ "\n" ++
     "Soln: " ++ show soln
