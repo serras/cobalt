@@ -11,6 +11,7 @@ example2 = \(x :: {a} a -> a) -> \y -> cons (x (tuple y 3)) nil;;
 example3 = \x -> \y -> cons (x (tuple y 3)) nil;;
 example4 = \x -> \y -> cons (x y) nil;;
 example5 = tuple;;
+err1 = cons 3 2;;
 example6 = \x -> fst (tuple x 3);;
 example7 = \x -> \y -> triple x y 3;;
 example8 = \x -> \y -> triplx x y 3;;

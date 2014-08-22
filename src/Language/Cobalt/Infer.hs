@@ -91,14 +91,19 @@ infer (Term_LetAnn b t) = -- Case polytype
 type Solution = [Constraint]
 
 solve :: [Constraint] -> [Constraint] -> SMonad Solution
-solve given wanted = do (_g,_) <- whileApplicable (stepOverList "canon" canon) given
+solve given wanted = do (g,_) <- whileApplicable (\c -> do
+                           (canonicalG,apGC)  <- whileApplicable (stepOverList "canon" canon) c
+                           (interactedG,apGI) <- whileApplicable (stepOverProductList "inter" interact_) canonicalG
+                           return (interactedG, apGC || apGI)) given
                         (s,_) <- whileApplicable (\c -> do
                            (canonical,apC)  <- whileApplicable (stepOverList "canon" canon) c
                            (interacted,apI) <- whileApplicable (stepOverProductList "inter" interact_) canonical
-                           return (interacted, apC || apI)) wanted
+                           (simplified,apS) <- whileApplicable (stepOverTwoLists "simpl" simplifies g) interacted
+                           return (simplified, apC || apI || apS)) wanted
                         return s
 
 canon :: Constraint -> SMonad StepResult
+-- Basic unification
 canon (Constraint_Unify t1 t2) = case (t1,t2) of
   (MonoType_Var v1, MonoType_Var v2) | v1 == v2  -> return $ Applied []  -- Refl
                                      | v1 > v2   -> return $ Applied [Constraint_Unify t2 t1]  -- Orient
@@ -111,14 +116,16 @@ canon (Constraint_Unify t1 t2) = case (t1,t2) of
   (MonoType_Con c1 a1, MonoType_Con c2 a2)
     | c1 == c2 && length a1 == length a2 -> return $ Applied $ zipWith Constraint_Unify a1 a2
   (_, _) -> throwError $ "Different constructor heads: " ++ show t1 ++ " ~ " ++ show t2
+-- Convert from monotype > or = into monotype ~
+canon (Constraint_Inst  t (PolyType_Mono m)) = return $ Applied [Constraint_Unify t m]
+canon (Constraint_Equal t (PolyType_Mono m)) = return $ Applied [Constraint_Unify t m]
+-- This is not needed
 canon (Constraint_Inst _ PolyType_Bottom)   = return $ Applied []
--- Convert from monotype > into monotype ~
-canon (Constraint_Inst t (PolyType_Mono m)) = return $ Applied [Constraint_Unify t m]
 canon (Constraint_Inst (MonoType_Var _) _)  = return NotApplicable
 canon (Constraint_Inst x p) = do
   (c,t) <- instantiate p
   return $ Applied $ (Constraint_Unify x t) : c
-  
+-- Rest
 canon _ = return NotApplicable
 
 instantiate :: PolyType -> SMonad ([Constraint], MonoType)
@@ -137,19 +144,39 @@ instantiate PolyType_Bottom = do
 
 -- Change w.r.t. OutsideIn -> return only second constraint
 interact_ :: Constraint -> Constraint -> SMonad StepResult
+-- Two unifications
 interact_ (Constraint_Unify t1 s1) (Constraint_Unify t2 s2) = case (t1,t2) of
   (MonoType_Var v1, MonoType_Var v2)
     | v1 == v2 -> return $ Applied [Constraint_Unify s1 s2]
     | v1 `elem` fv s2 -> return $ Applied [Constraint_Unify t2 (subst v1 s1 s2)]
     | otherwise -> return NotApplicable
   _ -> return NotApplicable
+-- Replace something over another constraint
 interact_ (Constraint_Unify (MonoType_Var v1) s1) (Constraint_Inst t2 s2)
   | v1 `elem` fv t2 || v1 `elem` fv s2
   = return $ Applied [Constraint_Inst (subst v1 s1 t2) (subst v1 s1 s2)]
 interact_ (Constraint_Unify (MonoType_Var v1) s1) (Constraint_Equal t2 s2)
   | v1 `elem` fv t2 || v1 `elem` fv s2
   = return $ Applied [Constraint_Equal (subst v1 s1 t2) (subst v1 s1 s2)]
-interact_ _ _ = return NotApplicable
+interact_ (Constraint_Unify _ _) _ = return NotApplicable  -- only vars are replaced
+interact_ _ (Constraint_Unify _ _) = return NotApplicable  -- treated symmetric cases
+-- Two equalities
+interact_ (Constraint_Equal t1 p1) (Constraint_Equal t2 p2)
+  | t1 `aeq` t2 = return NotApplicable
+  | otherwise   = return NotApplicable
+interact_ (Constraint_Equal t1 p1) (Constraint_Inst t2 p2)
+  | t1 `aeq` t2 = return NotApplicable
+  | otherwise   = return NotApplicable
+interact_ (Constraint_Inst _ _) (Constraint_Equal _ _) = return NotApplicable  -- treated sym
+interact_ (Constraint_Inst t1 p1) (Constraint_Inst t2 p2)
+  | t1 `aeq` t2 = return NotApplicable
+  | otherwise   = return NotApplicable
+-- Existentials do not interact
+interact_ (Constraint_Exists _ _ _) _ = return NotApplicable
+interact_ _ (Constraint_Exists _ _ _) = return NotApplicable
+
+simplifies :: Constraint -> Constraint -> SMonad StepResult
+simplifies _ _ = return NotApplicable
 
 toSubst :: [Constraint] -> ([Constraint], [(TyVar,MonoType)])
 toSubst cs = let initialSubst = map (\x -> (x, mVar x)) (fv cs)
