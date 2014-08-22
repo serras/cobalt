@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ViewPatterns #-}
 module Language.HigherRank.Syntax where
 
 import Data.List
@@ -100,6 +101,20 @@ showAnnTerm' f (AnnTerm_App a b t) = do
   e2 <- showAnnTerm' f b
   let line1 = "@ ==> " ++ show (f t)
   return $ line1 : map ("  " ++) (e1 ++ e2)
+showAnnTerm' f (AnnTerm_Let b t) = do
+  ((x, unembed -> e1),e2) <- unbind b
+  s1 <- showAnnTerm' f e1
+  s2 <- showAnnTerm' f e2
+  let line1 = "let " ++ show x ++ " = "
+      line2 = "in ==> " ++ show t
+  return $ (line1 : map ("  " ++) s1) ++ (line2 : map ("  " ++) s2)
+showAnnTerm' f (AnnTerm_LetAnn b p t) = do
+  ((x, unembed -> e1),e2) <- unbind b
+  s1 <- showAnnTerm' f e1
+  s2 <- showAnnTerm' f e2
+  let line1 = "let " ++ show x ++ " :: " ++ show p ++ " = "
+      line2 = "in ==> " ++ show t
+  return $ (line1 : map ("  " ++) s1) ++ (line2 : map ("  " ++) s2)
 
 getAnn :: AnnTerm -> MonoType
 getAnn (AnnTerm_IntLiteral _ t) = t

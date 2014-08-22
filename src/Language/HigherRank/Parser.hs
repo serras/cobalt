@@ -3,6 +3,7 @@ module Language.HigherRank.Parser (
 , parsePolyType
 , parseClosedPolyType
 , parseMonoType
+, parseSig
 ) where
 
 import Control.Applicative
@@ -97,8 +98,12 @@ parseMonoAtom = const intTy <$> reserved "Integer"
                        parens ((,) <$> parseMonoType
                                    <*  comma
                                    <*> parseMonoType))
-            <|> parens parseMonoType
             <|> MonoType_Var . string2Name <$> identifier
+
+parseSig :: Parsec String s (TermVar,PolyType)
+parseSig = (,) <$> (string2Name <$> identifier)
+               <*  reservedOp "::"
+               <*> parsePolyType
 
 -- Lexer for Haskell-like language
 

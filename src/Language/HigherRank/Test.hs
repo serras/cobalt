@@ -1,6 +1,7 @@
 module Language.HigherRank.Test where
 
 import Control.Monad.Reader
+import Data.Either
 import Text.Parsec
 import Unbound.LocallyNameless
 
@@ -18,57 +19,14 @@ instance Show TestResult where
     "Want: " ++ show wanted ++ "\n" ++
     "Soln: " ++ show soln
 
-testNil :: (TermVar, PolyType)
-testNil = (string2Name "nil",
-           PolyType_Inst (bind (a, embed PolyType_Bottom)
-             (PolyType_Mono (listTy (mVar a)))))
-          where a = string2Name "a"
-
-testCons :: (TermVar, PolyType)
-testCons = (string2Name "cons",
-            PolyType_Inst (bind (a, embed PolyType_Bottom)
-              (PolyType_Mono
-                 (MonoType_Arrow (mVar a)
-                    (MonoType_Arrow
-                       (listTy (mVar a))
-                       (listTy (mVar a)))))))
-           where a = string2Name "a"
-
-testTuple :: (TermVar, PolyType)
-testTuple = (string2Name "tuple",
-             PolyType_Inst (bind (a, embed PolyType_Bottom)
-               (PolyType_Inst (bind (b, embed PolyType_Bottom)
-                  (PolyType_Mono
-                     (MonoType_Arrow (mVar a)
-                        (MonoType_Arrow (mVar b)
-                           (tupleTy (mVar a) (mVar b)))))))))
-            where a = string2Name "a"
-                  b = string2Name "b"
-
-testFst :: (TermVar, PolyType)
-testFst = (string2Name "tuple",
-             PolyType_Inst (bind (a, embed PolyType_Bottom)
-               (PolyType_Inst (bind (b, embed PolyType_Bottom)
-                  (PolyType_Mono
-                     (MonoType_Arrow
-                        (tupleTy (mVar a) (mVar b))
-                        (mVar a)))))))
-          where a = string2Name "a"
-                b = string2Name "b"
-
-testSnd :: (TermVar, PolyType)
-testSnd = (string2Name "tuple",
-             PolyType_Inst (bind (a, embed PolyType_Bottom)
-               (PolyType_Inst (bind (b, embed PolyType_Bottom)
-                  (PolyType_Mono
-                     (MonoType_Arrow
-                        (tupleTy (mVar a) (mVar b))
-                        (mVar b)))))))
-          where a = string2Name "a"
-                b = string2Name "b"
-
 testEnv :: Env
-testEnv = [testNil, testCons, testTuple, testFst, testSnd]
+testEnv = rights . map (parse parseSig "parse") $
+            [ "nil :: {a} [a]"
+            , "cons :: {a} a -> [a] -> [a]"
+            , "tuple :: {a} {b} a -> b -> (a,b)"
+            , "fst :: {a} {b} (a,b) -> a"
+            , "snd :: {a} {b} (a,b) -> b"
+            ]
 
 testString :: String -> Either String TestResult
 testString s =

@@ -206,5 +206,5 @@ prettyTypePhase1 mt cs =
         _  -> applySubst mt s
 
 myTrace :: String -> a -> a
-myTrace = trace
--- myTrace _ x = x
+-- myTrace = trace
+myTrace _ x = x
