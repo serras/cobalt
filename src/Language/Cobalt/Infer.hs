@@ -211,10 +211,60 @@ interact_ _ _ (Constraint_Exists _ _ _) = return NotApplicable
 
 simplifies :: [Constraint] -> [Constraint]
            -> Constraint -> Constraint -> SMonad SolutionStep
-simplifies _ _ _ _ = return NotApplicable
+-- WARNING: The unify part should be similar to the one in interact_
+simplifies _ _ (Constraint_Unify t1 s1) (Constraint_Unify t2 s2) = case (t1, t2) of
+  (MonoType_Var v1, MonoType_Var v2)
+    | v1 == v2 -> return $ Applied [Constraint_Unify s1 s2]
+    | v1 `elem` fv s2 -> return $ Applied [Constraint_Unify t2 (subst v1 s1 s2)]
+    | otherwise -> return NotApplicable
+  _ -> return NotApplicable
+simplifies _ _ (Constraint_Unify (MonoType_Var v1) s1) (Constraint_Inst t2 s2)
+  | v1 `elem` fv t2 || v1 `elem` fv s2
+  = return $ Applied [Constraint_Inst (subst v1 s1 t2) (subst v1 s1 s2)]
+simplifies _ _ (Constraint_Unify (MonoType_Var v1) s1) (Constraint_Equal t2 s2)
+  | v1 `elem` fv t2 || v1 `elem` fv s2
+  = return $ Applied [Constraint_Equal (subst v1 s1 t2) (subst v1 s1 s2)]
+simplifies _ _ (Constraint_Unify _ _) _ = return NotApplicable  -- only vars are replaced
+-- Simplify with a given > constraint
+simplifies ctxG ctxW (Constraint_Inst (MonoType_Var v1) t1) (Constraint_Unify (MonoType_Var v2) t2)
+  | v1 == v2 = do _ <- checkSubsumption (ctxG ++ ctxW) t1 (PolyType_Mono t2)  -- check if correct
+                  return NotApplicable
+  | otherwise = return NotApplicable
+simplifies ctxG ctxW (Constraint_Inst (MonoType_Var v1) t1) (Constraint_Inst (MonoType_Var v2) t2)
+  | v1 == v2 = (do b <- checkSubsumption (ctxG ++ ctxW) t2 t1  -- t2 <= t1 < v
+                   return $ if b then Applied [] else NotApplicable)
+               `catchError`
+               -- If it cannot match, check the other direction
+               -- If this returns fail, it means that we could not
+               -- match in any direction, and thus we should fail
+               (\_ -> do _ <- checkSubsumption (ctxG ++ ctxW) t1 t2
+                         return $ NotApplicable)
+  | otherwise = return NotApplicable
+simplifies ctxG ctxW (Constraint_Inst (MonoType_Var v1) t1) (Constraint_Equal (MonoType_Var v2) t2)
+  | v1 == v2 = do _ <- checkSubsumption (ctxG ++ ctxW) t2 t1  -- v = t2 <= t1 < v
+                  return NotApplicable
+  | otherwise = return NotApplicable
+simplifies _ _ (Constraint_Inst _ _) _ = return NotApplicable -- only work with vars
+-- Simplify with a given = constraint
+simplifies ctxG ctxW (Constraint_Equal (MonoType_Var v1) t1) (Constraint_Unify (MonoType_Var v2) t2)
+  | v1 == v2 = do _ <- checkEquivalence (ctxG ++ ctxW) t1 (PolyType_Mono t2)  -- check if correct
+                  return NotApplicable
+  | otherwise = return NotApplicable
+simplifies ctxG ctxW (Constraint_Equal (MonoType_Var v1) t1) (Constraint_Inst (MonoType_Var v2) t2)
+  | v1 == v2 = do _ <- checkSubsumption (ctxG ++ ctxW) t2 t1  -- check subsumption
+                  return NotApplicable
+  | otherwise = return NotApplicable
+simplifies ctxG ctxW (Constraint_Equal (MonoType_Var v1) t1) (Constraint_Equal (MonoType_Var v2) t2)
+  | v1 == v2 = do _ <- checkEquivalence (ctxG ++ ctxW) t1 t2  -- check equivalence
+                  return NotApplicable
+  | otherwise = return NotApplicable
+simplifies _ _ (Constraint_Equal _ _) _ = return NotApplicable -- only work with vars
+-- No exists
+simplifies _ _ (Constraint_Exists _ _ _) _ = return NotApplicable
 
 -- Checks that p1 <= p2, that is, that p2 is an instance of p1
 -- Fails if not unification is possible between bodies
+-- TODO: What to do if solve returns _|_
 checkSubsumption :: [Constraint] -> PolyType -> PolyType -> SMonad Bool
 checkSubsumption ctx p1 p2 =
   if p1 `aeq` p2 then return True -- fast alpha-equivalence check
