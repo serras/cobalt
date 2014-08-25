@@ -1,7 +1,8 @@
 {-# LANGUAGE ViewPatterns #-}
 module Language.Cobalt.Infer (
-  Result(..)
-, infer
+  Gathered(..)
+, GMonad
+, gather
 , Solution
 , solve
 , toSubst
@@ -16,76 +17,76 @@ import Unbound.LocallyNameless
 import Language.Cobalt.Step
 import Language.Cobalt.Syntax
 
-data Result = Result { ty      :: MonoType
-                     , annTerm :: AnnTerm
-                     , givenC  :: [Constraint]
-                     , wantedC :: [Constraint]
-                     }
-type TcMonad = FreshMT (ReaderT Env (Either String))
+data Gathered = Gathered { ty      :: MonoType
+                         , annTerm :: AnnTerm
+                         , givenC  :: [Constraint]
+                         , wantedC :: [Constraint]
+                         }
+type GMonad = FreshMT (ReaderT Env (Either String))
 
-lookupEnv :: TermVar -> TcMonad PolyType
+lookupEnv :: TermVar -> GMonad PolyType
 lookupEnv v = do optT <- asks (lookup v)
                  case optT of
                    Nothing -> throwError $ "Cannot find " ++ show v
                    Just t  -> return t
 
-extendEnv :: TermVar -> PolyType -> TcMonad a -> TcMonad a
+extendEnv :: TermVar -> PolyType -> GMonad a -> GMonad a
 extendEnv v s = local ((v,s) :)
 
-infer :: Term -> TcMonad Result
-infer (Term_IntLiteral n) =
-  return $ Result intTy (AnnTerm_IntLiteral n intTy) [] []
-infer (Term_Var x) =
+gather :: Term -> GMonad Gathered
+gather (Term_IntLiteral n) =
+  return $ Gathered intTy (AnnTerm_IntLiteral n intTy) [] []
+gather (Term_Var x) =
   do sigma <- lookupEnv x
      tau <- mVar <$> fresh (string2Name "tau")
-     return $ Result tau (AnnTerm_Var (translate x) tau)
-                     [] [Constraint_Inst tau sigma]
-infer (Term_Abs b) =
+     return $ Gathered tau (AnnTerm_Var (translate x) tau)
+                       [] [Constraint_Inst tau sigma]
+gather (Term_Abs b) =
   do (x,e) <- unbind b
      alpha <- fresh (string2Name "alpha")
-     Result tau ann ex c <- extendEnv x (pVar alpha) $ infer e
+     Gathered tau ann ex c <- extendEnv x (pVar alpha) $ gather e
      let arrow = mVar alpha --> tau
-     return $ Result arrow (AnnTerm_Abs (bind (translate x) ann) arrow) ex c
-infer (Term_AbsAnn b mt@(PolyType_Mono m)) = -- Case monotype
+     return $ Gathered arrow (AnnTerm_Abs (bind (translate x) ann) arrow) ex c
+gather (Term_AbsAnn b mt@(PolyType_Mono m)) = -- Case monotype
   do (x,e) <- unbind b
-     Result tau ann ex c <- extendEnv x mt $ infer e
+     Gathered tau ann ex c <- extendEnv x mt $ gather e
      let arrow = m --> tau
-     return $ Result arrow (AnnTerm_Abs (bind (translate x) ann) arrow) ex c
-infer (Term_AbsAnn b t) = -- Case polytype
+     return $ Gathered arrow (AnnTerm_Abs (bind (translate x) ann) arrow) ex c
+gather (Term_AbsAnn b t) = -- Case polytype
   do (x,e) <- unbind b
      -- Check that dom(t) `subset` ftv(\Gamma)
      alpha <- fresh (string2Name "alpha")
-     Result tau ann ex c <- extendEnv x t $ infer e
+     Gathered tau ann ex c <- extendEnv x t $ gather e
      let arrow = mVar alpha --> tau
-     return $ Result arrow (AnnTerm_AbsAnn (bind (translate x) ann) t arrow)
+     return $ Gathered arrow (AnnTerm_AbsAnn (bind (translate x) ann) t arrow)
                      (ex ++ [Constraint_Equal (mVar alpha) t]) c
-infer (Term_App e1 e2) =
-  do Result tau1 ann1 ex1 c1 <- infer e1
-     Result tau2 ann2 ex2 c2 <- infer e2
+gather (Term_App e1 e2) =
+  do Gathered tau1 ann1 ex1 c1 <- gather e1
+     Gathered tau2 ann2 ex2 c2 <- gather e2
      alpha <- mVar <$> fresh (string2Name "alpha")
-     return $ Result alpha (AnnTerm_App ann1 ann2 alpha)
-                     (ex1 ++ ex2)
-                     (c1 ++ c2 ++ [Constraint_Unify tau1 (tau2 --> alpha)])
-infer (Term_Let b) =
+     return $ Gathered alpha (AnnTerm_App ann1 ann2 alpha)
+                       (ex1 ++ ex2)
+                       (c1 ++ c2 ++ [Constraint_Unify tau1 (tau2 --> alpha)])
+gather (Term_Let b) =
   do ((x, unembed -> e1),e2) <- unbind b
-     Result tau1 ann1 ex1 c1 <- infer e1
-     Result tau2 ann2 ex2 c2 <- extendEnv x (PolyType_Mono tau1) $ infer e2
-     return $ Result tau2 (AnnTerm_Let (bind (translate x, embed ann1) ann2) tau2)
-                     (ex1 ++ ex2) (c1 ++ c2)
-infer (Term_LetAnn b mt@(PolyType_Mono m)) = -- Case monotype
+     Gathered tau1 ann1 ex1 c1 <- gather e1
+     Gathered tau2 ann2 ex2 c2 <- extendEnv x (PolyType_Mono tau1) $ gather e2
+     return $ Gathered tau2 (AnnTerm_Let (bind (translate x, embed ann1) ann2) tau2)
+                       (ex1 ++ ex2) (c1 ++ c2)
+gather (Term_LetAnn b mt@(PolyType_Mono m)) = -- Case monotype
   do ((x, unembed -> e1),e2) <- unbind b
-     Result tau1 ann1 ex1 c1 <- infer e1
-     Result tau2 ann2 ex2 c2 <- extendEnv x mt $ infer e2
-     return $ Result tau2 (AnnTerm_Let (bind (translate x, embed ann1) ann2) tau2)
-                     (ex1 ++ ex2) (c1 ++ c2 ++ [Constraint_Unify tau1 m])
+     Gathered tau1 ann1 ex1 c1 <- gather e1
+     Gathered tau2 ann2 ex2 c2 <- extendEnv x mt $ gather e2
+     return $ Gathered tau2 (AnnTerm_Let (bind (translate x, embed ann1) ann2) tau2)
+                       (ex1 ++ ex2) (c1 ++ c2 ++ [Constraint_Unify tau1 m])
 {-
-infer (Term_LetAnn b t) = -- Case polytype
+gather (Term_LetAnn b t) = -- Case polytype
   do ((x, unembed -> e1),e2) <- unbind b
      -- Check that dom(t) `subset` ftv(\Gamma)
-     Result tau1 ann1 ex1 c1 <- infer e1
-     Result tau2 ann2 ex2 c2 <- extendEnv x mt $ infer e2
-     return $ Result tau2 (AnnTerm_Let (bind (translate x, embed ann1) ann2) tau2)
-                     (ex1 ++ ex2) (c1 ++ c2 ++ [Constraint_Unify tau1 m])
+     Gathered tau1 ann1 ex1 c1 <- gather e1
+     Gathered tau2 ann2 ex2 c2 <- extendEnv x mt $ gather e2
+     return $ Gathered tau2 (AnnTerm_Let (bind (translate x, embed ann1) ann2) tau2)
+                       (ex1 ++ ex2) (c1 ++ c2 ++ [Constraint_Unify tau1 m])
 -}
 
 type Solution = [Constraint]
@@ -102,7 +103,7 @@ solve given wanted = do (g,_) <- whileApplicable (\c -> do
                            return (simplified, apC || apI || apS)) wanted
                         return s
 
-canon :: Constraint -> SMonad StepResult
+canon :: Constraint -> SMonad SolutionStep
 -- Basic unification
 canon (Constraint_Unify t1 t2) = case (t1,t2) of
   (MonoType_Var v1, MonoType_Var v2) | v1 == v2  -> return $ Applied []  -- Refl
@@ -143,7 +144,7 @@ instantiate PolyType_Bottom = do
   return ([], mVar v)
 
 -- Change w.r.t. OutsideIn -> return only second constraint
-interact_ :: Constraint -> Constraint -> SMonad StepResult
+interact_ :: Constraint -> Constraint -> SMonad SolutionStep
 -- Two unifications
 interact_ (Constraint_Unify t1 s1) (Constraint_Unify t2 s2) = case (t1,t2) of
   (MonoType_Var v1, MonoType_Var v2)
@@ -175,7 +176,7 @@ interact_ (Constraint_Inst t1 p1) (Constraint_Inst t2 p2)
 interact_ (Constraint_Exists _ _ _) _ = return NotApplicable
 interact_ _ (Constraint_Exists _ _ _) = return NotApplicable
 
-simplifies :: Constraint -> Constraint -> SMonad StepResult
+simplifies :: Constraint -> Constraint -> SMonad SolutionStep
 simplifies _ _ = return NotApplicable
 
 toSubst :: [Constraint] -> ([Constraint], [(TyVar,MonoType)])

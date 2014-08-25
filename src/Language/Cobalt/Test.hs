@@ -33,8 +33,8 @@ testString :: String -> Either String TestResult
 testString s =
   case parse parseDefn "parse" (s ++ ";;") of
     Left  e     -> Left (show e)
-    Right (_,t) -> case runReaderT (runFreshMT $ infer t) testEnv of
+    Right (_,t) -> case runReaderT (runFreshMT $ gather t) testEnv of
       Left  e -> Left e
-      Right (Result _ a c q) -> case runFreshMT $ solve q c of
+      Right (Gathered _ a c q) -> case runFreshMT $ solve q c of
         Left  e  -> trace (show $ TestResult (a,q,c,[])) $ Left e
         Right sl -> Right $ TestResult (a,q,c,sl)

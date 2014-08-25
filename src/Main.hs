@@ -28,7 +28,7 @@ tcDefns e ((n,t):xs) = case tcDefn e (n,t) of
                          Right (n',p',t') -> (Right (n',p',t')) : (tcDefns ((n',t'):e) xs)
 
 tcDefn :: Env -> Defn -> Either String AnnDefn
-tcDefn e (n,t) = do Result _ a g w <- runReaderT (runFreshMT $ infer t) e
+tcDefn e (n,t) = do Gathered _ a g w <- runReaderT (runFreshMT $ gather t) e
                     sl <- runFreshMT $ solve g w
                     let (smallC,sb) = toSubst sl
                         thisAnn = atAnn (substs sb) a

@@ -1,7 +1,7 @@
 {-# LANGUAGE CPP #-}
 module Language.Cobalt.Step (
   SMonad
-, StepResult(..)
+, SolutionStep(..)
 , whileApplicable
 , stepOverList
 , stepOverProductList
@@ -18,7 +18,7 @@ import Debug.Trace
 import Language.Cobalt.Syntax
 
 type SMonad = FreshMT (Either String)
-data StepResult = NotApplicable | Applied [Constraint]
+data SolutionStep = NotApplicable | Applied [Constraint]
 
 whileApplicable :: ([Constraint] -> SMonad ([Constraint], Bool))
                 -> [Constraint] -> SMonad ([Constraint], Bool)
@@ -29,7 +29,7 @@ whileApplicable f c = innerApplicable' c False
             (_,   False) -> return (cs, atAll)
             (newC,True)  -> innerApplicable' newC True
 
-stepOverList :: String -> (Constraint -> SMonad StepResult)
+stepOverList :: String -> (Constraint -> SMonad SolutionStep)
              -> [Constraint] -> SMonad ([Constraint], Bool)
 stepOverList s f lst = stepOverList' lst [] False False
   where -- Finish cases: last two args are changed-in-this-loop, and changed-at-all
@@ -43,7 +43,7 @@ stepOverList s f lst = stepOverList' lst [] False False
             Applied newX  -> myTrace (s ++ " " ++ show x ++ " ==> " ++ show newX) $
                              stepOverList' xs (newX ++ accum) True True
 
-stepOverProductList :: String -> (Constraint -> Constraint -> SMonad StepResult)
+stepOverProductList :: String -> (Constraint -> Constraint -> SMonad SolutionStep)
                     -> [Constraint] -> SMonad ([Constraint], Bool)
 stepOverProductList s f lst = stepOverProductList' lst [] False
   where stepOverProductList' [] accum atAll = return (accum, atAll)
@@ -53,7 +53,7 @@ stepOverProductList s f lst = stepOverProductList' lst [] False
             (_,     False) -> stepOverProductList' xs (x:accum) atAll
             (newLst,True)  -> stepOverProductList' (x:newLst) [] True
 
-stepOverTwoLists :: String -> (Constraint -> Constraint -> SMonad StepResult)
+stepOverTwoLists :: String -> (Constraint -> Constraint -> SMonad SolutionStep)
                     -> [Constraint] -> [Constraint] -> SMonad ([Constraint], Bool)
 stepOverTwoLists s f given wanted = stepOverTwoLists' given wanted False
   where stepOverTwoLists' []     w atAll = return (w, atAll)
