@@ -29,7 +29,7 @@ whileApplicable f c = innerApplicable' c False
             (_,   False) -> return (cs, atAll)
             (newC,True)  -> innerApplicable' newC True
 
-stepOverList :: String -> (Constraint -> SMonad SolutionStep)
+stepOverList :: String -> ([Constraint] -> Constraint -> SMonad SolutionStep)
              -> [Constraint] -> SMonad ([Constraint], Bool)
 stepOverList s f lst = stepOverList' lst [] False False
   where -- Finish cases: last two args are changed-in-this-loop, and changed-at-all
@@ -37,31 +37,31 @@ stepOverList s f lst = stepOverList' lst [] False False
         stepOverList' [] accum False atAll = return (accum, atAll)
         -- Rest of cases
         stepOverList' (x:xs) accum thisLoop atAll = do
-          r <- f x
+          r <- f (xs ++ accum) x
           case r of
             NotApplicable -> stepOverList' xs (x:accum) thisLoop atAll
             Applied newX  -> myTrace (s ++ " " ++ show x ++ " ==> " ++ show newX) $
                              stepOverList' xs (newX ++ accum) True True
 
-stepOverProductList :: String -> (Constraint -> Constraint -> SMonad SolutionStep)
+stepOverProductList :: String -> ([Constraint] -> Constraint -> Constraint -> SMonad SolutionStep)
                     -> [Constraint] -> SMonad ([Constraint], Bool)
 stepOverProductList s f lst = stepOverProductList' lst [] False
-  where stepOverProductList' [] accum atAll = return (accum, atAll)
+  where stepOverProductList' []     accum atAll = return (accum, atAll)
         stepOverProductList' (x:xs) accum atAll = do
-          r <- stepOverList (s ++ " " ++ show x) (f x) (xs ++ accum)
+          r <- stepOverList (s ++ " " ++ show x) (\cs -> f cs x) (xs ++ accum)
           case r of
             (_,     False) -> stepOverProductList' xs (x:accum) atAll
             (newLst,True)  -> stepOverProductList' (x:newLst) [] True
 
-stepOverTwoLists :: String -> (Constraint -> Constraint -> SMonad SolutionStep)
-                    -> [Constraint] -> [Constraint] -> SMonad ([Constraint], Bool)
-stepOverTwoLists s f given wanted = stepOverTwoLists' given wanted False
-  where stepOverTwoLists' []     w atAll = return (w, atAll)
-        stepOverTwoLists' (x:xs) w atAll = do
-          r <- stepOverList (s ++ " " ++ show x) (f x) wanted
+stepOverTwoLists :: String -> ([Constraint] -> [Constraint] -> Constraint -> Constraint -> SMonad SolutionStep)
+                 -> [Constraint] -> [Constraint] -> SMonad ([Constraint], Bool)
+stepOverTwoLists s f given wanted = stepOverTwoLists' given [] wanted False
+  where stepOverTwoLists' []     _      w atAll = return (w, atAll)
+        stepOverTwoLists' (x:xs) accumG w atAll = do
+          r <- stepOverList (s ++ " " ++ show x) (\ws -> f (xs ++ accumG) ws x) wanted
           case r of
-            (_,    False) -> stepOverTwoLists' xs w atAll
-            (newW, True)  -> stepOverTwoLists' given newW True
+            (_,    False) -> stepOverTwoLists' xs    (x:accumG) w    atAll
+            (newW, True)  -> stepOverTwoLists' given []         newW True
 
 myTrace :: String -> a -> a
 #if TRACE_SOLVER

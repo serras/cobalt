@@ -14,6 +14,8 @@ module Language.Cobalt.Syntax (
 , pVar
 , mVar
 , (-->)
+, splitType
+, closeType
 , TermVar
 , Term(..)
 , AnnTermVar
@@ -28,6 +30,7 @@ module Language.Cobalt.Syntax (
 , AnnDefn
 ) where
 
+import Control.Applicative ((<$>))
 import Unbound.LocallyNameless
 
 type TyVar = Name MonoType
@@ -61,6 +64,7 @@ data MonoType = MonoType_Con   String [MonoType]
               -- | MonoType_Tuple MonoType MonoType
               | MonoType_Arrow MonoType MonoType
               | MonoType_Var   TyVar
+              deriving Eq
 
 intTy :: MonoType
 intTy = MonoType_Con "Integer" []
@@ -91,6 +95,29 @@ mVar = MonoType_Var
 
 (-->) :: MonoType -> MonoType -> MonoType
 (-->) = MonoType_Arrow
+
+splitType :: (Fresh m, Functor m) => PolyType -> m ([Constraint], MonoType)
+splitType (PolyType_Inst b) = do
+  ((x, unembed -> s),r) <- unbind b
+  (c, m) <- splitType r
+  return (Constraint_Inst (mVar x) s : c, m)
+splitType (PolyType_Equal b) = do
+  ((x, unembed -> s),r) <- unbind b
+  (c, m) <- splitType r
+  return (Constraint_Equal (mVar x) s : c, m)
+splitType (PolyType_Mono m) = return ([], m)
+splitType PolyType_Bottom = do
+  x <- mVar <$> fresh (string2Name "x")
+  return ([Constraint_Inst x PolyType_Bottom], x)
+
+closeType :: [Constraint] -> MonoType -> PolyType
+-- closeType bs cs m = -- TODO: change this stupid implementation
+closeType ((Constraint_Inst (MonoType_Var v) t) : rest) m =
+  PolyType_Inst $ bind (v,embed t) (closeType rest m)
+closeType ((Constraint_Equal (MonoType_Var v) t) : rest) m =
+  PolyType_Equal $ bind (v,embed t) (closeType rest m)
+closeType (_ : rest) m = closeType rest m
+closeType [] m = PolyType_Mono m
 
 type TermVar = Name Term
 data Term = Term_IntLiteral Integer

@@ -29,9 +29,8 @@ tcDefns e ((n,t):xs) = case tcDefn e (n,t) of
 
 tcDefn :: Env -> Defn -> Either String AnnDefn
 tcDefn e (n,t) = do Gathered _ a g w <- runReaderT (runFreshMT $ gather t) e
-                    sl <- runFreshMT $ solve g w
-                    let (smallC,sb) = toSubst sl
-                        thisAnn = atAnn (substs sb) a
+                    Solution smallC sb <- runFreshMT $ solve g w
+                    let thisAnn = atAnn (substs sb) a
                         basicS = map (substs sb) g
                         finalT = closeType (basicS ++ smallC) (getAnn thisAnn)
                     return (n,thisAnn,finalT)

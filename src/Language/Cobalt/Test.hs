@@ -14,7 +14,7 @@ import Debug.Trace
 newtype TestResult = TestResult (AnnTerm, [Constraint], [Constraint], Solution)
 instance Show TestResult where
   show (TestResult (ann, given, wanted, soln)) =
-    let (_,sb) = toSubst soln in
+    let sb = substitution soln in
     "Term: \n" ++ showAnnTerm (substs sb) ann ++ "\n" ++
     "Give: " ++ show given ++ "\n" ++
     "Want: " ++ show wanted ++ "\n" ++
@@ -36,5 +36,5 @@ testString s =
     Right (_,t) -> case runReaderT (runFreshMT $ gather t) testEnv of
       Left  e -> Left e
       Right (Gathered _ a c q) -> case runFreshMT $ solve q c of
-        Left  e  -> trace (show $ TestResult (a,q,c,[])) $ Left e
+        Left  e  -> trace (show $ TestResult (a,q,c,Solution [] [])) $ Left e
         Right sl -> Right $ TestResult (a,q,c,sl)
