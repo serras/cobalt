@@ -7,6 +7,7 @@
 module Language.Cobalt.Syntax (
   TyVar
 , PolyType(..)
+, nf
 , MonoType(..)
 , intTy
 , listTy
@@ -31,6 +32,7 @@ module Language.Cobalt.Syntax (
 ) where
 
 import Control.Applicative ((<$>))
+import Data.List ((\\))
 import Unbound.LocallyNameless
 
 type TyVar = Name MonoType
@@ -58,6 +60,22 @@ showPolyType' (PolyType_Equal b) = do
 showPolyType' (PolyType_Mono m) = return $ show m
 showPolyType' PolyType_Bottom   = return "_|_"
 
+nf :: PolyType -> PolyType
+nf = runFreshM . nf'
+     where nf' PolyType_Bottom     = return PolyType_Bottom
+           nf' m@(PolyType_Mono _) = return m
+           nf' (PolyType_Inst  b)  = workWithBind PolyType_Inst b
+           nf' (PolyType_Equal b)  = workWithBind PolyType_Equal b
+           workWithBind f b = do
+             ((x, unembed -> e), r) <- unbind b
+             nfEmbed <- nf' e
+             nfRest  <- nf' r
+             case (x `elem` fv r, nfEmbed, nfRest) of
+               (False, _, _) -> return nfRest
+               (True, _, PolyType_Mono (MonoType_Var v)) | v == x -> return nfEmbed
+               (True, PolyType_Mono monoEmbed, _) -> return $ subst x monoEmbed nfRest
+               _ -> return $ f $ bind (x, embed nfEmbed) nfRest
+
 data MonoType = MonoType_Con   String [MonoType]
               -- | MonoType_Int
               -- | MonoType_List  MonoType
@@ -76,7 +94,6 @@ tupleTy :: MonoType -> MonoType -> MonoType
 tupleTy a b = MonoType_Con "(,)" [a,b]
 
 instance Show MonoType where
-  show (MonoType_Con "Integer" []) = "Integer"
   show (MonoType_Con "[]"  [t]) = "[" ++ show t ++ "]"
   show (MonoType_Con "(,)" [t1,t2]) = "(" ++ show t1 ++ "," ++ show t2 ++ ")"
   show (MonoType_Con c a) = '\'':c ++ concatMap (\x -> " " ++ doParens (show x)) a
@@ -111,13 +128,23 @@ splitType PolyType_Bottom = do
   return ([Constraint_Inst x PolyType_Bottom], x)
 
 closeType :: [Constraint] -> MonoType -> PolyType
--- closeType bs cs m = -- TODO: change this stupid implementation
-closeType ((Constraint_Inst (MonoType_Var v) t) : rest) m =
-  PolyType_Inst $ bind (v,embed t) (closeType rest m)
-closeType ((Constraint_Equal (MonoType_Var v) t) : rest) m =
-  PolyType_Equal $ bind (v,embed t) (closeType rest m)
-closeType (_ : rest) m = closeType rest m
-closeType [] m = PolyType_Mono m
+closeType cs m = closeTypeA [] (PolyType_Mono m)
+  where closeTypeA pre p = let nextC = fv p \\ pre
+                               filtC = filter (hasCsFv nextC) cs
+                            in case filtC of
+                                 [] -> p
+                                 _  -> closeTypeA  (nextC `union` pre) (closeType' filtC p)
+        -- check if fv are there
+        hasCsFv lst (Constraint_Inst  (MonoType_Var v) _) = v `elem` lst
+        hasCsFv lst (Constraint_Equal (MonoType_Var v) _) = v `elem` lst
+        hasCsFv _ _ = False
+        -- close upon constraints
+        closeType' ((Constraint_Inst (MonoType_Var v) t) : rest) p =
+          PolyType_Inst $ bind (v,embed t) (closeType' rest p)
+        closeType' ((Constraint_Equal (MonoType_Var v) t) : rest) p =
+          PolyType_Equal $ bind (v,embed t) (closeType' rest p)
+        closeType' (_ : rest) p = closeType' rest p
+        closeType' [] p = p
 
 type TermVar = Name Term
 data Term = Term_IntLiteral Integer

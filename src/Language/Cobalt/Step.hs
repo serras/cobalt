@@ -6,6 +6,7 @@ module Language.Cobalt.Step (
 , stepOverList
 , stepOverProductList
 , stepOverTwoLists
+, myTrace
 ) where
 
 import Unbound.LocallyNameless

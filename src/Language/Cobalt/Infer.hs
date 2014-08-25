@@ -17,8 +17,6 @@ import Unbound.LocallyNameless
 import Language.Cobalt.Step
 import Language.Cobalt.Syntax
 
--- import Debug.Trace
-
 data Gathered = Gathered { ty      :: MonoType
                          , annTerm :: AnnTerm
                          , givenC  :: [Constraint]
@@ -95,12 +93,13 @@ gather (Term_LetAnn b t) = -- Case polytype
 
 -- Phase 2: constraint solving
 
-data Solution = Solution { residual     :: [Constraint]
+data Solution = Solution { smallGiven   :: [Constraint]
+                         , residual     :: [Constraint]
                          , substitution :: [(TyVar, MonoType)]
                          } deriving Show
 
 solve :: [Constraint] -> [Constraint] -> SMonad Solution
-solve g w = simpl g w
+solve g w = myTrace ("Solve " ++ show g ++ " ||- " ++ show w) $ simpl g w
 
 -- Phase 2a: simplifier
 
@@ -114,7 +113,7 @@ simpl given wanted = do (g,_) <- whileApplicable (\c -> do
                            (interacted,apI) <- whileApplicable (stepOverProductList "inter" interact_) canonical
                            (simplified,apS) <- whileApplicable (stepOverTwoLists "simpl" simplifies g) interacted
                            return (simplified, apC || apI || apS)) wanted
-                        return $ toSolution s
+                        return $ toSolution g s
 
 canon' :: [Constraint] -> Constraint -> SMonad SolutionStep
 canon' _ = canon
@@ -139,11 +138,17 @@ canon (Constraint_Equal t (PolyType_Mono m)) = return $ Applied [Constraint_Unif
 -- This is not needed
 canon (Constraint_Inst _ PolyType_Bottom)   = return $ Applied []
 -- Constructors and <= and ==
-canon (Constraint_Inst (MonoType_Var _) _)  = return NotApplicable
+canon (Constraint_Inst (MonoType_Var v) p)  =
+  let nfP = nf p
+   in if nfP `aeq` p then return NotApplicable
+                     else return $ Applied [Constraint_Inst (MonoType_Var v) nfP]
 canon (Constraint_Inst x p) = do
   (c,t) <- instantiate p  -- Perform instantiation
   return $ Applied $ (Constraint_Unify x t) : c
-canon (Constraint_Equal (MonoType_Var _) _) = return NotApplicable
+canon (Constraint_Equal (MonoType_Var v) p)  =
+  let nfP = nf p
+   in if nfP `aeq` p then return NotApplicable
+                     else return $ Applied [Constraint_Equal (MonoType_Var v) nfP]
 canon (Constraint_Equal t1 t2) = throwError $ "Constructor and polytype cannot be equal: " ++ show t1 ++ " == " ++ show t2
 -- Rest
 canon _ = return NotApplicable
@@ -241,12 +246,13 @@ match _ _ = Nothing
 
 -- Phase 2b: convert to solution
 
-toSolution :: [Constraint] -> Solution
-toSolution cs = let initialSubst = map (\x -> (x, mVar x)) (fv cs)
-                    finalSubst = runSubst initialSubst
-                 in Solution (map (substs finalSubst) (notUnifyConstraints cs)) (runSubst initialSubst)
+toSolution :: [Constraint] -> [Constraint] -> Solution
+toSolution gs rs = let initialSubst = map (\x -> (x, mVar x)) (fv rs)
+                       finalSubst   = runSubst initialSubst
+                       doFinalSubst = map (substs finalSubst)
+                    in Solution (doFinalSubst gs) (doFinalSubst (notUnifyConstraints rs)) (runSubst initialSubst)
   where runSubst s = let vars = concatMap (\(_,mt) -> fv mt) s
-                         unif = concatMap (\v -> filter (isVarUnifyConstraint (== v)) cs) vars
+                         unif = concatMap (\v -> filter (isVarUnifyConstraint (== v)) rs) vars
                          sub = map (\(Constraint_Unify (MonoType_Var v) t) -> (v,t)) unif
                       in case s of
                            [] -> s

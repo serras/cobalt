@@ -36,5 +36,5 @@ testString s =
     Right (_,t) -> case runReaderT (runFreshMT $ gather t) testEnv of
       Left  e -> Left e
       Right (Gathered _ a c q) -> case runFreshMT $ solve q c of
-        Left  e  -> trace (show $ TestResult (a,q,c,Solution [] [])) $ Left e
+        Left  e  -> trace (show $ TestResult (a,q,c,Solution [] [] [])) $ Left e
         Right sl -> Right $ TestResult (a,q,c,sl)
