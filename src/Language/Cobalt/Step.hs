@@ -9,8 +9,9 @@ module Language.Cobalt.Step (
 , myTrace
 ) where
 
+import Control.Monad.Error
 import Unbound.LocallyNameless
-#define TRACE_SOLVER 0
+#define TRACE_SOLVER 1
 #if TRACE_SOLVER
 import Debug.Trace
 #else
@@ -18,7 +19,7 @@ import Debug.Trace
 
 import Language.Cobalt.Syntax
 
-type SMonad = FreshMT (Either String)
+type SMonad = ErrorT String FreshM
 data SolutionStep = NotApplicable | Applied [Constraint]
 
 whileApplicable :: ([Constraint] -> SMonad ([Constraint], Bool))

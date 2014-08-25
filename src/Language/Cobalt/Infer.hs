@@ -22,7 +22,7 @@ data Gathered = Gathered { ty      :: MonoType
                          , givenC  :: [Constraint]
                          , wantedC :: [Constraint]
                          } deriving Show
-type GMonad = FreshMT (ReaderT Env (Either String))
+type GMonad = ReaderT Env (ErrorT String FreshM)
 
 lookupEnv :: TermVar -> GMonad PolyType
 lookupEnv v = do optT <- asks (lookup v)
@@ -124,7 +124,8 @@ canon (Constraint_Unify t1 t2) = case (t1,t2) of
   (MonoType_Var v1, MonoType_Var v2) | v1 == v2  -> return $ Applied []  -- Refl
                                      | v1 > v2   -> return $ Applied [Constraint_Unify t2 t1]  -- Orient
                                      | otherwise -> return NotApplicable
-  (MonoType_Var _, _) -> return NotApplicable
+  (MonoType_Var v, _) | v `elem` fv t2 -> throwError $ "Infinite type: " ++ show t1 ++ " ~ " ++ show t2
+                      | otherwise      -> return NotApplicable
   (t, v@(MonoType_Var _)) -> return $ Applied [Constraint_Unify v t]  -- Orient
   -- Next are Tdec and Faildec
   (MonoType_Arrow s1 r1, MonoType_Arrow s2 r2) ->

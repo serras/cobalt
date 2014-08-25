@@ -6,6 +6,8 @@ import snd    :: {a} {b} (a,b) -> b;;
 import triple :: {a} {b} {c} a -> b -> c -> 'Triple a b c;;
 import triplx :: {a} {b = {x} x} {c} a -> b -> c -> 'Triple a b c;;
 import tripla :: {a} {b > {x} x -> x} {c} a -> b -> c -> 'Triple a b c;;
+import sing   :: {a} a -> [a];;
+import id     :: {a} a -> a;;
 
 example1 = \x -> \(y :: {a} a -> a) -> cons (x (tuple y 3)) nil;;
 example2 = \(x :: {a} a -> a) -> \y -> cons (x (tuple y 3)) nil;;
@@ -21,3 +23,9 @@ example10 = \x -> \(y :: 'Integer) -> triplx x y 3;;
 example11 = \x -> \(y :: {b} b -> b) -> tripla x y 3;;
 example12 = \x -> \(y :: {b} 'Integer -> b) -> tripla x y 3;;
 example13 = \x -> \(y :: 'Integer) -> tripla x y 3;;
+sing2 = \x -> cons x nil;;
+id2 = \x -> x;;
+example14 = sing id;;
+example15 = let x = 3 in x;;
+example16 = let x = sing id in x;;
+example16 = let x = sing2 id2 in x;;

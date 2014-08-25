@@ -1,5 +1,6 @@
 module Main where
 
+import Control.Monad.Error
 import Control.Monad.Reader
 import System.Console.ANSI
 import System.Environment
@@ -12,31 +13,77 @@ import Language.Cobalt.Syntax
 
 main :: IO ()
 main = do
-  file:_ <- getArgs
+  todo:file:_ <- getArgs
   p <- parseFromFile parseFile file
   case p of
     Left ep -> do setSGR [SetColor Foreground Vivid Red]
                   putStr "Error while parsing: "
                   setSGR [Reset]
                   putStrLn (show ep)
-    Right (env,defns) -> showAnns (tcDefns env defns)
+    Right (env,defns) -> case todo of
+                           "solve"  -> showAnns (doPerDefn' tcDefn tcNextEnv env defns) showTc
+                           "gather" -> showAnns (doPerDefn' gDefn const env defns) showG
+                           _ -> putStrLn "Unrecognized command"
 
-tcDefns :: Env -> [Defn] -> [Either (TermVar,String) AnnDefn]
-tcDefns _ []         = []
-tcDefns e ((n,t):xs) = case tcDefn e (n,t) of
-                         Left err -> Left (n,err) : tcDefns e xs
-                         Right (n',p',t') -> (Right (n',p',t')) : (tcDefns ((n',t'):e) xs)
+doPerDefn' :: (Env -> Defn -> ErrorT String FreshM a)
+           -> (Env -> a -> Env)
+           -> Env -> [Defn] -> [Either (TermVar,String) a]
+doPerDefn' f nx e d = runFreshM (doPerDefn f nx e d)
 
-tcDefn :: Env -> Defn -> Either String AnnDefn
-tcDefn e (n,t) = do Gathered _ a g w <- runReaderT (runFreshMT $ gather t) e
-                    Solution smallG rs sb <- runFreshMT $ solve g w
+doPerDefn :: (Env -> Defn -> ErrorT String FreshM a)
+          -> (Env -> a -> Env)
+          -> Env -> [Defn] -> FreshM [Either (TermVar,String) a]
+doPerDefn _ _ _ [] = return []
+doPerDefn f nx e ((n,t):xs) = do r <- runErrorT (f e (n,t))
+                                 case r of
+                                   Left err -> do rest <- doPerDefn f nx e xs
+                                                  return $ Left (n,err) : rest
+                                   Right ok -> do rest <- doPerDefn f nx (nx e ok) xs
+                                                  return $ Right ok : rest
+
+tcDefn :: Env -> Defn -> ErrorT String FreshM AnnDefn
+tcDefn e (n,t) = do Gathered _ a g w <- runReaderT (gather t) e
+                    Solution smallG rs sb <- solve g w
                     let thisAnn = atAnn (substs sb) a
                         finalT = nf $ closeType (smallG ++ rs) (getAnn thisAnn)
                     return (n,thisAnn,finalT)
 
-showAnns :: [Either (TermVar,String) AnnDefn] -> IO ()
-showAnns [] = return ()
-showAnns ((Left (n,e)):xs) = do
+tcNextEnv :: Env -> AnnDefn -> Env
+tcNextEnv e (n,_,t) = (n,t):e
+
+showTc :: AnnDefn -> IO ()
+showTc (n,t,p) = do
+  setSGR [SetColor Foreground Vivid Blue]
+  putStr (name2String n)
+  setSGR [Reset]
+  putStr " ==> "
+  putStrLn (show p)
+  putStrLn (show t)
+
+gDefn :: Env -> Defn -> ErrorT String FreshM (TermVar,Gathered)
+gDefn e (n,t) = do r <- runReaderT (gather t) e
+                   return (n,r)
+
+showG :: (TermVar,Gathered) -> IO ()
+showG (n,(Gathered t ann g w)) = do
+  setSGR [SetColor Foreground Vivid Blue]
+  putStr (name2String n)
+  setSGR [Reset]
+  putStr " ==> "
+  putStrLn (show t)
+  setSGR [SetColor Foreground Vivid Green]
+  putStr "Solve "
+  setSGR [Reset]
+  putStr (show g)
+  setSGR [SetColor Foreground Vivid Green]
+  putStr " ||- "
+  setSGR [Reset]
+  putStrLn (show w)
+  putStrLn (show ann)
+
+showAnns :: [Either (TermVar,String) a] -> (a -> IO ()) -> IO ()
+showAnns [] _ = return ()
+showAnns ((Left (n,e)):xs) f = do
   setSGR [SetColor Foreground Vivid Blue]
   putStr (name2String n)
   setSGR [Reset]
@@ -46,12 +93,8 @@ showAnns ((Left (n,e)):xs) = do
   setSGR [Reset]
   putStrLn e
   putStrLn ""
-  showAnns xs
-showAnns ((Right (n,t,p)):xs) = do
-  setSGR [SetColor Foreground Vivid Blue]
-  putStr (name2String n)
-  setSGR [Reset]
-  putStr " ==> "
-  putStrLn (show p)
-  putStrLn (show t)
-  showAnns xs
+  showAnns xs f
+showAnns (Right ok:xs) f = do
+  f ok
+  showAnns xs f
+
