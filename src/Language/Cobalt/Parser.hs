@@ -1,3 +1,5 @@
+{-# LANGUAGE TupleSections #-}
+
 module Language.Cobalt.Parser (
   parseTerm
 , parsePolyType
@@ -121,10 +123,16 @@ parseSig = (,) <$  reserved "import"
                <*  reservedOp ";;"
 
 parseDefn :: Parsec String s Defn
-parseDefn = (,) <$> (string2Name <$> identifier)
-                <*  reservedOp "="
-                <*> parseTerm
-                <*  reservedOp ";;"
+parseDefn = try ((,,Nothing) <$> (string2Name <$> identifier)
+                             <*  reservedOp "="
+                             <*> parseTerm
+                             <*  reservedOp ";;")
+        <|> (\x y z -> (x,z,Just y)) <$> (string2Name <$> identifier)
+                                     <*  reservedOp "::"
+                                     <*> parsePolyType
+                                     <*  reservedOp "="
+                                     <*> parseTerm
+                                     <*  reservedOp ";;"
 
 parseFile :: Parsec String s (Env,[Defn])
 parseFile = (,) <$> many parseSig

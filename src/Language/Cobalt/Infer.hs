@@ -10,8 +10,10 @@ module Language.Cobalt.Infer (
 ) where
 
 import Control.Applicative
-import Control.Monad.Reader
 import Control.Monad.Error
+import Control.Monad.Reader
+import Control.Monad.State
+import Data.List (insert)
 import Unbound.LocallyNameless
 
 import Language.Cobalt.Step
@@ -98,21 +100,37 @@ data Solution = Solution { smallGiven   :: [Constraint]
                          , substitution :: [(TyVar, MonoType)]
                          } deriving Show
 
-solve :: [Constraint] -> [Constraint] -> SMonad Solution
-solve g w = myTrace ("Solve " ++ show g ++ " ||- " ++ show w) $ simpl g w
+solve :: [Constraint] -> [Constraint] -> [TyVar] -> (ErrorT String FreshM) Solution
+solve g w t = evalStateT (solve' g w) t
+
+solve' :: [Constraint] -> [Constraint] -> SMonad Solution
+solve' g w = myTrace ("Solve " ++ show g ++ " ||- " ++ show w) $ simpl g w
+
+-- Utils for touchable variables
+
+makeTouchable :: Monad m => TyVar -> StateT [TyVar] m ()
+makeTouchable x = modify (insert x)
+
+makeTouchables :: Monad m => [TyVar] -> StateT [TyVar] m ()
+makeTouchables x = modify (union x)
+
+isTouchable :: Monad m => TyVar -> StateT [TyVar] m Bool
+isTouchable x = gets (x `elem`)
 
 -- Phase 2a: simplifier
 
 simpl :: [Constraint] -> [Constraint] -> SMonad Solution
 simpl given wanted = do (g,_) <- whileApplicable (\c -> do
                            (canonicalG,apGC)  <- whileApplicable (stepOverList "canon" canon') c
-                           (interactedG,apGI) <- whileApplicable (stepOverProductList "inter" interact_) canonicalG
+                           (interactedG,apGI) <- stepOverProductList "inter" interact_ canonicalG
                            return (interactedG, apGC || apGI)) given
                         (s,_) <- whileApplicable (\c -> do
-                           (canonical,apC)  <- whileApplicable (stepOverList "canon" canon') c
-                           (interacted,apI) <- whileApplicable (stepOverProductList "inter" interact_) canonical
-                           (simplified,apS) <- whileApplicable (stepOverTwoLists "simpl" simplifies g) interacted
-                           return (simplified, apC || apI || apS)) wanted
+                           (interacted,apI) <- whileApplicable (\cc -> do
+                             (canonical2,apC2)  <- whileApplicable (stepOverList "canon" canon') cc
+                             (interacted2,apI2) <- stepOverProductList "inter" interact_ canonical2
+                             return (interacted2, apC2 || apI2)) c
+                           (simplified,apS) <- stepOverTwoLists "simpl" simplifies g interacted
+                           return (simplified, apI || apS)) wanted
                         return $ toSolution g s
 
 canon' :: [Constraint] -> Constraint -> SMonad SolutionStep
@@ -121,11 +139,22 @@ canon' _ = canon
 canon :: Constraint -> SMonad SolutionStep
 -- Basic unification
 canon (Constraint_Unify t1 t2) = case (t1,t2) of
-  (MonoType_Var v1, MonoType_Var v2) | v1 == v2  -> return $ Applied []  -- Refl
-                                     | v1 > v2   -> return $ Applied [Constraint_Unify t2 t1]  -- Orient
-                                     | otherwise -> return NotApplicable
-  (MonoType_Var v, _) | v `elem` fv t2 -> throwError $ "Infinite type: " ++ show t1 ++ " ~ " ++ show t2
-                      | otherwise      -> return NotApplicable
+  (MonoType_Var v1, MonoType_Var v2)
+    | v1 == v2  -> return $ Applied []  -- Refl
+    | otherwise -> do touch1 <- isTouchable v1
+                      touch2 <- isTouchable v2
+                      case (touch1, touch2) of
+                       (False, False) -> throwError $ "Unifying non-touchable variables: " ++ show v1 ++ "~" ++ show v2
+                       (True,  False) -> return NotApplicable
+                       (False, True)  -> return $ Applied [Constraint_Unify t2 t1]
+                       (True,  True)  -> if v1 > v2 then return $ Applied [Constraint_Unify t2 t1]  -- Orient
+                                                    else return NotApplicable
+    | otherwise -> return NotApplicable
+  (MonoType_Var v, _)
+    | v `elem` fv t2 -> throwError $ "Infinite type: " ++ show t1 ++ " ~ " ++ show t2
+    | otherwise      -> do b <- isTouchable v
+                           if b then return NotApplicable
+                                else throwError $ "Unifying non-touchable variable: " ++ show v ++ "~" ++ show t2
   (t, v@(MonoType_Var _)) -> return $ Applied [Constraint_Unify v t]  -- Orient
   -- Next are Tdec and Faildec
   (MonoType_Arrow s1 r1, MonoType_Arrow s2 r2) ->
@@ -144,28 +173,35 @@ canon (Constraint_Inst (MonoType_Var v) p)  =
    in if nfP `aeq` p then return NotApplicable
                      else return $ Applied [Constraint_Inst (MonoType_Var v) nfP]
 canon (Constraint_Inst x p) = do
-  (c,t) <- instantiate p  -- Perform instantiation
+  (c,t) <- instantiate p True  -- Perform instantiation
   return $ Applied $ (Constraint_Unify x t) : c
 canon (Constraint_Equal (MonoType_Var v) p)  =
   let nfP = nf p
    in if nfP `aeq` p then return NotApplicable
                      else return $ Applied [Constraint_Equal (MonoType_Var v) nfP]
-canon (Constraint_Equal t1 t2) = throwError $ "Constructor and polytype cannot be equal: " ++ show t1 ++ " == " ++ show t2
+-- We need to instantiate, but keep record
+-- of those variables which are not touchable
+canon (Constraint_Equal x p) = do
+  (c,t) <- instantiate p False  -- Perform instantiation
+  return $ Applied $ (Constraint_Unify x t) : c
 -- Rest
 canon _ = return NotApplicable
 
-instantiate :: PolyType -> SMonad ([Constraint], MonoType)
-instantiate (PolyType_Inst b) = do
+instantiate :: PolyType -> Bool -> SMonad ([Constraint], MonoType)
+instantiate (PolyType_Inst b) tch = do
   ((v,unembed -> s),i) <- unbind b
-  (c,t) <- instantiate i
+  when tch $ makeTouchable v
+  (c,t) <- instantiate i tch
   return ((Constraint_Inst (mVar v) s) : c, t)
-instantiate (PolyType_Equal b) = do
+instantiate (PolyType_Equal b) tch = do
   ((v,unembed -> s),i) <- unbind b
-  (c,t) <- instantiate i
+  when tch $ makeTouchable v
+  (c,t) <- instantiate i tch
   return ((Constraint_Equal (mVar v) s) : c, t)
-instantiate (PolyType_Mono m) = return ([],m)
-instantiate PolyType_Bottom = do
+instantiate (PolyType_Mono m) _tch = return ([],m)
+instantiate PolyType_Bottom tch = do
   v <- fresh (string2Name "b")
+  when tch $ makeTouchable v
   return ([], mVar v)
 
 -- Change w.r.t. OutsideIn -> return only second constraint
@@ -269,13 +305,15 @@ simplifies _ _ (Constraint_Exists _ _ _) _ = return NotApplicable
 checkSubsumption :: [Constraint] -> PolyType -> PolyType -> SMonad Bool
 checkSubsumption ctx p1 p2 =
   if p1 `aeq` p2 then return True -- fast alpha-equivalence check
-  else do (q1,t1) <- splitType p1
-          (q2,t2) <- splitType p2
+  else do (q1,t1,v1) <- splitType p1
+          (q2,t2,v2) <- splitType p2
           case match t1 t2 of
             Nothing -> throwError $ "Subsumption check failed: " ++ show t1 ++ " <= " ++ show t2
             Just m  -> do let q1' = substs m q1
                               t1' = substs m t1
-                          s <- solve (ctx ++ q2) (Constraint_Unify t1' t2 : q1')
+                          tch <- get -- Get current tochable variables
+                          -- Execute check in its own touchable environment
+                          s <- lift $ solve (ctx ++ q2) (Constraint_Unify t1' t2 : q1') (tch `union` v1 `union` v2)
                           return $ null (residual s)
 
 -- Checks that p1 == p2, that is, that they are equivalent

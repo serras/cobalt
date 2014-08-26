@@ -9,23 +9,37 @@ import tripla :: {a} {b > {x} x -> x} {c} a -> b -> c -> 'Triple a b c;;
 import sing   :: {a} a -> [a];;
 import id     :: {a} a -> a;;
 
-example1 = \x -> \(y :: {a} a -> a) -> cons (x (tuple y 3)) nil;;
-example2 = \(x :: {a} a -> a) -> \y -> cons (x (tuple y 3)) nil;;
-example3 = \x -> \y -> cons (x (tuple y 3)) nil;;
-example4 = \x -> \y -> cons (x y) nil;;
-example5 = tuple;;
-err1 = cons 3 2;;
-example6 = \x -> fst (tuple x 3);;
-example7 = \x -> \y -> triple x y 3;;
-example8 = \x -> \(y :: {b} b) -> triplx x y 3;;
-example9 = \x -> \(y :: {b} b -> b) -> triplx x y 3;;
-example10 = \x -> \(y :: 'Integer) -> triplx x y 3;;
-example11 = \x -> \(y :: {b} b -> b) -> tripla x y 3;;
-example12 = \x -> \(y :: {b} 'Integer -> b) -> tripla x y 3;;
-example13 = \x -> \(y :: 'Integer) -> tripla x y 3;;
-sing2 = \x -> cons x nil;;
-id2 = \x -> x;;
-example14 = sing id;;
-example15 = let x = 3 in x;;
-example16 = let x = sing id in x;;
-example16 = let x = sing2 id2 in x;;
+import bindST    :: {a} {b} {s} {t = a -> 'ST s b} 'ST s a -> t -> 'ST s b;;
+import runST     :: {a} {s = {s} 'ST s a} s -> a;;
+import newSTRef  :: {a} {s} a -> 'ST s ('STRef s a);;
+import readSTRef :: {a} {s} 'STRef s a -> 'ST s a;;
+
+checkFunParam1 = \x -> \(y :: {a} a -> a) -> cons (x (tuple y 3)) nil;;
+checkFunParam2 = \(x :: {a} a -> a) -> \y -> cons (x (tuple y 3)) nil;;
+checkFunApp1 = \x -> \y -> cons (x (tuple y 3)) nil;;
+checkFunApp2 = \x -> \y -> cons (x y) nil;;
+checkNoChanges = tuple;;
+
+instErr1 = cons 3 2;;
+idRoundtrip = \x -> fst (tuple x 3);;
+instType1 = \x -> \y -> triple x y 3;;
+instType2 = \x -> \(y :: {b} b) -> triplx x y 3;;
+instType3Err = \x -> \(y :: {b} b -> b) -> triplx x y 3;;
+instType4Err = \x -> \(y :: 'Integer) -> triplx x y 3;;
+instType5 = \x -> \(y :: {b} b -> b) -> tripla x y 3;;
+instType6Err = \x -> \(y :: 'Integer) -> tripla x y 3;;
+instType7 = \x -> \(y :: {b} 'Integer -> b) -> tripla x y 3;;
+
+singBis = \x -> cons x nil;;
+idBis = \x -> x;;
+intRoundtrip = let x = 3 in x;;
+
+singId1 = sing id;;
+singId2 :: {a = {b} b -> b} [a] = let x = sing id in x;;
+singId3 :: {a > {b} b -> b} [a] = let x = sing id in x;;
+singIdLet1 = let x = sing id in x;;
+singIdLet2 = let x = singBis idBis in x;;
+
+stExample1 = runST (newSTRef 3);;
+stBind = bindST;;
+stExample2 = bindST (newSTRef 3) readSTRef;;

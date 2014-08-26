@@ -31,8 +31,7 @@ module Language.Cobalt.Syntax (
 , AnnDefn
 ) where
 
-import Control.Applicative ((<$>))
-import Data.List ((\\))
+import Data.List ((\\), insert)
 import Unbound.LocallyNameless
 
 type TyVar = Name MonoType
@@ -113,26 +112,26 @@ mVar = MonoType_Var
 (-->) :: MonoType -> MonoType -> MonoType
 (-->) = MonoType_Arrow
 
-splitType :: (Fresh m, Functor m) => PolyType -> m ([Constraint], MonoType)
+splitType :: (Fresh m, Functor m) => PolyType -> m ([Constraint], MonoType,[TyVar])
 splitType (PolyType_Inst b) = do
   ((x, unembed -> s),r) <- unbind b
-  (c, m) <- splitType r
-  return (Constraint_Inst (mVar x) s : c, m)
+  (c, m, v) <- splitType r
+  return (Constraint_Inst (mVar x) s : c, m, insert x v)
 splitType (PolyType_Equal b) = do
   ((x, unembed -> s),r) <- unbind b
-  (c, m) <- splitType r
-  return (Constraint_Equal (mVar x) s : c, m)
-splitType (PolyType_Mono m) = return ([], m)
+  (c, m, v) <- splitType r
+  return (Constraint_Equal (mVar x) s : c, m, insert x v)
+splitType (PolyType_Mono m) = return ([], m, [])
 splitType PolyType_Bottom = do
-  x <- mVar <$> fresh (string2Name "x")
-  return ([Constraint_Inst x PolyType_Bottom], x)
+  x <- fresh (string2Name "x")
+  return ([Constraint_Inst (mVar x) PolyType_Bottom], mVar x, [x])
 
 closeType :: [Constraint] -> MonoType -> PolyType
 closeType cs m = closeTypeA [] (PolyType_Mono m)
   where closeTypeA pre p = let nextC = fv p \\ pre
                                filtC = filter (hasCsFv nextC) cs
                             in case filtC of
-                                 [] -> p
+                                 [] -> closeRest nextC p
                                  _  -> closeTypeA  (nextC `union` pre) (closeType' filtC p)
         -- check if fv are there
         hasCsFv lst (Constraint_Inst  (MonoType_Var v) _) = v `elem` lst
@@ -145,6 +144,9 @@ closeType cs m = closeTypeA [] (PolyType_Mono m)
           PolyType_Equal $ bind (v,embed t) (closeType' rest p)
         closeType' (_ : rest) p = closeType' rest p
         closeType' [] p = p
+        -- close rest
+        closeRest [] p     = p
+        closeRest (v:vs) p = PolyType_Inst $ bind (v, embed PolyType_Bottom) (closeRest vs p)
 
 type TermVar = Name Term
 data Term = Term_IntLiteral Integer
@@ -263,7 +265,7 @@ instance Show Constraint where
   show (Constraint_Exists vs cs c) = "exists " ++ show vs ++ "(" ++ show cs ++ " => " ++ show c ++ ")"
 
 type Env     = [(TermVar, PolyType)]
-type Defn    = (TermVar, Term)
+type Defn    = (TermVar, Term, Maybe PolyType)
 type AnnDefn = (TermVar, AnnTerm, PolyType)
 
 -- Derive `unbound` instances
