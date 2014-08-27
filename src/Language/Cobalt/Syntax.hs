@@ -4,6 +4,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE OverlappingInstances #-}
 module Language.Cobalt.Syntax (
   TyVar
 , PolyType(..)
@@ -32,7 +33,8 @@ module Language.Cobalt.Syntax (
 , AnnDefn
 ) where
 
-import Data.List ((\\), insert)
+import Control.Applicative ((<$>))
+import Data.List ((\\), insert, intercalate)
 import Unbound.LocallyNameless
 
 type TyVar = Name MonoType
@@ -44,7 +46,7 @@ data PolyType = PolyType_Inst   (Bind (TyVar, Embed PolyType) PolyType)
 instance Show PolyType where
   show = runFreshM . showPolyType'
 
-showPolyType' :: PolyType -> FreshM String
+showPolyType' :: Fresh m => PolyType -> m String
 showPolyType' (PolyType_Inst b) = do
   ((x, unembed -> p),r) <- unbind b
   showR <- showPolyType' r
@@ -181,7 +183,7 @@ instance Show AnnTerm where
 showAnnTerm :: Show a => (MonoType -> a) -> AnnTerm -> String
 showAnnTerm f = unlines . runFreshM . (showAnnTerm' f)
 
-showAnnTerm' :: Show a => (MonoType -> a) -> AnnTerm -> FreshM [String]
+showAnnTerm' :: Fresh m => Show a => (MonoType -> a) -> AnnTerm -> m [String]
 showAnnTerm' f (AnnTerm_IntLiteral n t) = return $ [show n ++ " ==> " ++ show (f t)]
 showAnnTerm' f (AnnTerm_Var v t) = return $ [show v ++ " ==> " ++ show (f t)]
 showAnnTerm' f (AnnTerm_Abs b t) = do
@@ -217,7 +219,7 @@ showAnnTerm' f (AnnTerm_LetAnn b p t) = do
 atAnn :: (MonoType -> MonoType) -> AnnTerm -> AnnTerm
 atAnn f = runFreshM . atAnn' f
 
-atAnn' :: (MonoType -> MonoType) -> AnnTerm -> FreshM AnnTerm
+atAnn' :: Fresh m => (MonoType -> MonoType) -> AnnTerm -> m AnnTerm
 atAnn' f (AnnTerm_IntLiteral n t) = return $ AnnTerm_IntLiteral n (f t)
 atAnn' f (AnnTerm_Var v t) = return $ AnnTerm_Var v (f t)
 atAnn' f (AnnTerm_Abs b t) = do
@@ -252,25 +254,31 @@ getAnn (AnnTerm_App _ _ t)      = t
 getAnn (AnnTerm_Let _ t)        = t
 getAnn (AnnTerm_LetAnn _ _ t)   = t
 
-{-
-data BasicConstraint = BasicConstraint_Inst  TyVar PolyType
-                     | BasicConstraint_Equal TyVar PolyType
-
-instance Show BasicConstraint where
-  show (BasicConstraint_Inst  v p) = show v ++ " > " ++ show p
-  show (BasicConstraint_Equal v p) = show v ++ " = " ++ show p
--}
-
 data Constraint = Constraint_Unify MonoType MonoType
                 | Constraint_Inst  MonoType PolyType
                 | Constraint_Equal MonoType PolyType
-                | Constraint_Exists [TyVar] [Constraint] [Constraint]
+                | Constraint_Exists (Bind [TyVar] ([Constraint],[Constraint]))
+
+instance Show [Constraint] where
+  show = runFreshM . showConstraintList
 
 instance Show Constraint where
-  show (Constraint_Unify t p) = show t ++ " ~ " ++ show p
-  show (Constraint_Inst  t p) = show t ++ " > " ++ show p
-  show (Constraint_Equal t p) = show t ++ " = " ++ show p
-  show (Constraint_Exists vs cs c) = "exists " ++ show vs ++ "(" ++ show cs ++ " => " ++ show c ++ ")"
+  show = runFreshM . showConstraint
+
+showConstraintList :: (Fresh m, Functor m) => [Constraint] -> m String
+showConstraintList [] = return "∅"
+showConstraintList l  = intercalate " ∧ " <$> mapM showConstraint l
+
+showConstraint :: (Fresh m, Functor m) => Constraint -> m String
+showConstraint (Constraint_Unify t p) = return $ show t ++ " ~ " ++ show p
+showConstraint (Constraint_Inst  t p) = do p' <- showPolyType' p
+                                           return $ show t ++ " > " ++ p'
+showConstraint (Constraint_Equal t p) = do p' <- showPolyType' p
+                                           return $ show t ++ " = " ++ p'
+showConstraint (Constraint_Exists b)  = do (x, (q,c)) <- unbind b
+                                           q' <- showConstraintList q
+                                           c' <- showConstraintList c
+                                           return $ "∃" ++ show x ++ "(" ++ q' ++ " => " ++ c' ++ ")"
 
 type Env     = [(TermVar, PolyType)]
 type Defn    = (TermVar, Term, Maybe PolyType)

@@ -55,3 +55,5 @@ stExample6 = runST zas;;
 
 otherExample1      = f length;;
 otherExample2Ambig = f id;;
+
+singIdLet3 = let x :: {a} [a -> a] = sing id in x;;

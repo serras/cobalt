@@ -13,7 +13,7 @@ import Control.Applicative
 import Control.Monad.Error
 import Control.Monad.Reader
 import Control.Monad.State
-import Data.List (insert, find, delete, nub, partition)
+import Data.List (insert, find, delete, nub, partition, (\\))
 import Unbound.LocallyNameless
 
 import Language.Cobalt.Step
@@ -58,12 +58,11 @@ gather (Term_AbsAnn b mt@(PolyType_Mono m)) = -- Case monotype
      return $ Gathered arrow (AnnTerm_Abs (bind (translate x) ann) arrow) ex c
 gather (Term_AbsAnn b t) = -- Case polytype
   do (x,e) <- unbind b
-     -- Check that dom(t) `subset` ftv(\Gamma)
      alpha <- fresh (string2Name "alpha")
      Gathered tau ann ex c <- extendEnv x t $ gather e
      let arrow = mVar alpha --> tau
      return $ Gathered arrow (AnnTerm_AbsAnn (bind (translate x) ann) t arrow)
-                     (ex ++ [Constraint_Equal (mVar alpha) t]) c
+                       (ex ++ [Constraint_Equal (mVar alpha) t]) c
 gather (Term_App e1 e2) =
   do Gathered tau1 ann1 ex1 c1 <- gather e1
      Gathered tau2 ann2 ex2 c2 <- gather e2
@@ -77,21 +76,24 @@ gather (Term_Let b) =
      Gathered tau2 ann2 ex2 c2 <- extendEnv x (PolyType_Mono tau1) $ gather e2
      return $ Gathered tau2 (AnnTerm_Let (bind (translate x, embed ann1) ann2) tau2)
                        (ex1 ++ ex2) (c1 ++ c2)
+gather (Term_LetAnn b PolyType_Bottom) = -- Case bottom
+  gather (Term_Let b)
 gather (Term_LetAnn b mt@(PolyType_Mono m)) = -- Case monotype
   do ((x, unembed -> e1),e2) <- unbind b
      Gathered tau1 ann1 ex1 c1 <- gather e1
      Gathered tau2 ann2 ex2 c2 <- extendEnv x mt $ gather e2
      return $ Gathered tau2 (AnnTerm_Let (bind (translate x, embed ann1) ann2) tau2)
                        (ex1 ++ ex2) (c1 ++ c2 ++ [Constraint_Unify tau1 m])
-{-
 gather (Term_LetAnn b t) = -- Case polytype
   do ((x, unembed -> e1),e2) <- unbind b
-     -- Check that dom(t) `subset` ftv(\Gamma)
+     (q1,t1,_) <- splitType t
      Gathered tau1 ann1 ex1 c1 <- gather e1
-     Gathered tau2 ann2 ex2 c2 <- extendEnv x mt $ gather e2
-     return $ Gathered tau2 (AnnTerm_Let (bind (translate x, embed ann1) ann2) tau2)
-                       (ex1 ++ ex2) (c1 ++ c2 ++ [Constraint_Unify tau1 m])
--}
+     Gathered tau2 ann2 ex2 c2 <- extendEnv x t $ gather e2
+     env <- ask
+     let vars = fv t1 `union` fv c1 \\ fv env
+         extra = Constraint_Exists $ bind vars (q1 ++ ex1, Constraint_Unify t1 tau1 : c1)
+     return $ Gathered tau2 (AnnTerm_LetAnn (bind (translate x, embed ann1) ann2) t tau2)
+                       ex2 (extra : c2)
 
 -- Phase 2: constraint solving
 
@@ -248,8 +250,8 @@ interact_ ctx (Constraint_Inst t1 p1) (Constraint_Inst t2 p2)
                            return $ Applied (Constraint_Inst t1 p : q)
   | otherwise = return NotApplicable
 -- Existentials do not interact
-interact_ _ (Constraint_Exists _ _ _) _ = return NotApplicable
-interact_ _ _ (Constraint_Exists _ _ _) = return NotApplicable
+interact_ _ (Constraint_Exists _) _ = return NotApplicable
+interact_ _ _ (Constraint_Exists _) = return NotApplicable
 
 -- Very similar to interact_, but taking care of symmetric cases
 simplifies :: [Constraint] -> [Constraint]
@@ -297,7 +299,7 @@ simplifies ctxG ctxW (Constraint_Equal (MonoType_Var v1) t1) (Constraint_Equal (
   | otherwise = return NotApplicable
 simplifies _ _ (Constraint_Equal _ _) _ = return NotApplicable -- only work with vars
 -- No exists
-simplifies _ _ (Constraint_Exists _ _ _) _ = return NotApplicable
+simplifies _ _ (Constraint_Exists _) _ = return NotApplicable
 
 findLub :: [Constraint] -> PolyType -> PolyType -> SMonad (SolutionStep, PolyType)
 findLub ctx p1 p2 = do
