@@ -128,26 +128,30 @@ splitType PolyType_Bottom = do
   return ([Constraint_Inst (mVar x) PolyType_Bottom], mVar x, [x])
 
 closeType :: [Constraint] -> MonoType -> PolyType
-closeType cs m = closeTypeWithException cs m []
+closeType cs m = closeTypeWithException cs m (const False)
 
-closeTypeWithException :: [Constraint] -> MonoType -> [TyVar] -> PolyType
+-- TODO: Perform correct closing by ordering variables
+closeTypeWithException :: [Constraint] -> MonoType -> (TyVar -> Bool) -> PolyType
 closeTypeWithException cs m except = closeTypeA [] (PolyType_Mono m)
-  where closeTypeA pre p = let nextC = fv p \\ (pre ++ except)
+  where closeTypeA pre p = let nextC = filter (not . except) (fv p) \\ pre
                                filtC = filter (hasCsFv nextC) cs
                             in case filtC of
                                  [] -> closeRest nextC p
-                                 _  -> closeTypeA  (nextC `union` pre) (closeType' filtC p)
+                                 _  -> let (inner,usedV) = closeType' filtC p
+                                        in closeTypeA (usedV `union` pre) inner
         -- check if fv are there
         hasCsFv lst (Constraint_Inst  (MonoType_Var v) _) = v `elem` lst
         hasCsFv lst (Constraint_Equal (MonoType_Var v) _) = v `elem` lst
         hasCsFv _ _ = False
         -- close upon constraints
         closeType' ((Constraint_Inst (MonoType_Var v) t) : rest) p =
-          PolyType_Inst $ bind (v,embed t) (closeType' rest p)
+          let (p',v') = closeType' rest p
+           in (PolyType_Inst $ bind (v,embed t) p', insert v v')
         closeType' ((Constraint_Equal (MonoType_Var v) t) : rest) p =
-          PolyType_Equal $ bind (v,embed t) (closeType' rest p)
+          let (p',v') = closeType' rest p
+           in (PolyType_Equal $ bind (v,embed t) p', insert v v')
         closeType' (_ : rest) p = closeType' rest p
-        closeType' [] p = p
+        closeType' [] p = (p, [])
         -- close rest
         closeRest [] p     = p
         closeRest (v:vs) p = PolyType_Inst $ bind (v, embed PolyType_Bottom) (closeRest vs p)

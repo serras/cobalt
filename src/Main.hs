@@ -1,3 +1,4 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 module Main where
 
 import Control.Monad.Error
@@ -41,33 +42,43 @@ doPerDefn f nx e ((n,t,p):xs) = do r <- runErrorT (f e (n,t,p))
                                      Right ok -> do rest <- doPerDefn f nx (nx e ok) xs
                                                     return $ Right ok : rest
 
-tcDefn :: Env -> Defn -> ErrorT String FreshM AnnDefn
+tcDefn :: Env -> Defn -> ErrorT String FreshM (AnnDefn,[Constraint])
 tcDefn e (n,t,Nothing) = do
   Gathered _ a g w <- runReaderT (gather t) e
   let tch = fv (getAnn a) `union` fv w
-  Solution smallG rs sb <- solve g w tch
+  Solution smallG rs sb tch' <- solve g w tch
   let thisAnn = atAnn (substs sb) a
-      finalT = nf $ closeType (smallG ++ rs) (getAnn thisAnn)
-  return (n,thisAnn,finalT)
+      finalT = nf $ closeTypeWithException (smallG ++ rs) (getAnn thisAnn) (not . (`elem` tch'))
+  tcCheckErrors rs finalT
+  return ((n,thisAnn,finalT),rs)
 tcDefn e (n,t,Just p) = do
   Gathered _ a g w <- runReaderT (gather t) e
-  let extra = Constraint_Equal (getAnn a) p
+  let extra = Constraint_Inst (getAnn a) p
       tch = fv (getAnn a) `union` fv w
-  Solution smallG rs sb <- solve g (extra:w) tch
+  Solution smallG rs sb tch' <- solve g (extra:w) tch
   let thisAnn = atAnn (substs sb) a
-      finalT = nf $ closeType (smallG ++ rs) (getAnn thisAnn)
-  return (n,thisAnn,finalT)
+      finalT = nf $ closeTypeWithException (smallG ++ rs) (getAnn thisAnn) (not . (`elem` tch'))
+  tcCheckErrors rs finalT
+  return ((n,thisAnn,finalT),rs)
 
-tcNextEnv :: Env -> AnnDefn -> Env
-tcNextEnv e (n,_,t) = (n,t):e
+tcCheckErrors :: [Constraint] -> PolyType -> ErrorT String FreshM ()
+tcCheckErrors _rs t = do let fvT :: [TyVar] = fv t
+                         when (not (null fvT)) $ throwError (show (fvT) ++ " are rigid type variables in " ++ show t)
 
-showTc :: AnnDefn -> IO ()
-showTc (n,t,p) = do
+tcNextEnv :: Env -> (AnnDefn,a) -> Env
+tcNextEnv e ((n,_,t),_) = (n,t):e
+
+showTc :: (AnnDefn,[Constraint]) -> IO ()
+showTc ((n,t,p),cs) = do
   setSGR [SetColor Foreground Vivid Blue]
   putStr (name2String n)
   setSGR [Reset]
   putStr " ==> "
   putStrLn (show p)
+  setSGR [SetColor Foreground Vivid Green]
+  putStr " res: "
+  setSGR [Reset]
+  putStrLn (show cs) 
   putStrLn (show t)
 
 gDefn :: Env -> Defn -> ErrorT String FreshM (TermVar,Gathered)

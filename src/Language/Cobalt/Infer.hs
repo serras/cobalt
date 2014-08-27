@@ -98,13 +98,14 @@ gather (Term_LetAnn b t) = -- Case polytype
 data Solution = Solution { smallGiven   :: [Constraint]
                          , residual     :: [Constraint]
                          , substitution :: [(TyVar, MonoType)]
+                         , touchable    :: [TyVar]
                          } deriving Show
 
 solve :: [Constraint] -> [Constraint] -> [TyVar] -> (ErrorT String FreshM) Solution
-solve g w t = evalStateT (solve' g w) t
+solve g w t = do evalStateT (solve' g w) t
 
 solve' :: [Constraint] -> [Constraint] -> SMonad Solution
-solve' g w = myTrace ("Solve " ++ show g ++ " ||- " ++ show w) $ simpl g w
+solve' g w = do myTrace ("Solve " ++ show g ++ " ||- " ++ show w) $ simpl g w
 
 -- Utils for touchable variables
 
@@ -133,7 +134,8 @@ simpl given wanted = do (g,_) <- whileApplicable (\c -> do
                              return (interacted2, apC2 || apI2)) c
                            (simplified,apS) <- stepOverTwoLists "simpl" simplifies g interacted
                            return (simplified, apI || apS)) wanted
-                        return $ toSolution g s
+                        v <- get
+                        myTrace ("touchables: " ++ show v) $ return $ toSolution g s v
 
 canon' :: [Constraint] -> Constraint -> SMonad SolutionStep
 canon' _ = canon
@@ -306,11 +308,11 @@ findLub ctx p1 p2 = do
           tau <- fresh $ string2Name "tau"
           let cs = [Constraint_Unify (mVar tau) t1, Constraint_Unify (mVar tau) t2]
           tch <- get
-          Solution _ r s <- lift $ solve ctx (cs ++ q1 ++ q2) (tau : tch ++ v1 ++ v2)
+          Solution _ r s _ <- lift $ solve ctx (cs ++ q1 ++ q2) (tau : tch ++ v1 ++ v2)
           let s' = substitutionInTermsOf tch s
               r' = map (substs s') r ++ map (\(v,t) -> Constraint_Unify (MonoType_Var v) t) s'
               (floatR, closeR) = partition (\c -> all (`elem` tch) (fv c)) r'
-          return (Applied floatR, closeTypeWithException closeR (substs s' (mVar tau)) tch)
+          return (Applied floatR, closeTypeWithException closeR (substs s' (mVar tau)) (`elem` tch))
 
 -- Returning NotApplicable means that we could not prove it
 -- because some things would float out of the types
@@ -320,7 +322,7 @@ checkSubsumption ctx p1 p2 =
   else do (q1,t1,v1)  <- splitType p1
           (q2,t2,_v2) <- splitType p2
           tch <- get
-          Solution _ r s <- lift $ solve (ctx ++ q2) (Constraint_Unify t1 t2 : q1) (tch `union` v1)
+          Solution _ r s _ <- lift $ solve (ctx ++ q2) (Constraint_Unify t1 t2 : q1) (tch `union` v1)
           let s' = substitutionInTermsOf tch s
               r' = map (substs s') r ++ map (\(v,t) -> Constraint_Unify (MonoType_Var v) t)
                                             (filter (\(v,_) -> v `elem` tch) s')
@@ -355,11 +357,13 @@ checkEquivalence ctx p1 p2 = do
 
 -- Phase 2b: convert to solution
 
-toSolution :: [Constraint] -> [Constraint] -> Solution
-toSolution gs rs = let initialSubst = map (\x -> (x, mVar x)) (fv rs)
-                       finalSubst   = runSubst initialSubst
-                       doFinalSubst = map (substs finalSubst)
-                    in Solution (doFinalSubst gs) (doFinalSubst (notUnifyConstraints rs)) (runSubst initialSubst)
+toSolution :: [Constraint] -> [Constraint] -> [TyVar] -> Solution
+toSolution gs rs vs = let initialSubst = map (\x -> (x, mVar x)) (fv rs)
+                          finalSubst   = runSubst initialSubst
+                          doFinalSubst = map (substs finalSubst)
+                       in Solution (doFinalSubst gs)
+                                   (doFinalSubst (notUnifyConstraints rs))
+                                   (runSubst initialSubst) vs
   where runSubst s = let vars = concatMap (\(_,mt) -> fv mt) s
                          unif = concatMap (\v -> filter (isVarUnifyConstraint (== v)) rs) vars
                          sub = map (\(Constraint_Unify (MonoType_Var v) t) -> (v,t)) unif

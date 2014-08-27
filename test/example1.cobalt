@@ -47,11 +47,11 @@ singIdLet2 = let x = singBis idBis in x;;
 stExample1 = runST (newSTRef 3);;
 stBind = bindST;;
 stExample2 = bindST (newSTRef 3) readSTRef;;
-stExample3 = readSTRef (runST (newSTRef 3));;
-stExample3a = bindST stExample3 (\x -> stExample3);;
+stExample3Err = readSTRef (runST (newSTRef 3));;
+stExample3a   = bindST stExample3 (\x -> stExample3);;
 stExample4Err = runST (readSTRef (runST (newSTRef 3)));;
 stExample5 = runST stExample3;;
 stExample6 = runST zas;;
 
-otherExample1    = f length;;
-otherExample2Err = f id;;
+otherExample1      = f length;;
+otherExample2Ambig = f id;;
