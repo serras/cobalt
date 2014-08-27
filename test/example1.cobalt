@@ -13,6 +13,10 @@ import bindST    :: {a} {b} {s} {t = a -> 'ST s b} 'ST s a -> t -> 'ST s b;;
 import runST     :: {a} {s = {s} 'ST s a} s -> a;;
 import newSTRef  :: {a} {s} a -> 'ST s ('STRef s a);;
 import readSTRef :: {a} {s} 'STRef s a -> 'ST s a;;
+import zas       :: {s} 'ST s 'Integer;;
+
+import f      :: {b} {s = {a} [a] -> b} s -> 'Bool -> b;;
+import length :: {a} [a] -> 'Integer;;
 
 checkFunParam1 = \x -> \(y :: {a} a -> a) -> cons (x (tuple y 3)) nil;;
 checkFunParam2 = \(x :: {a} a -> a) -> \y -> cons (x (tuple y 3)) nil;;
@@ -43,3 +47,11 @@ singIdLet2 = let x = singBis idBis in x;;
 stExample1 = runST (newSTRef 3);;
 stBind = bindST;;
 stExample2 = bindST (newSTRef 3) readSTRef;;
+stExample3 = readSTRef (runST (newSTRef 3));;
+stExample3a = bindST stExample3 (\x -> stExample3);;
+stExample4Err = runST (readSTRef (runST (newSTRef 3)));;
+stExample5 = runST stExample3;;
+stExample6 = runST zas;;
+
+otherExample1    = f length;;
+otherExample2Err = f id;;

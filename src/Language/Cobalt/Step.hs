@@ -40,11 +40,11 @@ stepOverList s f lst = stepOverList' lst [] False
         stepOverList' [] accum atAll = return (accum, atAll)
         -- Rest of cases
         stepOverList' (x:xs) accum atAll = do
-          r <- f (xs ++ accum) x
+          r <- {- myTrace (s ++ " " ++ show x) $ -} f (xs ++ accum) x
           case r of
             NotApplicable -> stepOverList' xs (x:accum) atAll
-            Applied newX  -> do -- vars <- get
-                                myTrace (s ++ " " ++ show x ++ " ==> " ++ show newX {-++ " tch:" ++ show vars -} ) $
+            Applied newX  -> do vars <- get
+                                myTrace (s ++ " " ++ show x ++ " ==> " ++ show newX ++ " tch:" ++ show vars) $
                                   stepOverList' xs (newX ++ accum) True
 
 stepOverProductList :: String -> ([Constraint] -> Constraint -> Constraint -> SMonad SolutionStep)

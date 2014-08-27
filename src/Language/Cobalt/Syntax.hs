@@ -17,6 +17,7 @@ module Language.Cobalt.Syntax (
 , (-->)
 , splitType
 , closeType
+, closeTypeWithException
 , TermVar
 , Term(..)
 , AnnTermVar
@@ -127,8 +128,11 @@ splitType PolyType_Bottom = do
   return ([Constraint_Inst (mVar x) PolyType_Bottom], mVar x, [x])
 
 closeType :: [Constraint] -> MonoType -> PolyType
-closeType cs m = closeTypeA [] (PolyType_Mono m)
-  where closeTypeA pre p = let nextC = fv p \\ pre
+closeType cs m = closeTypeWithException cs m []
+
+closeTypeWithException :: [Constraint] -> MonoType -> [TyVar] -> PolyType
+closeTypeWithException cs m except = closeTypeA [] (PolyType_Mono m)
+  where closeTypeA pre p = let nextC = fv p \\ (pre ++ except)
                                filtC = filter (hasCsFv nextC) cs
                             in case filtC of
                                  [] -> closeRest nextC p
