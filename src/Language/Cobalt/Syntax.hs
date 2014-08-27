@@ -28,6 +28,7 @@ module Language.Cobalt.Syntax (
 , getAnn
 -- , BasicConstraint(..)
 , Constraint(..)
+, isExists
 , Env
 , Defn
 , AnnDefn
@@ -279,6 +280,10 @@ showConstraint (Constraint_Exists b)  = do (x, (q,c)) <- unbind b
                                            q' <- showConstraintList q
                                            c' <- showConstraintList c
                                            return $ "∃" ++ show x ++ "(" ++ q' ++ " => " ++ c' ++ ")"
+
+isExists :: Constraint -> Bool
+isExists (Constraint_Exists _) = True
+isExists _                     = False
 
 type Env     = [(TermVar, PolyType)]
 type Defn    = (TermVar, Term, Maybe PolyType)

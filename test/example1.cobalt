@@ -56,4 +56,8 @@ stExample6 = runST zas;;
 otherExample1      = f length;;
 otherExample2Ambig = f id;;
 
-singIdLet3 = let x :: {a} [a -> a] = sing id in x;;
+singIdLet3a    = let x :: ['Integer -> 'Integer] = sing id in x;;
+singIdLet3Err1 = let x :: ['Integer -> 'Bool] = sing id in x;;
+singIdLet3b    = let x :: {a} [a -> a] = sing id in x;;
+singIdLet3c    = let x :: {a} [[a] -> [a]] = sing id in x;;
+singIdLet3Err2 = let x :: {a} [[a] -> 'Maybe a] = sing id in x;;

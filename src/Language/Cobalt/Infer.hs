@@ -107,7 +107,20 @@ solve :: [Constraint] -> [Constraint] -> [TyVar] -> (ErrorT String FreshM) Solut
 solve g w t = do evalStateT (solve' g w) t
 
 solve' :: [Constraint] -> [Constraint] -> SMonad Solution
-solve' g w = do myTrace ("Solve " ++ show g ++ " ||- " ++ show w) $ simpl g w
+solve' g w = myTrace ("Solve " ++ show g ++ " ||- " ++ show w) $ do
+  let (implic, simple) = partition isExists w
+  s@(Solution _ rs theta _) <- simpl g simple
+  solveImpl (g ++ rs) (substs theta implic)
+  return $ s
+
+solveImpl :: [Constraint] -> [Constraint] -> SMonad ()
+solveImpl _ [] = return ()
+solveImpl g (Constraint_Exists b : rest) = do
+  (vars,(q,c)) <- unbind b
+  Solution _ rs _ _ <- lift $ solve (g ++ q) c vars
+  if null rs then solveImpl g rest
+             else throwError $ "Could not discharge: " ++ show c
+solveImpl _ _ = error "This should never happen"
 
 -- Utils for touchable variables
 
