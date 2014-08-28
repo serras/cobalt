@@ -120,21 +120,31 @@ parseSig = (,) <$  reserved "import"
                <*> (string2Name <$> identifier)
                <*  reservedOp "::"
                <*> parsePolyType
-               <*  reservedOp ";;"
+               <*  reservedOp ";"
 
-parseDefn :: Parsec String s Defn
-parseDefn = try ((,,Nothing) <$> (string2Name <$> identifier)
-                             <*  reservedOp "="
-                             <*> parseTerm
-                             <*  reservedOp ";;")
-        <|> (\x y z -> (x,z,Just y)) <$> (string2Name <$> identifier)
-                                     <*  reservedOp "::"
-                                     <*> parsePolyType
-                                     <*  reservedOp "="
-                                     <*> parseTerm
-                                     <*  reservedOp ";;"
+parseDefn :: Parsec String s (Defn,Bool)
+parseDefn = try ((\x z w -> ((x,z,Nothing),w))
+                     <$> (string2Name <$> identifier)
+                     <*  reservedOp "="
+                     <*> parseTerm
+                     <*  reservedOp "=>"
+                     <*> parseExpected
+                     <*  reservedOp ";")
+        <|> (\x y z w -> ((x,z,Just y),w))
+                     <$> (string2Name <$> identifier)
+                     <*  reservedOp "::"
+                     <*> parsePolyType
+                     <*  reservedOp "="
+                     <*> parseTerm
+                     <*  reservedOp "=>"
+                     <*> parseExpected
+                     <*  reservedOp ";"
 
-parseFile :: Parsec String s (Env,[Defn])
+parseExpected :: Parsec String s Bool
+parseExpected = const True  <$> reservedOp "ok"
+            <|> const False <$> reservedOp "fail"
+
+parseFile :: Parsec String s (Env,[(Defn,Bool)])
 parseFile = (,) <$> many parseSig
                 <*> many parseDefn
 
