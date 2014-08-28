@@ -139,14 +139,20 @@ isTouchable x = gets (x `elem`)
 
 simpl :: [Constraint] -> [Constraint] -> SMonad Solution
 simpl given wanted = do (g,_) <- whileApplicable (\c -> do
-                           (canonicalG,apGC)  <- whileApplicable (stepOverList "canon" canon') c
-                           (interactedG,apGI) <- stepOverProductList "inter" interact_ canonicalG
-                           return (interactedG, apGC || apGI)) given
+                           (interactedGU,apGIU) <- whileApplicable (\cc -> do
+                             (canonicalG,apGC)   <- whileApplicable (stepOverList "canon" canon') cc
+                             (interactedGU,apGU) <- stepOverProductList "unify" unifyInteract [] canonicalG
+                             return (interactedGU, apGC || apGU)) c
+                           (interactedG,apGI) <- stepOverProductListDeleteBoth "inter" interact_ [] interactedGU
+                           return (interactedG, apGIU || apGI)) given
                         (s,_) <- whileApplicable (\c -> do
                            (interacted,apI) <- whileApplicable (\cc -> do
-                             (canonical2,apC2)  <- whileApplicable (stepOverList "canon" canon') cc
-                             (interacted2,apI2) <- stepOverProductList "inter" interact_ canonical2
-                             return (interacted2, apC2 || apI2)) c
+                             (interactedU,apU) <- whileApplicable (\ccc -> do
+                               (canonical2,apC2)  <- whileApplicable (stepOverList "canon" canon') ccc
+                               (interacted2,apI2) <- stepOverProductList "unify" unifyInteract g canonical2
+                               return (interacted2, apC2 || apI2)) cc
+                             (interacted2,apI2) <- stepOverProductListDeleteBoth "inter" interact_ g interactedU
+                             return (interacted2, apU || apI2)) c
                            (simplified,apS) <- stepOverTwoLists "simpl" simplifies g interacted
                            return (simplified, apI || apS)) wanted
                         v <- get
@@ -223,96 +229,84 @@ instantiate PolyType_Bottom tch = do
   when tch $ makeTouchable v
   return ([], mVar v)
 
+unifyInteract :: [Constraint] -> [Constraint] -> Constraint -> Constraint -> SMonad SolutionStep
+unifyInteract _ _ = unifyInteract'
+
 -- Perform common part of interact_ and simplifies
 -- dealing with unifications in canonical form
-unifyInteract :: Constraint -> Constraint -> SMonad SolutionStep
-unifyInteract (Constraint_Unify t1 s1) (Constraint_Unify t2 s2) = case (t1,t2) of
+unifyInteract' :: Constraint -> Constraint -> SMonad SolutionStep
+unifyInteract' (Constraint_Unify t1 s1) (Constraint_Unify t2 s2) = case (t1,t2) of
   (MonoType_Var v1, MonoType_Var v2)
     | v1 == v2 -> return $ Applied [Constraint_Unify s1 s2]
     | v1 `elem` fv s2 -> return $ Applied [Constraint_Unify t2 (subst v1 s1 s2)]
     | otherwise -> return NotApplicable
   _ -> return NotApplicable
 -- Replace something over another constraint
-unifyInteract (Constraint_Unify (MonoType_Var v1) s1) (Constraint_Inst t2 s2)
+unifyInteract' (Constraint_Unify (MonoType_Var v1) s1) (Constraint_Inst t2 s2)
   | v1 `elem` fv t2 || v1 `elem` fv s2
   = return $ Applied [Constraint_Inst (subst v1 s1 t2) (subst v1 s1 s2)]
-unifyInteract (Constraint_Unify (MonoType_Var v1) s1) (Constraint_Equal t2 s2)
+unifyInteract' (Constraint_Unify (MonoType_Var v1) s1) (Constraint_Equal t2 s2)
   | v1 `elem` fv t2 || v1 `elem` fv s2
   = return $ Applied [Constraint_Equal (subst v1 s1 t2) (subst v1 s1 s2)]
 -- Constructors are not canonical
-unifyInteract (Constraint_Unify _ _) _ = return NotApplicable
-unifyInteract _ _ = return NotApplicable
+unifyInteract' (Constraint_Unify _ _) _ = return NotApplicable
+unifyInteract' _ (Constraint_Unify _ _) = return NotApplicable -- treated sym
+unifyInteract' _ _ = return NotApplicable
 
--- Change w.r.t. OutsideIn -> return only second constraint
-interact_ :: [Constraint] -> Constraint -> Constraint -> SMonad SolutionStep
+-- Makes two constraints interact and removes both of them
+interact_ :: [Constraint] -> [Constraint] -> Constraint -> Constraint -> SMonad SolutionStep
 -- First is an unification
-interact_ _ c1@(Constraint_Unify _ _) c2 = unifyInteract c1 c2
-interact_ _ _ (Constraint_Unify _ _)     = return NotApplicable -- treated sym
+interact_ _ _ (Constraint_Unify _ _) _ = return NotApplicable  -- treated in unifyInteract
+interact_ _ _ _ (Constraint_Unify _ _) = return NotApplicable
 -- == and >=
-interact_ ctx (Constraint_Equal t1 p1) (Constraint_Equal t2 p2)
-  | t1 == t2  = checkEquivalence ctx p1 p2
+interact_ given ctx (Constraint_Equal t1 p1) (Constraint_Equal t2 p2)
+  | t1 == t2  = checkEquivalence (given ++ ctx) p1 p2
   | otherwise = return NotApplicable
-interact_ ctx (Constraint_Equal t1 p1) (Constraint_Inst t2 p2)
-  | t1 == t2  = checkSubsumption ctx p2 p1
+interact_ given ctx (Constraint_Equal t1 p1) (Constraint_Inst t2 p2)
+  | t1 == t2  = checkSubsumption (given ++ ctx) p2 p1
   | otherwise = return NotApplicable
-interact_ _ (Constraint_Inst _ _) (Constraint_Equal _ _) = return NotApplicable  -- treated sym
-interact_ ctx (Constraint_Inst t1 p1) (Constraint_Inst t2 p2)
-  | t1 == t2  = do equiv <- areEquivalent ctx p1 p2
+interact_ _ _ (Constraint_Inst _ _) (Constraint_Equal _ _) = return NotApplicable  -- treated sym
+interact_ given ctx (Constraint_Inst t1 p1) (Constraint_Inst t2 p2)
+  | t1 == t2  = do equiv <- areEquivalent (given ++ ctx) p1 p2
                    if equiv then checkEquivalence ctx p1 p2
                    else do (Applied q,p) <- findLub ctx p1 p2
                            return $ Applied (Constraint_Inst t1 p : q)
   | otherwise = return NotApplicable
 -- Existentials do not interact
-interact_ _ (Constraint_Exists _) _ = return NotApplicable
-interact_ _ _ (Constraint_Exists _) = return NotApplicable
+interact_ _ _ (Constraint_Exists _) _ = return NotApplicable
+interact_ _ _ _ (Constraint_Exists _) = return NotApplicable
 
 -- Very similar to interact_, but taking care of symmetric cases
 simplifies :: [Constraint] -> [Constraint]
            -> Constraint -> Constraint -> SMonad SolutionStep
-simplifies _ _ (Constraint_Unify t1 s1) (Constraint_Unify t2 s2) = case (t1, t2) of
-  (MonoType_Var v1, MonoType_Var v2)
-    | v1 == v2 -> return $ Applied [Constraint_Unify s1 s2]
-    | v1 `elem` fv s2 -> return $ Applied [Constraint_Unify t2 (subst v1 s1 s2)]
-    | otherwise -> return NotApplicable
-  _ -> return NotApplicable
-simplifies _ _ (Constraint_Unify (MonoType_Var v1) s1) (Constraint_Inst t2 s2)
-  | v1 `elem` fv t2 || v1 `elem` fv s2
-  = return $ Applied [Constraint_Inst (subst v1 s1 t2) (subst v1 s1 s2)]
-simplifies _ _ (Constraint_Unify (MonoType_Var v1) s1) (Constraint_Equal t2 s2)
-  | v1 `elem` fv t2 || v1 `elem` fv s2
-  = return $ Applied [Constraint_Equal (subst v1 s1 t2) (subst v1 s1 s2)]
-simplifies _ _ (Constraint_Unify _ _) _ = return NotApplicable  -- only vars are replaced
--- Simplify with a given > constraint
-simplifies ctxG ctxW (Constraint_Inst (MonoType_Var v1) t1) (Constraint_Unify (MonoType_Var v2) t2)
-  | v1 == v2  = checkSubsumption (ctxG ++ ctxW) t1 (PolyType_Mono t2)
+-- Cases for unification on the given constraint
+simplifies _ _ c1@(Constraint_Unify _ _) c2 = unifyInteract' c1 c2
+-- Case for = in the given constraint
+simplifies given ctx (Constraint_Equal t1 p1) (Constraint_Equal t2 p2)
+  | t1 == t2  = checkEquivalence (given ++ ctx) p1 p2
   | otherwise = return NotApplicable
-simplifies ctxG ctxW (Constraint_Inst (MonoType_Var v1) t1) (Constraint_Inst (MonoType_Var v2) t2)
-  | v1 == v2  = checkSubsumption (ctxG ++ ctxW) t2 t1  -- t2 <= t1 < v
-                `catchError`
-                -- If it cannot match, check the other direction
-                -- If this returns fail, it means that we could not
-                -- match in any direction, and thus we should fail
-                (\_ -> do _ <- checkSubsumption (ctxG ++ ctxW) t1 t2
-                          return $ NotApplicable)
+simplifies given ctx (Constraint_Equal t1 p1) (Constraint_Inst t2 p2)
+  | t1 == t2  = checkSubsumption (given ++ ctx) p2 p1
   | otherwise = return NotApplicable
-simplifies ctxG ctxW (Constraint_Inst (MonoType_Var v1) t1) (Constraint_Equal (MonoType_Var v2) t2)
-  | v1 == v2  = do _ <- checkSubsumption (ctxG ++ ctxW) t2 t1
-                   return NotApplicable
+simplifies _given _ctx (Constraint_Equal t1 p1) (Constraint_Unify t2 p2)
+  | t1 == t2  = return $ Applied [Constraint_Equal p2 p1]
   | otherwise = return NotApplicable
-simplifies _ _ (Constraint_Inst _ _) _ = return NotApplicable -- only work with vars
--- Simplify with a given = constraint
-simplifies ctxG ctxW (Constraint_Equal (MonoType_Var v1) t1) (Constraint_Unify (MonoType_Var v2) t2)
-  | v1 == v2  = checkEquivalence (ctxG ++ ctxW) t1 (PolyType_Mono t2)
+-- Case for > in the given constraint
+simplifies given ctx (Constraint_Inst t1 p1) (Constraint_Inst t2 p2)
+  | t1 == t2  = do equiv <- areEquivalent (given ++ ctx) p1 p2
+                   if equiv then checkEquivalence ctx p1 p2
+                   else do (Applied q,p) <- findLub ctx p1 p2
+                           return $ Applied (Constraint_Inst t1 p : q)
   | otherwise = return NotApplicable
-simplifies ctxG ctxW (Constraint_Equal (MonoType_Var v1) t1) (Constraint_Inst (MonoType_Var v2) t2)
-  | v1 == v2  = checkSubsumption (ctxG ++ ctxW) t2 t1
+simplifies given ctx (Constraint_Inst t1 p1) (Constraint_Equal t2 p2)
+  | t1 == t2  = checkSubsumption (given ++ ctx) p1 p2
   | otherwise = return NotApplicable
-simplifies ctxG ctxW (Constraint_Equal (MonoType_Var v1) t1) (Constraint_Equal (MonoType_Var v2) t2)
-  | v1 == v2  = checkEquivalence (ctxG ++ ctxW) t1 t2
+simplifies _given _ctx (Constraint_Inst t1 p1) (Constraint_Unify t2 p2)
+  | t1 == t2  = return $ Applied [Constraint_Inst p2 p1]
   | otherwise = return NotApplicable
-simplifies _ _ (Constraint_Equal _ _) _ = return NotApplicable -- only work with vars
--- No exists
+-- Existentials do not interact
 simplifies _ _ (Constraint_Exists _) _ = return NotApplicable
+simplifies _ _ _ (Constraint_Exists _) = return NotApplicable
 
 findLub :: [Constraint] -> PolyType -> PolyType -> SMonad (SolutionStep, PolyType)
 findLub ctx p1 p2 = do

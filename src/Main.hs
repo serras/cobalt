@@ -65,7 +65,9 @@ tcDefn e (n,t,Just p) = do
 
 tcCheckErrors :: [Constraint] -> PolyType -> ErrorT String FreshM ()
 tcCheckErrors rs t = do let fvT :: [TyVar] = fv t
-                        when (not (null fvT)) $ throwError (show (fvT) ++ " are rigid type variables in " ++ show t)
+                        when (not (null fvT)) $ throwError $ case fvT of
+                          [x] -> show x ++ " is a rigid type variable in: " ++ show t
+                          _   -> show fvT ++ " are rigid type variables in: " ++ show t
                         checkAmbiguity rs
 
 checkAmbiguity :: [Constraint] -> ErrorT String FreshM ()
@@ -142,6 +144,7 @@ showAnns ((Left (n,e),b):xs) f = do
        else setSGR [SetColor Foreground Vivid Green]
   putStrLn "error"
   setSGR [Reset]
+  putStr " "
   putStrLn e
   when b $ putStrLn ""
   showAnns xs f

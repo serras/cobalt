@@ -5,6 +5,7 @@ module Language.Cobalt.Step (
 , whileApplicable
 , stepOverList
 , stepOverProductList
+, stepOverProductListDeleteBoth
 , stepOverTwoLists
 , myTrace
 ) where
@@ -47,15 +48,25 @@ stepOverList s f lst = stepOverList' lst [] False
                                 myTrace (s ++ " " ++ show x ++ " ==> " ++ show newX ++ " tch:" ++ show vars) $
                                   stepOverList' xs (newX ++ accum) True
 
-stepOverProductList :: String -> ([Constraint] -> Constraint -> Constraint -> SMonad SolutionStep)
-                    -> [Constraint] -> SMonad ([Constraint], Bool)
-stepOverProductList s f lst = stepOverProductList' lst []
+stepOverProductList :: String -> ([Constraint] -> [Constraint] -> Constraint -> Constraint -> SMonad SolutionStep)
+                    -> [Constraint] -> [Constraint] -> SMonad ([Constraint], Bool)
+stepOverProductList s f given lst = stepOverProductList' lst []
   where stepOverProductList' []     accum = return (accum, False)
         stepOverProductList' (x:xs) accum = do
-          r <- stepOverList (s ++ " " ++ show x) (\cs -> f cs x) (xs ++ accum)
+          r <- stepOverList (s ++ " " ++ show x) (\cs -> f given cs x) (xs ++ accum)
           case r of
             (_,     False) -> stepOverProductList' xs (x:accum)
             (newLst,True)  -> return (x:newLst, True)
+
+stepOverProductListDeleteBoth :: String -> ([Constraint] -> [Constraint] -> Constraint -> Constraint -> SMonad SolutionStep)
+                              -> [Constraint] -> [Constraint] -> SMonad ([Constraint], Bool)
+stepOverProductListDeleteBoth s f given lst = stepOverProductList' lst []
+  where stepOverProductList' []     accum = return (accum, False)
+        stepOverProductList' (x:xs) accum = do
+          r <- stepOverList (s ++ " " ++ show x) (\cs -> f given cs x) (xs ++ accum)
+          case r of
+            (_,     False) -> stepOverProductList' xs (x:accum)
+            (newLst,True)  -> return (newLst, True)
 
 stepOverTwoLists :: String -> ([Constraint] -> [Constraint] -> Constraint -> Constraint -> SMonad SolutionStep)
                  -> [Constraint] -> [Constraint] -> SMonad ([Constraint], Bool)
