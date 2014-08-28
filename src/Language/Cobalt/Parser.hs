@@ -52,10 +52,23 @@ parseAtom = -- Parenthesized expression
                           <*> parseTerm
                           <*  reserved "in"
                           <*> parseTerm
+        <|> -- Case
+            Term_Match <$  reserved "match"
+                       <*> parseTerm
+                       <*  reserved "with"
+                       <*> parseDataName
+                       <*> many parseCaseAlternative
         <|> -- Literal
             Term_IntLiteral <$> integer
         <|> -- Variable
             Term_Var . string2Name <$> identifier
+
+parseCaseAlternative :: Parsec String s (TermVar, Bind [TermVar] Term)
+parseCaseAlternative = createCaseAlternative <$  reservedOp "|"
+                                             <*> identifier
+                                             <*> many identifier
+                                             <*  reservedOp "->"
+                                             <*> parseTerm
 
 createTermAbsAnn :: (String, PolyType) -> Term -> Term
 createTermAbsAnn (x,t) e = Term_AbsAnn (bind (string2Name x) e) t
@@ -68,6 +81,9 @@ createTermLetAbs x t e1 e2 = Term_LetAnn (bind (string2Name x, embed e1) e2) t
 
 createTermLet :: String -> Term -> Term -> Term
 createTermLet x e1 e2 = Term_Let (bind (string2Name x, embed e1) e2)
+
+createCaseAlternative :: String -> [String] -> Term -> (TermVar, Bind [TermVar] Term)
+createCaseAlternative con args e = (string2Name con, bind (map string2Name args) e)
 
 parsePolyType :: Parsec String s PolyType
 parsePolyType = try (createPolyType PolyType_Inst
@@ -122,18 +138,24 @@ parseSig = (,) <$  reserved "import"
                <*> parsePolyType
                <*  reservedOp ";"
 
+parseData :: Parsec String s (String,[TyVar])
+parseData = (,) <$  reserved "data"
+                <*> parseDataName
+                <*> many (string2Name <$> identifier)
+                <*  reservedOp ";"
+
 parseDefn :: Parsec String s (Defn,Bool)
-parseDefn = try ((\x z w -> ((x,z,Nothing),w))
+parseDefn = try ((\x y z w -> ((x,z,Just y),w))
                      <$> (string2Name <$> identifier)
+                     <*  reservedOp "::"
+                     <*> parsePolyType
                      <*  reservedOp "="
                      <*> parseTerm
                      <*  reservedOp "=>"
                      <*> parseExpected
                      <*  reservedOp ";")
-        <|> (\x y z w -> ((x,z,Just y),w))
+        <|> (\x z w -> ((x,z,Nothing),w))
                      <$> (string2Name <$> identifier)
-                     <*  reservedOp "::"
-                     <*> parsePolyType
                      <*  reservedOp "="
                      <*> parseTerm
                      <*  reservedOp "=>"
@@ -144,14 +166,15 @@ parseExpected :: Parsec String s Bool
 parseExpected = const True  <$> reservedOp "ok"
             <|> const False <$> reservedOp "fail"
 
-parseFile :: Parsec String s (Env,[(Defn,Bool)])
-parseFile = (,) <$> many parseSig
-                <*> many parseDefn
+parseFile :: Parsec String s (Env,DataEnv,[(Defn,Bool)])
+parseFile = (\x y z -> (y,x,z)) <$> many parseData
+                                <*> many parseSig
+                                <*> many parseDefn
 
 -- Lexer for Haskell-like language
 
 lexer :: T.TokenParser t
-lexer = T.makeTokenParser haskellDef
+lexer = T.makeTokenParser $ haskellDef { T.reservedNames = "with" : T.reservedNames haskellDef }
 
 parens :: Parsec String s a -> Parsec String s a
 parens = T.parens lexer

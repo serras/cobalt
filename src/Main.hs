@@ -21,11 +21,16 @@ main = do
                   putStr "Error while parsing: "
                   setSGR [Reset]
                   putStrLn (show ep)
-    Right (env,defns) -> case todo of
-                           "solve"  -> showAnns (doPerDefn' tcDefn tcNextEnv env defns) (showTc True)
-                           "report" -> showAnns (doPerDefn' tcDefn tcNextEnv env defns) (showTc False)
-                           "gather" -> showAnns (doPerDefn' gDefn const env defns) showG
-                           _ -> putStrLn "Unrecognized command"
+    Right (env,denv,defns) -> case todo of
+      "parse"  -> do mapM_ (putStrLn . show) env
+                     putStrLn ""
+                     mapM_ (putStrLn . show) denv
+                     putStrLn ""
+                     mapM_ (putStrLn . show) defns
+      "solve"  -> showAnns (doPerDefn' tcDefn tcNextEnv env defns) (showTc True)
+      "report" -> showAnns (doPerDefn' tcDefn tcNextEnv env defns) (showTc False)
+      "gather" -> showAnns (doPerDefn' gDefn const env defns) showG
+      _ -> putStrLn "Unrecognized command"
 
 doPerDefn' :: (Env -> Defn -> ErrorT String FreshM a)
            -> (Env -> a -> Env)

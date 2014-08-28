@@ -30,6 +30,7 @@ module Language.Cobalt.Syntax (
 , Constraint(..)
 , isExists
 , Env
+, DataEnv
 , Defn
 , AnnDefn
 ) where
@@ -116,7 +117,7 @@ mVar = MonoType_Var
 (-->) :: MonoType -> MonoType -> MonoType
 (-->) = MonoType_Arrow
 
-splitType :: (Fresh m, Functor m) => PolyType -> m ([Constraint], MonoType,[TyVar])
+splitType :: (Fresh m, Functor m) => PolyType -> m ([Constraint], MonoType, [TyVar])
 splitType (PolyType_Inst b) = do
   ((x, unembed -> s),r) <- unbind b
   (c, m, v) <- splitType r
@@ -167,6 +168,7 @@ data Term = Term_IntLiteral Integer
           | Term_App    Term Term
           | Term_Let    (Bind (TermVar, Embed Term) Term)
           | Term_LetAnn (Bind (TermVar, Embed Term) Term) PolyType
+          | Term_Match  Term String [(TermVar, Bind [TermVar] Term)]
           deriving Show
 
 type AnnTermVar = Name AnnTerm
@@ -177,6 +179,7 @@ data AnnTerm = AnnTerm_IntLiteral Integer MonoType
              | AnnTerm_App    AnnTerm AnnTerm MonoType
              | AnnTerm_Let    (Bind (AnnTermVar, Embed AnnTerm) AnnTerm) MonoType
              | AnnTerm_LetAnn (Bind (AnnTermVar, Embed AnnTerm) AnnTerm) PolyType MonoType
+             | AnnTerm_Match  AnnTerm String [(TermVar, Bind [TermVar] AnnTerm)] MonoType
 
 instance Show AnnTerm where
   show = showAnnTerm id
@@ -216,6 +219,16 @@ showAnnTerm' f (AnnTerm_LetAnn b p t) = do
   let line1 = "let " ++ show x ++ " :: " ++ show p ++ " = "
       line2 = "in ==> " ++ show t
   return $ (line1 : map ("  " ++) s1) ++ (line2 : map ("  " ++) s2)
+showAnnTerm' f (AnnTerm_Match e c bs t) = do
+  e'  <- showAnnTerm' f e
+  bs' <- mapM (\(d,b) -> do (xs,es) <- unbind b
+                            es' <- showAnnTerm' f es
+                            let line1 = "| " ++ intercalate " " (map show (d:xs)) ++ " ->"
+                            return $ line1 : map ("  " ++) es') bs
+  let firstPart  = "match " : map ("  " ++) e'
+      line2      = "with " ++ c ++ " ==>" ++ show (f t)
+      secondPart = line2 : concat bs'
+  return $ firstPart ++ secondPart
 
 atAnn :: (MonoType -> MonoType) -> AnnTerm -> AnnTerm
 atAnn f = runFreshM . atAnn' f
@@ -245,6 +258,12 @@ atAnn' f (AnnTerm_LetAnn b p t) = do
   s1 <- atAnn' f e1
   s2 <- atAnn' f e2
   return $ AnnTerm_LetAnn (bind (x, embed s1) s2) p (f t)
+atAnn' f (AnnTerm_Match e c bs t) = do
+  e' <- atAnn' f e
+  b' <- mapM (\(d,b) -> do (xs,expr) <- unbind b
+                           expr' <- atAnn' f expr
+                           return $ (d,bind xs expr')) bs
+  return $ AnnTerm_Match e' c b' (f t)
 
 getAnn :: AnnTerm -> MonoType
 getAnn (AnnTerm_IntLiteral _ t) = t
@@ -254,6 +273,7 @@ getAnn (AnnTerm_AbsAnn _ _ t)   = t
 getAnn (AnnTerm_App _ _ t)      = t
 getAnn (AnnTerm_Let _ t)        = t
 getAnn (AnnTerm_LetAnn _ _ t)   = t
+getAnn (AnnTerm_Match _ _ _ t)  = t
 
 data Constraint = Constraint_Unify MonoType MonoType
                 | Constraint_Inst  MonoType PolyType
@@ -286,6 +306,7 @@ isExists (Constraint_Exists _) = True
 isExists _                     = False
 
 type Env     = [(TermVar, PolyType)]
+type DataEnv = [(String, [TyVar])]
 type Defn    = (TermVar, Term, Maybe PolyType)
 type AnnDefn = (TermVar, AnnTerm, PolyType)
 

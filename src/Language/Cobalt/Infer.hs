@@ -35,6 +35,9 @@ lookupEnv v = do optT <- asks (lookup v)
 extendEnv :: TermVar -> PolyType -> GMonad a -> GMonad a
 extendEnv v s = local ((v,s) :)
 
+extendsEnv :: [(TermVar, PolyType)] -> GMonad a -> GMonad a
+extendsEnv v = local (v ++)
+
 -- Phase 1: constraint gathering
 
 gather :: Term -> GMonad Gathered
@@ -94,6 +97,24 @@ gather (Term_LetAnn b t) = -- Case polytype
          extra = Constraint_Exists $ bind vars (q1 ++ ex1, Constraint_Unify t1 tau1 : c1)
      return $ Gathered tau2 (AnnTerm_LetAnn (bind (translate x, embed ann1) ann2) t tau2)
                        ex2 (extra : c2)
+
+{-
+gatherAlternative :: (TermVar, Bind [TermVar] TermVar) -> GMonad Gathered
+gatherAlternative (con, b) =
+  do -- Get information about constructor
+     sigma    <- lookupEnv con
+     (q,v,_)  <- splitType sigma
+     let (argsT,resultT) = splitArrow v
+     -- Unbind the expression
+     (args,e) <- unbind b
+     Gathered tau ann ex c <- extendsEnv (zip args argsT) $ gather e
+     return _
+-}
+
+splitArrow :: MonoType -> ([MonoType],MonoType)
+splitArrow (MonoType_Arrow s r) = let (s',r') = splitArrow r
+                                   in (s:s', r')
+splitArrow m = ([],m)
 
 -- Phase 2: constraint solving
 
