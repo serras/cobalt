@@ -90,7 +90,7 @@ gather (Term_LetAnn b t) = -- Case polytype
      Gathered tau1 ann1 ex1 c1 <- gather e1
      Gathered tau2 ann2 ex2 c2 <- extendEnv x t $ gather e2
      env <- ask
-     let vars = fv t1 `union` fv c1 \\ fv env
+     let vars = fv tau1 `union` fv c1 \\ fv env
          extra = Constraint_Exists $ bind vars (q1 ++ ex1, Constraint_Unify t1 tau1 : c1)
      return $ Gathered tau2 (AnnTerm_LetAnn (bind (translate x, embed ann1) ann2) t tau2)
                        ex2 (extra : c2)

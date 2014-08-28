@@ -52,7 +52,8 @@ singIdLet3Err3 = let x :: {a} {b} [a -> b] = sing id in x       => fail;
 singIdErr4 :: {a} {b} [a -> b] = sing id                        => fail;
 
 stBind = bindST                                        => ok;
-stExample1 = runST (newSTRef 3)                        => ok;
+stExample0 = newSTRef 4                                => ok;
+stExample1 = runST (newSTRef 3)                        => fail;
 stExample2 = bindST (newSTRef 3) readSTRef             => ok;
 stExample3Err = readSTRef (runST (newSTRef 3))         => fail;
 stExample4Err = runST (readSTRef (runST (newSTRef 3))) => fail;
