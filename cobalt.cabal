@@ -9,10 +9,11 @@ build-type:          Simple
 cabal-version:       >=1.10
 
 library
-  exposed-modules:   Language.Cobalt.Step,
-                     Language.Cobalt.Infer,
-                     Language.Cobalt.Syntax,
-                     Language.Cobalt.Parser
+  exposed-modules:   Language.Cobalt.Syntax,
+                     Language.Cobalt.Parser,
+                     Language.Cobalt.Gather,
+                     Language.Cobalt.Solver.Step,
+                     Language.Cobalt.Solver
   -- other-modules:       
   build-depends:     base >= 4 && < 5,
                      unbound,

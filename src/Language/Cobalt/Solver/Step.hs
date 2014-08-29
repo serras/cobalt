@@ -1,5 +1,5 @@
 {-# LANGUAGE CPP #-}
-module Language.Cobalt.Step (
+module Language.Cobalt.Solver.Step (
   SMonad
 , SolutionStep(..)
 , whileApplicable

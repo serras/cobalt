@@ -8,8 +8,9 @@ import System.Environment
 import Text.Parsec.String
 import Unbound.LocallyNameless
 
-import Language.Cobalt.Infer
+import Language.Cobalt.Gather
 import Language.Cobalt.Parser (parseFile)
+import Language.Cobalt.Solver
 import Language.Cobalt.Syntax
 
 main :: IO ()
