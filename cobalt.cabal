@@ -1,6 +1,6 @@
 name:                cobalt
 version:             0.1.0.0
-synopsis:            COnstraint-BAsed Language which resembles Haskell
+synopsis:            COnstraint-BAsed Little Typecheker
 author:              Alejandro Serrano
 maintainer:          A.SerranoMena@uu.nl
 category:            Language
