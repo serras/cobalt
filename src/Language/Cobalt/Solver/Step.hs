@@ -34,14 +34,14 @@ whileApplicable f c = innerApplicable' c False
             (newC,True)  -> innerApplicable' newC True
 
 stepOverList :: String -> ([Constraint] -> Constraint -> SMonad SolutionStep)
-             -> [Constraint] -> SMonad ([Constraint], Bool)
-stepOverList s f lst = stepOverList' lst [] False
+             -> [Constraint] -> [Constraint] -> SMonad ([Constraint], Bool)
+stepOverList s f extra lst = stepOverList' lst [] False
   where -- Finish cases: last two args are changed-in-this-loop, and changed-at-all
         -- stepOverList' [] accum True  _     = stepOverList' accum [] False True
         stepOverList' [] accum atAll = return (accum, atAll)
         -- Rest of cases
         stepOverList' (x:xs) accum atAll = do
-          r <- {- myTrace (s ++ " " ++ show x) $ -} f (xs ++ accum) x
+          r <- {- myTrace (s ++ " " ++ show x) $ -} f (extra ++ xs ++ accum) x
           case r of
             NotApplicable -> stepOverList' xs (x:accum) atAll
             Applied newX  -> do -- vars <- get
@@ -53,7 +53,7 @@ stepOverProductList :: String -> ([Constraint] -> [Constraint] -> Constraint -> 
 stepOverProductList s f given lst = stepOverProductList' lst []
   where stepOverProductList' []     accum = return (accum, False)
         stepOverProductList' (x:xs) accum = do
-          r <- stepOverList (s ++ " " ++ show x) (\cs -> f given cs x) (xs ++ accum)
+          r <- stepOverList (s ++ " " ++ show x) (\cs -> f given cs x) [] (xs ++ accum)
           case r of
             (_,     False) -> stepOverProductList' xs (x:accum)
             (newLst,True)  -> return (x:newLst, True)
@@ -63,7 +63,7 @@ stepOverProductListDeleteBoth :: String -> ([Constraint] -> [Constraint] -> Cons
 stepOverProductListDeleteBoth s f given lst = stepOverProductList' lst []
   where stepOverProductList' []     accum = return (accum, False)
         stepOverProductList' (x:xs) accum = do
-          r <- stepOverList (s ++ " " ++ show x) (\cs -> f given cs x) (xs ++ accum)
+          r <- stepOverList (s ++ " " ++ show x) (\cs -> f given cs x) [] (xs ++ accum)
           case r of
             (_,     False) -> stepOverProductList' xs (x:accum)
             (newLst,True)  -> return (newLst, True)
@@ -73,7 +73,7 @@ stepOverTwoLists :: String -> ([Constraint] -> [Constraint] -> Constraint -> Con
 stepOverTwoLists s f given wanted = stepOverTwoLists' given [] wanted
   where stepOverTwoLists' []     _      w = return (w, False)
         stepOverTwoLists' (x:xs) accumG w = do
-          r <- stepOverList (s ++ " " ++ show x) (\ws -> f (xs ++ accumG) ws x) wanted
+          r <- stepOverList (s ++ " " ++ show x) (\ws -> f (xs ++ accumG) ws x) [] wanted
           case r of
             (_,    False) -> stepOverTwoLists' xs (x:accumG) w
             (newW, True)  -> return (newW, True)

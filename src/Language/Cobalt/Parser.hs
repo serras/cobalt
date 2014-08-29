@@ -86,7 +86,10 @@ createCaseAlternative :: String -> [String] -> Term -> (TermVar, Bind [TermVar] 
 createCaseAlternative con args e = (string2Name con, bind (map string2Name args) e)
 
 parsePolyType :: Parsec String s PolyType
-parsePolyType = try (createPolyType PolyType_Inst
+parsePolyType = nf <$> parsePolyType'
+
+parsePolyType' :: Parsec String s PolyType
+parsePolyType' = try (createPolyType PolyType_Inst
                      <$> braces ((,) <$> identifier
                                      <*  reservedOp ">"
                                      <*> parsePolyType)

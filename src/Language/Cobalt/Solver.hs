@@ -60,7 +60,7 @@ isTouchable x = gets (x `elem`)
 simpl :: [Constraint] -> [Constraint] -> SMonad Solution
 simpl given wanted = do (g,_) <- whileApplicable (\c -> do
                            (interactedGU,apGIU) <- whileApplicable (\cc -> do
-                             (canonicalG,apGC)   <- whileApplicable (stepOverList "canong" (canon' True)) cc
+                             (canonicalG,apGC)   <- whileApplicable (stepOverList "canong" (canon True) []) cc
                              (interactedGU,apGU) <- stepOverProductList "unifyg" unifyInteract [] canonicalG
                              return (interactedGU, apGC || apGU)) c
                            (interactedG,apGI) <- stepOverProductListDeleteBoth "interg" interact_ [] interactedGU
@@ -68,7 +68,7 @@ simpl given wanted = do (g,_) <- whileApplicable (\c -> do
                         (s,_) <- whileApplicable (\c -> do
                            (interacted,apI) <- whileApplicable (\cc -> do
                              (interactedU,apU) <- whileApplicable (\ccc -> do
-                               (canonical2,apC2)  <- whileApplicable (stepOverList "canonw" (canon' False)) ccc
+                               (canonical2,apC2)  <- whileApplicable (stepOverList "canonw" (canon False) g) ccc
                                (interacted2,apI2) <- stepOverProductList "unifyw" unifyInteract g canonical2
                                return (interacted2, apC2 || apI2)) cc
                              (interacted2,apI2) <- stepOverProductListDeleteBoth "interw" interact_ g interactedU
@@ -78,12 +78,9 @@ simpl given wanted = do (g,_) <- whileApplicable (\c -> do
                         v <- get
                         myTrace ("touchables: " ++ show v) $ return $ toSolution g s v
 
-canon' :: Bool -> [Constraint] -> Constraint -> SMonad SolutionStep
-canon' isGiven _ = canon isGiven
-
-canon :: Bool -> Constraint -> SMonad SolutionStep
+canon :: Bool -> [Constraint] -> Constraint -> SMonad SolutionStep
 -- Basic unification
-canon isGiven (Constraint_Unify t1 t2) = case (t1,t2) of
+canon isGiven _ (Constraint_Unify t1 t2) = case (t1,t2) of
   (MonoType_Var v1, MonoType_Var v2)
     | v1 == v2  -> return $ Applied []  -- Refl
     | otherwise -> do touch1 <- isTouchable v1
@@ -109,29 +106,29 @@ canon isGiven (Constraint_Unify t1 t2) = case (t1,t2) of
     | c1 == c2 && length a1 == length a2 -> return $ Applied $ zipWith Constraint_Unify a1 a2
   (_, _) -> throwError $ "Different constructor heads: " ++ show t1 ++ " ~ " ++ show t2
 -- Convert from monotype > or = into monotype ~
-canon _ (Constraint_Inst  t (PolyType_Mono m)) = return $ Applied [Constraint_Unify t m]
-canon _ (Constraint_Equal t (PolyType_Mono m)) = return $ Applied [Constraint_Unify t m]
+canon _ _ (Constraint_Inst  t (PolyType_Mono m)) = return $ Applied [Constraint_Unify t m]
+canon _ _ (Constraint_Equal t (PolyType_Mono m)) = return $ Applied [Constraint_Unify t m]
 -- This is not needed
-canon _ (Constraint_Inst _ PolyType_Bottom)   = return $ Applied []
+canon _ _ (Constraint_Inst _ PolyType_Bottom)   = return $ Applied []
 -- Constructors and <= and ==
-canon _ (Constraint_Inst (MonoType_Var v) p)  =
+canon _ _ (Constraint_Inst (MonoType_Var v) p)  =
   let nfP = nf p
    in if nfP `aeq` p then return NotApplicable
                      else return $ Applied [Constraint_Inst (MonoType_Var v) nfP]
-canon _ (Constraint_Inst x p) = do
+canon _ _ (Constraint_Inst x p) = do
   (c,t) <- instantiate p True  -- Perform instantiation
   return $ Applied $ (Constraint_Unify x t) : c
-canon _ (Constraint_Equal (MonoType_Var v) p)  =
+canon _ _ (Constraint_Equal (MonoType_Var v) p)  =
   let nfP = nf p
    in if nfP `aeq` p then return NotApplicable
                      else return $ Applied [Constraint_Equal (MonoType_Var v) nfP]
 -- We need to instantiate, but keep record
 -- of those variables which are not touchable
-canon _ (Constraint_Equal x p) = do
+canon _ _ (Constraint_Equal x p) = do
   (c,t) <- instantiate p False  -- Perform instantiation
   return $ Applied $ (Constraint_Unify x t) : c
 -- Rest
-canon _ _ = return NotApplicable
+canon _ _ _ = return NotApplicable
 
 instantiate :: PolyType -> Bool -> SMonad ([Constraint], MonoType)
 instantiate (PolyType_Inst b) tch = do
