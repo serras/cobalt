@@ -1,10 +1,10 @@
 {-# LANGUAGE ViewPatterns #-}
 module Language.Cobalt.Solver (
-  Solution(..)
+  SMonad
+, Solution(..)
 , solve
 , toSolution
 , closeType
-, SMonad
 ) where
 
 import Control.Monad.Error

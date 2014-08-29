@@ -6,29 +6,37 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE OverlappingInstances #-}
 module Language.Cobalt.Syntax (
+  -- * Types
   TyVar
+  -- ** Polytypes
 , PolyType(..)
 , nf
+  -- ** Monotypes
 , MonoType(..)
+  -- ** Built-in types
 , intTy
 , listTy
 , tupleTy
 , pVar
 , mVar
 , (-->)
+  -- ** From poly to mono
 , splitType
 , closeType
 , closeTypeWithException
+  -- * Terms
 , TermVar
 , Term(..)
+  -- ** Annotated terms
 , AnnTermVar
 , AnnTerm(..)
 , showAnnTerm
 , atAnn
 , getAnn
--- , BasicConstraint(..)
+  -- * Constraints
 , Constraint(..)
 , isExists
+  -- * Whole program structure
 , Env
 , DataEnv
 , initialDataEnv

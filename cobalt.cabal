@@ -12,9 +12,8 @@ library
   exposed-modules:   Language.Cobalt.Syntax,
                      Language.Cobalt.Parser,
                      Language.Cobalt.Gather,
-                     Language.Cobalt.Solver.Step,
                      Language.Cobalt.Solver
-  -- other-modules:       
+  other-modules:     Language.Cobalt.Solver.Step
   build-depends:     base >= 4 && < 5,
                      unbound,
                      parsec,
