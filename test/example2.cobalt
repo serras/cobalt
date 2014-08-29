@@ -7,10 +7,27 @@ import tuple  :: {a} {b} a -> b -> (a,b);
 import exampleInt  :: 'Integer -> 'Example 'Integer;
 import exampleBool :: 'Bool    -> 'Example 'Bool;
 
+import fix :: {a} {x = a -> a} x -> a;
+
+import zero :: 'Integer;
+import succ :: 'Integer -> 'Integer;
+import plus :: 'Integer -> 'Integer -> 'Integer;
+import mult :: 'Integer -> 'Integer -> 'Integer;
+
 headOrZero = \x -> match x with 'List
                    | nil -> 0
                    | cons x xs -> x => ok;
 
-example = \x -> match x with 'Example
-                | exampleInt  x -> x
-                | exampleBool b -> 8 => ok;
+example :: {a} 'Example a -> 'Integer
+         = \x -> match x with 'Example
+                 | exampleInt  x -> x
+                 | exampleBool b -> 8 => ok;
+
+appendA = \a -> \x -> \y -> match x with 'List
+                            | nil -> y
+                            | cons z zs -> cons z (a zs y) => ok;
+append = fix appendA => ok;
+
+factorial = fix (\f -> \n -> match n with 'Integer
+                             | zero -> 1
+                             | succ x -> mult (plus x 1) (f x)) => ok;
