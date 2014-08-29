@@ -13,7 +13,7 @@ module Language.Cobalt.Step (
 import Control.Monad.Error
 import Control.Monad.State
 import Unbound.LocallyNameless
-#define TRACE_SOLVER 0
+#define TRACE_SOLVER 1
 #if TRACE_SOLVER
 import Debug.Trace
 #else

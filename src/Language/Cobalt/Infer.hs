@@ -10,10 +10,11 @@ module Language.Cobalt.Infer (
 ) where
 
 import Control.Applicative
+import Control.Arrow ((***))
 import Control.Monad.Error
 import Control.Monad.Reader
 import Control.Monad.State
-import Data.List (insert, find, delete, nub, partition, (\\))
+import Data.List (insert, find, delete, partition, nub, (\\))
 import Unbound.LocallyNameless
 
 import Language.Cobalt.Step
@@ -24,19 +25,25 @@ data Gathered = Gathered { ty      :: MonoType
                          , givenC  :: [Constraint]
                          , wantedC :: [Constraint]
                          } deriving Show
-type GMonad = ReaderT Env (ErrorT String FreshM)
+type GMonad = ReaderT (Env,DataEnv) (ErrorT String FreshM)
 
 lookupEnv :: TermVar -> GMonad PolyType
-lookupEnv v = do optT <- asks (lookup v)
+lookupEnv v = do optT <- asks (\(env,_dataenv) -> lookup v env)
                  case optT of
                    Nothing -> throwError $ "Cannot find " ++ show v
                    Just t  -> return t
 
+lookupDataEnv :: String -> GMonad [TyVar]
+lookupDataEnv n = do optT <- asks (\(_env,dataenv) -> lookup n dataenv)
+                     case optT of
+                       Nothing -> throwError $ "Cannot find data " ++ show n
+                       Just t  -> return t
+
 extendEnv :: TermVar -> PolyType -> GMonad a -> GMonad a
-extendEnv v s = local ((v,s) :)
+extendEnv v s = local $ ((v,s) :) *** id
 
 extendsEnv :: [(TermVar, PolyType)] -> GMonad a -> GMonad a
-extendsEnv v = local (v ++)
+extendsEnv v = local $ (v ++) *** id
 
 -- Phase 1: constraint gathering
 
@@ -97,24 +104,72 @@ gather (Term_LetAnn b t) = -- Case polytype
          extra = Constraint_Exists $ bind vars (q1 ++ ex1, Constraint_Unify t1 tau1 : c1)
      return $ Gathered tau2 (AnnTerm_LetAnn (bind (translate x, embed ann1) ann2) t tau2)
                        ex2 (extra : c2)
+gather (Term_Match e dname bs) =
+  do Gathered tau ann ex c <- gather e
+     -- Work on alternatives
+     tyvars <- mapM fresh =<< lookupDataEnv dname
+     resultvar <- fresh $ string2Name "beta"
+     alternatives <- mapM (gatherAlternative dname tyvars resultvar) bs
+     let allExtras = concatMap (givenC  . snd) alternatives
+         allCs     = concatMap (wantedC . snd) alternatives
+         bindings  = map (\((con,vars),g) -> (con, bind vars (annTerm g))) alternatives
+         extra     = Constraint_Unify (MonoType_Con dname (map mVar tyvars)) tau
+     return $ Gathered (mVar resultvar) (AnnTerm_Match ann dname bindings (mVar resultvar))
+                       (ex ++ allExtras) (extra : c ++ allCs)
 
-{-
-gatherAlternative :: (TermVar, Bind [TermVar] TermVar) -> GMonad Gathered
-gatherAlternative (con, b) =
+gatherAlternative :: String -> [TyVar] -> TyVar -> (TermVar, Bind [TermVar] Term)
+                  -> GMonad ((TermVar, [TermVar]), Gathered)
+gatherAlternative dname tyvars resultvar (con, b) =
   do -- Get information about constructor
      sigma    <- lookupEnv con
      (q,v,_)  <- splitType sigma
      let (argsT,resultT) = splitArrow v
-     -- Unbind the expression
-     (args,e) <- unbind b
-     Gathered tau ann ex c <- extendsEnv (zip args argsT) $ gather e
-     return _
--}
+     case resultT of
+       MonoType_Con dname2 convars | dname == dname2 -> do
+         (args,e) <- unbind b
+         let (rest,unifs) = generateExtraUnifications tyvars convars
+             argsT' = map (PolyType_Mono . substs unifs) argsT
+         Gathered taui anni exi ci <- extendsEnv (zip args argsT') $ gather e
+         let extraVars  = unions (map fv argsT') \\ tyvars
+             extraQs    = q ++ rest
+             trivial    = all isTrivialConstraint extraQs
+             withResult = Constraint_Unify taui (mVar resultvar) : ci
+         if trivial && null extraVars
+            then return $ ((con, args), Gathered taui anni exi withResult)
+            else do env <- ask
+                    let deltai = (fv taui `union` fv ci) \\ (fv env `union` tyvars)
+                        extrai = map (substs unifs) (filter (not . isTrivialConstraint) extraQs) ++ exi
+                    return $ ((con, args), Gathered taui anni [] [Constraint_Exists (bind deltai (extrai,withResult))])
+       _ -> throwError $ "Match alternative " ++ show con ++ " does not correspond to data " ++ dname
 
 splitArrow :: MonoType -> ([MonoType],MonoType)
 splitArrow (MonoType_Arrow s r) = let (s',r') = splitArrow r
                                    in (s:s', r')
 splitArrow m = ([],m)
+
+generateExtraUnifications :: [TyVar] -> [MonoType] -> ([Constraint],[(TyVar,MonoType)])
+generateExtraUnifications vars ms =
+  let initial = zip vars ms
+      (unifs, rest) = partition (\(_, m) -> case m of
+                                   MonoType_Var v -> length (filter (\(_,m2) -> case m2 of
+                                                                        MonoType_Var v2 -> v2 == v
+                                                                        _               -> False) initial) == 1
+                                   _              -> False) initial
+   in (map (\(v,m) -> Constraint_Unify (mVar v) m) rest,
+       map (\(v,MonoType_Var v2) -> (v2, mVar v)) unifs)
+
+isTrivialConstraint :: Constraint -> Bool
+isTrivialConstraint (Constraint_Inst _ PolyType_Bottom) = True
+isTrivialConstraint (Constraint_Unify t1 t2) | t1 == t2 = True
+isTrivialConstraint (Constraint_Equal t1 (PolyType_Mono t2)) | t1 == t2 = True
+isTrivialConstraint (Constraint_Inst  t1 (PolyType_Mono t2)) | t1 == t2 = True
+isTrivialConstraint _ = False
+
+unions :: Eq a => [[a]] -> [a]
+unions = nub . concat
+
+unionMap :: Ord b => (a -> [b]) -> [a] -> [b]
+unionMap f = unions . map f
 
 -- Phase 2: constraint solving
 
@@ -161,30 +216,30 @@ isTouchable x = gets (x `elem`)
 simpl :: [Constraint] -> [Constraint] -> SMonad Solution
 simpl given wanted = do (g,_) <- whileApplicable (\c -> do
                            (interactedGU,apGIU) <- whileApplicable (\cc -> do
-                             (canonicalG,apGC)   <- whileApplicable (stepOverList "canon" canon') cc
-                             (interactedGU,apGU) <- stepOverProductList "unify" unifyInteract [] canonicalG
+                             (canonicalG,apGC)   <- whileApplicable (stepOverList "canong" (canon' True)) cc
+                             (interactedGU,apGU) <- stepOverProductList "unifyg" unifyInteract [] canonicalG
                              return (interactedGU, apGC || apGU)) c
-                           (interactedG,apGI) <- stepOverProductListDeleteBoth "inter" interact_ [] interactedGU
+                           (interactedG,apGI) <- stepOverProductListDeleteBoth "interg" interact_ [] interactedGU
                            return (interactedG, apGIU || apGI)) given
                         (s,_) <- whileApplicable (\c -> do
                            (interacted,apI) <- whileApplicable (\cc -> do
                              (interactedU,apU) <- whileApplicable (\ccc -> do
-                               (canonical2,apC2)  <- whileApplicable (stepOverList "canon" canon') ccc
-                               (interacted2,apI2) <- stepOverProductList "unify" unifyInteract g canonical2
+                               (canonical2,apC2)  <- whileApplicable (stepOverList "canonw" (canon' False)) ccc
+                               (interacted2,apI2) <- stepOverProductList "unifyw" unifyInteract g canonical2
                                return (interacted2, apC2 || apI2)) cc
-                             (interacted2,apI2) <- stepOverProductListDeleteBoth "inter" interact_ g interactedU
+                             (interacted2,apI2) <- stepOverProductListDeleteBoth "interw" interact_ g interactedU
                              return (interacted2, apU || apI2)) c
-                           (simplified,apS) <- stepOverTwoLists "simpl" simplifies g interacted
+                           (simplified,apS) <- stepOverTwoLists "simplw" simplifies g interacted
                            return (simplified, apI || apS)) wanted
                         v <- get
                         myTrace ("touchables: " ++ show v) $ return $ toSolution g s v
 
-canon' :: [Constraint] -> Constraint -> SMonad SolutionStep
-canon' _ = canon
+canon' :: Bool -> [Constraint] -> Constraint -> SMonad SolutionStep
+canon' isGiven _ = canon isGiven
 
-canon :: Constraint -> SMonad SolutionStep
+canon :: Bool -> Constraint -> SMonad SolutionStep
 -- Basic unification
-canon (Constraint_Unify t1 t2) = case (t1,t2) of
+canon isGiven (Constraint_Unify t1 t2) = case (t1,t2) of
   (MonoType_Var v1, MonoType_Var v2)
     | v1 == v2  -> return $ Applied []  -- Refl
     | otherwise -> do touch1 <- isTouchable v1
@@ -199,8 +254,9 @@ canon (Constraint_Unify t1 t2) = case (t1,t2) of
   (MonoType_Var v, _)
     | v `elem` fv t2 -> throwError $ "Infinite type: " ++ show t1 ++ " ~ " ++ show t2
     | otherwise      -> do b <- isTouchable v
-                           if b then return NotApplicable
-                                else throwError $ "Unifying non-touchable variable: " ++ show v ++ " ~ " ++ show t2
+                           if b || isGiven
+                              then return NotApplicable
+                              else throwError $ "Unifying non-touchable variable: " ++ show v ++ " ~ " ++ show t2
   (t, v@(MonoType_Var _)) -> return $ Applied [Constraint_Unify v t]  -- Orient
   -- Next are Tdec and Faildec
   (MonoType_Arrow s1 r1, MonoType_Arrow s2 r2) ->
@@ -209,29 +265,29 @@ canon (Constraint_Unify t1 t2) = case (t1,t2) of
     | c1 == c2 && length a1 == length a2 -> return $ Applied $ zipWith Constraint_Unify a1 a2
   (_, _) -> throwError $ "Different constructor heads: " ++ show t1 ++ " ~ " ++ show t2
 -- Convert from monotype > or = into monotype ~
-canon (Constraint_Inst  t (PolyType_Mono m)) = return $ Applied [Constraint_Unify t m]
-canon (Constraint_Equal t (PolyType_Mono m)) = return $ Applied [Constraint_Unify t m]
+canon _ (Constraint_Inst  t (PolyType_Mono m)) = return $ Applied [Constraint_Unify t m]
+canon _ (Constraint_Equal t (PolyType_Mono m)) = return $ Applied [Constraint_Unify t m]
 -- This is not needed
-canon (Constraint_Inst _ PolyType_Bottom)   = return $ Applied []
+canon _ (Constraint_Inst _ PolyType_Bottom)   = return $ Applied []
 -- Constructors and <= and ==
-canon (Constraint_Inst (MonoType_Var v) p)  =
+canon _ (Constraint_Inst (MonoType_Var v) p)  =
   let nfP = nf p
    in if nfP `aeq` p then return NotApplicable
                      else return $ Applied [Constraint_Inst (MonoType_Var v) nfP]
-canon (Constraint_Inst x p) = do
+canon _ (Constraint_Inst x p) = do
   (c,t) <- instantiate p True  -- Perform instantiation
   return $ Applied $ (Constraint_Unify x t) : c
-canon (Constraint_Equal (MonoType_Var v) p)  =
+canon _ (Constraint_Equal (MonoType_Var v) p)  =
   let nfP = nf p
    in if nfP `aeq` p then return NotApplicable
                      else return $ Applied [Constraint_Equal (MonoType_Var v) nfP]
 -- We need to instantiate, but keep record
 -- of those variables which are not touchable
-canon (Constraint_Equal x p) = do
+canon _ (Constraint_Equal x p) = do
   (c,t) <- instantiate p False  -- Perform instantiation
   return $ Applied $ (Constraint_Unify x t) : c
 -- Rest
-canon _ = return NotApplicable
+canon _ _ = return NotApplicable
 
 instantiate :: PolyType -> Bool -> SMonad ([Constraint], MonoType)
 instantiate (PolyType_Inst b) tch = do
@@ -356,7 +412,7 @@ checkSubsumption ctx p1 p2 =
           let s' = substitutionInTermsOf tch s
               r' = map (substs s') r ++ map (\(v,t) -> Constraint_Unify (MonoType_Var v) t)
                                             (filter (\(v,_) -> v `elem` tch) s')
-              allFvs = nub $ concatMap fv r'
+              allFvs = unionMap fv r'
           if all (`elem` tch) allFvs
              then return $ Applied r'
              else return NotApplicable
@@ -394,7 +450,7 @@ toSolution gs rs vs = let initialSubst = map (\x -> (x, mVar x)) (fv rs)
                        in Solution (doFinalSubst gs)
                                    (doFinalSubst (notUnifyConstraints rs))
                                    (runSubst initialSubst) vs
-  where runSubst s = let vars = concatMap (\(_,mt) -> fv mt) s
+  where runSubst s = let vars = unionMap (\(_,mt) -> fv mt) s
                          unif = concatMap (\v -> filter (isVarUnifyConstraint (== v)) rs) vars
                          sub = map (\(Constraint_Unify (MonoType_Var v) t) -> (v,t)) unif
                       in case s of

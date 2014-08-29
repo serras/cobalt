@@ -31,6 +31,7 @@ module Language.Cobalt.Syntax (
 , isExists
 , Env
 , DataEnv
+, initialDataEnv
 , Defn
 , AnnDefn
 ) where
@@ -92,14 +93,14 @@ intTy :: MonoType
 intTy = MonoType_Con "Integer" []
 
 listTy :: MonoType -> MonoType
-listTy a = MonoType_Con "[]" [a]
+listTy a = MonoType_Con "List" [a]
 
 tupleTy :: MonoType -> MonoType -> MonoType
-tupleTy a b = MonoType_Con "(,)" [a,b]
+tupleTy a b = MonoType_Con "Tuple2" [a,b]
 
 instance Show MonoType where
-  show (MonoType_Con "[]"  [t]) = "[" ++ show t ++ "]"
-  show (MonoType_Con "(,)" [t1,t2]) = "(" ++ show t1 ++ "," ++ show t2 ++ ")"
+  show (MonoType_Con "List"  [t]) = "[" ++ show t ++ "]"
+  show (MonoType_Con "Tuple2" [t1,t2]) = "(" ++ show t1 ++ "," ++ show t2 ++ ")"
   show (MonoType_Con c a) = '\'':c ++ concatMap (\x -> " " ++ doParens (show x)) a
   show (MonoType_Arrow s t) = doParens (show s) ++ " -> " ++ show t
   show (MonoType_Var v) = show v
@@ -224,9 +225,9 @@ showAnnTerm' f (AnnTerm_Match e c bs t) = do
   bs' <- mapM (\(d,b) -> do (xs,es) <- unbind b
                             es' <- showAnnTerm' f es
                             let line1 = "| " ++ intercalate " " (map show (d:xs)) ++ " ->"
-                            return $ line1 : map ("  " ++) es') bs
+                            return $ line1 : map ("    " ++) es') bs
   let firstPart  = "match " : map ("  " ++) e'
-      line2      = "with " ++ c ++ " ==>" ++ show (f t)
+      line2      = "with " ++ c ++ " ==> " ++ show (f t)
       secondPart = line2 : concat bs'
   return $ firstPart ++ secondPart
 
@@ -309,6 +310,11 @@ type Env     = [(TermVar, PolyType)]
 type DataEnv = [(String, [TyVar])]
 type Defn    = (TermVar, Term, Maybe PolyType)
 type AnnDefn = (TermVar, AnnTerm, PolyType)
+
+initialDataEnv :: DataEnv
+initialDataEnv = [("Integer", [])
+                 ,("List",   [string2Name "a"])
+                 ,("Tuple2", [string2Name "a", string2Name "b"])]
 
 -- Derive `unbound` instances
 $(derive [''PolyType, ''MonoType, ''Term, ''AnnTerm, ''Constraint])

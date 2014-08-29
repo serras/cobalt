@@ -1,0 +1,16 @@
+data 'Example a;
+
+import nil    :: {a} [a];
+import cons   :: {a} a -> [a] -> [a];
+import tuple  :: {a} {b} a -> b -> (a,b);
+
+import exampleInt  :: 'Integer -> 'Example 'Integer;
+import exampleBool :: 'Bool    -> 'Example 'Bool;
+
+headOrZero = \x -> match x with 'List
+                   | nil -> 0
+                   | cons x xs -> x => ok;
+
+example = \x -> match x with 'Example
+                | exampleInt  x -> x
+                | exampleBool b -> 8 => ok;

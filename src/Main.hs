@@ -21,44 +21,46 @@ main = do
                   putStr "Error while parsing: "
                   setSGR [Reset]
                   putStrLn (show ep)
-    Right (env,denv,defns) -> case todo of
-      "parse"  -> do mapM_ (putStrLn . show) env
-                     putStrLn ""
-                     mapM_ (putStrLn . show) denv
-                     putStrLn ""
-                     mapM_ (putStrLn . show) defns
-      "solve"  -> showAnns (doPerDefn' tcDefn tcNextEnv env defns) (showTc True)
-      "report" -> showAnns (doPerDefn' tcDefn tcNextEnv env defns) (showTc False)
-      "gather" -> showAnns (doPerDefn' gDefn const env defns) showG
-      _ -> putStrLn "Unrecognized command"
+    Right (env,denv,defns) ->
+      let denv' = denv ++ initialDataEnv
+       in case todo of
+            "parse"  -> do mapM_ (putStrLn . show) env
+                           putStrLn ""
+                           mapM_ (putStrLn . show) denv
+                           putStrLn ""
+                           mapM_ (putStrLn . show) defns
+            "solve"  -> showAnns (doPerDefn' tcDefn tcNextEnv env denv' defns) (showTc True)
+            "report" -> showAnns (doPerDefn' tcDefn tcNextEnv env denv' defns) (showTc False)
+            "gather" -> showAnns (doPerDefn' gDefn const env denv' defns) showG
+            _ -> putStrLn "Unrecognized command"
 
-doPerDefn' :: (Env -> Defn -> ErrorT String FreshM a)
+doPerDefn' :: (Env -> DataEnv -> Defn -> ErrorT String FreshM a)
            -> (Env -> a -> Env)
-           -> Env -> [(Defn,Bool)] -> [(Either (TermVar,String) a,Bool)]
-doPerDefn' f nx e d = runFreshM (doPerDefn f nx e d)
+           -> Env -> DataEnv -> [(Defn,Bool)] -> [(Either (TermVar,String) a,Bool)]
+doPerDefn' f nx e de d = runFreshM (doPerDefn f nx e de d)
 
-doPerDefn :: (Env -> Defn -> ErrorT String FreshM a)
+doPerDefn :: (Env -> DataEnv -> Defn -> ErrorT String FreshM a)
           -> (Env -> a -> Env)
-          -> Env -> [(Defn,Bool)] -> FreshM [(Either (TermVar,String) a,Bool)]
-doPerDefn _ _ _ [] = return []
-doPerDefn f nx e (((n,t,p),b):xs) = do r <- runErrorT (f e (n,t,p))
-                                       case r of
-                                         Left err -> do rest <- doPerDefn f nx e xs
-                                                        return $ (Left (n,err),b) : rest
-                                         Right ok -> do rest <- doPerDefn f nx (nx e ok) xs
-                                                        return $ (Right ok,b) : rest
+          -> Env -> DataEnv -> [(Defn,Bool)] -> FreshM [(Either (TermVar,String) a,Bool)]
+doPerDefn _ _ _ _ [] = return []
+doPerDefn f nx e de (((n,t,p),b):xs) = do r <- runErrorT (f e de (n,t,p))
+                                          case r of
+                                            Left err -> do rest <- doPerDefn f nx e de xs
+                                                           return $ (Left (n,err),b) : rest
+                                            Right ok -> do rest <- doPerDefn f nx (nx e ok) de xs
+                                                           return $ (Right ok,b) : rest
 
-tcDefn :: Env -> Defn -> ErrorT String FreshM (AnnDefn,[Constraint])
-tcDefn e (n,t,Nothing) = do
-  Gathered _ a g w <- runReaderT (gather t) e
+tcDefn :: Env -> DataEnv -> Defn -> ErrorT String FreshM (AnnDefn,[Constraint])
+tcDefn e de (n,t,Nothing) = do
+  Gathered _ a g w <- runReaderT (gather t) (e,de)
   let tch = fv (getAnn a) `union` fv w
   Solution smallG rs sb tch' <- solve g w tch
   let thisAnn = atAnn (substs sb) a
       finalT = nf $ closeTypeWithException (smallG ++ rs) (getAnn thisAnn) (not . (`elem` tch'))
   tcCheckErrors rs finalT
   return ((n,thisAnn,finalT),rs)
-tcDefn e (n,t,Just p) = do
-  Gathered _ a g w <- runReaderT (gather t) e
+tcDefn e de (n,t,Just p) = do
+  Gathered _ a g w <- runReaderT (gather t) (e,de)
   (q1,t1,_) <- splitType p
   let extra = Constraint_Unify (getAnn a) t1
       tch = fv (getAnn a) `union` fv w
@@ -112,13 +114,13 @@ showTc always (((n,t,p),cs),b) = do
   when (not b || always) $ do
     putStrLn (show t)
 
-gDefn :: Env -> Defn -> ErrorT String FreshM (TermVar,Gathered)
-gDefn e (n,t,Nothing) = do r <- runReaderT (gather t) e
-                           return (n, r)
-gDefn e (n,t,Just p)  = do Gathered typ a g w <- runReaderT (gather t) e
-                           (q1,t1,_) <- splitType p
-                           let extra = Constraint_Unify (getAnn a) t1
-                           return (n, Gathered typ a (g ++ q1) (extra:w))
+gDefn :: Env -> DataEnv -> Defn -> ErrorT String FreshM (TermVar,Gathered)
+gDefn e de (n,t,Nothing) = do r <- runReaderT (gather t) (e,de)
+                              return (n, r)
+gDefn e de (n,t,Just p)  = do Gathered typ a g w <- runReaderT (gather t) (e,de)
+                              (q1,t1,_) <- splitType p
+                              let extra = Constraint_Unify (getAnn a) t1
+                              return (n, Gathered typ a (g ++ q1) (extra:w))
 
 showG :: ((TermVar,Gathered),Bool) -> IO ()
 showG ((n,(Gathered t ann g w)),_) = do
