@@ -9,7 +9,7 @@ import tripla :: {a} {b > {x} x -> x} {c} a -> b -> c -> 'Triple a b c;
 import sing   :: {a} a -> [a];
 import id     :: {a} a -> a;
 
-import bindST    :: {a} {b} {s} {t = a -> 'ST s b} 'ST s a -> t -> 'ST s b;
+import bindST    :: {a} {b} {s} 'ST s a -> (a -> 'ST s b) -> 'ST s b;
 import runST     :: {a} {s = {s} 'ST s a} s -> a;
 import newSTRef  :: {a} {s} a -> 'ST s ('STRef s a);
 import readSTRef :: {a} {s} 'STRef s a -> 'ST s a;

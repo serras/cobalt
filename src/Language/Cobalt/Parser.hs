@@ -125,6 +125,7 @@ parseMonoAtom = MonoType_List <$> brackets parseMonoType
                        parens ((,) <$> parseMonoType
                                    <*  comma
                                    <*> parseMonoType))
+            <|> parens parseMonoType
             <|> MonoType_Con <$> parseDataName
                              <*> many (    (\x -> MonoType_Con x []) <$> parseDataName
                                        <|> MonoType_Var . string2Name <$> identifier
