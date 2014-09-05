@@ -1,7 +1,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module Main where
 
-import Control.Monad.Error
+import Control.Lens
+import Control.Monad.Except
 import Control.Monad.Reader
 import System.Console.ANSI
 import System.Environment
@@ -15,54 +16,56 @@ import Language.Cobalt.Syntax
 
 main :: IO ()
 main = do
-  todo:file:_ <- getArgs
+  todo:file:rest <- getArgs
+  let higher = case rest of
+                 []         -> UseHigherRanks
+                 "higher":_ -> UseHigherRanks
+                 _          -> NoHigherRanks
   p <- parseFromFile parseFile file
   case p of
     Left ep -> do setSGR [SetColor Foreground Vivid Red]
                   putStr "Error while parsing: "
                   setSGR [Reset]
                   putStrLn (show ep)
-    Right (env,denv,defns) ->
-      let denv' = denv ++ initialDataEnv
+    Right (env, defns) ->
+      let env' =  env & dataE %~ (++ initialDataEnv)
        in case todo of
-            "parse"  -> do mapM_ (putStrLn . show) env
-                           putStrLn ""
-                           mapM_ (putStrLn . show) denv
+            "parse"  -> do putStrLn $ show env
                            putStrLn ""
                            mapM_ (putStrLn . show) defns
-            "solve"  -> showAnns (doPerDefn' tcDefn tcNextEnv env denv' defns) (showTc True)
-            "report" -> showAnns (doPerDefn' tcDefn tcNextEnv env denv' defns) (showTc False)
-            "gather" -> showAnns (doPerDefn' gDefn const env denv' defns) showG
+            "solve"  -> showAnns (doPerDefn' (tcDefn higher) tcNextEnv env' defns) (showTc True)
+            "report" -> showAnns (doPerDefn' (tcDefn higher) tcNextEnv env' defns) (showTc False)
+            "gather" -> showAnns (doPerDefn' (gDefn higher) const env' defns) showG
             _ -> putStrLn "Unrecognized command"
 
-doPerDefn' :: (Env -> DataEnv -> Defn -> ErrorT String FreshM a)
+doPerDefn' :: (Env -> Defn -> ExceptT String FreshM a)
            -> (Env -> a -> Env)
-           -> Env -> DataEnv -> [(Defn,Bool)] -> [(Either (TermVar,String) a,Bool)]
-doPerDefn' f nx e de d = runFreshM (doPerDefn f nx e de d)
+           -> Env -> [(Defn,Bool)] -> [(Either (TermVar,String) a,Bool)]
+doPerDefn' f nx e d = runFreshM (doPerDefn f nx e d)
 
-doPerDefn :: (Env -> DataEnv -> Defn -> ErrorT String FreshM a)
+doPerDefn :: (Env -> Defn -> ExceptT String FreshM a)
           -> (Env -> a -> Env)
-          -> Env -> DataEnv -> [(Defn,Bool)] -> FreshM [(Either (TermVar,String) a,Bool)]
-doPerDefn _ _ _ _ [] = return []
-doPerDefn f nx e de (((n,t,p),b):xs) = do r <- runErrorT (f e de (n,t,p))
-                                          case r of
-                                            Left err -> do rest <- doPerDefn f nx e de xs
-                                                           return $ (Left (n,err),b) : rest
-                                            Right ok -> do rest <- doPerDefn f nx (nx e ok) de xs
-                                                           return $ (Right ok,b) : rest
+          -> Env -> [(Defn,Bool)] -> FreshM [(Either (TermVar,String) a,Bool)]
+doPerDefn _ _ _ [] = return []
+doPerDefn f nx e (((n,t,p),b):xs) = do r <- runExceptT (f e (n,t,p))
+                                       case r of
+                                         Left err -> do rest <- doPerDefn f nx e xs
+                                                        return $ (Left (n,err),b) : rest
+                                         Right ok -> do rest <- doPerDefn f nx (nx e ok) xs
+                                                        return $ (Right ok,b) : rest
 
-tcDefn :: Env -> DataEnv -> Defn -> ErrorT String FreshM (AnnDefn,[Constraint])
-tcDefn e de (n,t,Nothing) = do
-  Gathered _ a g w <- runReaderT (gather t) (e,de)
+tcDefn :: UseHigherRanks -> Env -> Defn -> ExceptT String FreshM (AnnDefn,[Constraint])
+tcDefn h e (n,t,Nothing) = do
+  Gathered _ a g w <- runReaderT (gather h t) e
   let tch = fv (getAnn a) `union` fv w
   Solution smallG rs sb tch' <- solve g w tch
   let thisAnn = atAnn (substs sb) a
-      finalT = nf $ closeTypeWithException (smallG ++ rs) (getAnn thisAnn) (not . (`elem` tch'))
+      finalT = nf $ closeExn (smallG ++ rs) (getAnn thisAnn) (not . (`elem` tch'))
   tcCheckErrors rs finalT
   return ((n,thisAnn,finalT),rs)
-tcDefn e de (n,t,Just p) = do
-  Gathered _ a g w <- runReaderT (gather t) (e,de)
-  (q1,t1,_) <- splitType p
+tcDefn h e (n,t,Just p) = do
+  Gathered _ a g w <- runReaderT (gather h t) e
+  (q1,t1,_) <- split p
   let extra = Constraint_Unify (getAnn a) t1
       tch = fv (getAnn a) `union` fv w
   Solution _smallG rs sb _tch' <- solve (g ++ q1) (extra:w) tch
@@ -71,14 +74,14 @@ tcDefn e de (n,t,Just p) = do
   if not (null rs) then throwError $ "Could not discharge: " ++ show rs
                    else return ((n,thisAnn,p),rs)
 
-tcCheckErrors :: [Constraint] -> PolyType -> ErrorT String FreshM ()
+tcCheckErrors :: [Constraint] -> PolyType -> ExceptT String FreshM ()
 tcCheckErrors rs t = do let fvT :: [TyVar] = fv t
                         when (not (null fvT)) $ throwError $ case fvT of
                           [x] -> show x ++ " is a rigid type variable in: " ++ show t
                           _   -> show fvT ++ " are rigid type variables in: " ++ show t
                         checkAmbiguity rs
 
-checkAmbiguity :: [Constraint] -> ErrorT String FreshM ()
+checkAmbiguity :: [Constraint] -> ExceptT String FreshM ()
 checkAmbiguity cs = do let vars = map getVar cs
                            dup  = findDuplicate vars
                        case dup of
@@ -96,7 +99,7 @@ findDuplicate []     = Nothing
 findDuplicate (x:xs) = if x `elem` xs then Just x else findDuplicate xs
 
 tcNextEnv :: Env -> (AnnDefn,a) -> Env
-tcNextEnv e ((n,_,t),_) = (n,t):e
+tcNextEnv e ((n,_,t),_) = e & fnE %~ ((n,t):)
 
 showTc :: Bool -> ((AnnDefn,[Constraint]),Bool) -> IO ()
 showTc always (((n,t,p),cs),b) = do
@@ -115,13 +118,13 @@ showTc always (((n,t,p),cs),b) = do
   when (not b || always) $ do
     putStrLn (show t)
 
-gDefn :: Env -> DataEnv -> Defn -> ErrorT String FreshM (TermVar,Gathered)
-gDefn e de (n,t,Nothing) = do r <- runReaderT (gather t) (e,de)
-                              return (n, r)
-gDefn e de (n,t,Just p)  = do Gathered typ a g w <- runReaderT (gather t) (e,de)
-                              (q1,t1,_) <- splitType p
-                              let extra = Constraint_Unify (getAnn a) t1
-                              return (n, Gathered typ a (g ++ q1) (extra:w))
+gDefn :: UseHigherRanks -> Env -> Defn -> ExceptT String FreshM (TermVar,Gathered)
+gDefn h e (n,t,Nothing) = do r <- runReaderT (gather h t) e
+                             return (n, r)
+gDefn h e (n,t,Just p)  = do Gathered typ a g w <- runReaderT (gather h t) e
+                             (q1,t1,_) <- split p
+                             let extra = Constraint_Unify (getAnn a) t1
+                             return (n, Gathered typ a (g ++ q1) (extra:w))
 
 showG :: ((TermVar,Gathered),Bool) -> IO ()
 showG ((n,(Gathered t ann g w)),_) = do

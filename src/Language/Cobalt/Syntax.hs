@@ -5,25 +5,26 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE OverlappingInstances #-}
+{-# LANGUAGE PatternSynonyms #-}
 module Language.Cobalt.Syntax (
   -- * Types
   TyVar
   -- ** Polytypes
 , PolyType(..)
+, binder
 , nf
   -- ** Monotypes
 , MonoType(..)
-  -- ** Built-in types
-, intTy
-, listTy
-, tupleTy
-, pVar
-, mVar
-, (-->)
+, pattern MonoType_Int
+, pattern MonoType_List
+, pattern MonoType_Tuple
+, pattern (:-->:)
+, arr
+, var
   -- ** From poly to mono
-, splitType
-, closeType
-, closeTypeWithException
+, split
+, close
+, closeExn
   -- * Terms
 , TermVar
 , Term(..)
@@ -35,18 +36,27 @@ module Language.Cobalt.Syntax (
 , getAnn
   -- * Constraints
 , Constraint(..)
-, isExists
+, _Constraint_Unify
+, _Constraint_Inst
+, _Constraint_Equal
+, _Constraint_Exists
   -- * Whole program structure
-, Env
+, FnEnv
 , DataEnv
 , initialDataEnv
+, AxiomEnv
+, Env(Env)
+, fnE
+, dataE
+, axiomE
 , Defn
 , AnnDefn
 ) where
 
 import Control.Applicative ((<$>))
+import Control.Lens
 import Data.List ((\\), insert, intercalate)
-import Unbound.LocallyNameless
+import Unbound.LocallyNameless hiding (close)
 
 type TyVar = Name MonoType
 data PolyType = PolyType_Inst   (Bind (TyVar, Embed PolyType) PolyType)
@@ -73,6 +83,13 @@ showPolyType' (PolyType_Equal b) = do
 showPolyType' (PolyType_Mono m) = return $ show m
 showPolyType' PolyType_Bottom   = return "_|_"
 
+binder :: PolyType -> Maybe ( Bind (TyVar, Embed PolyType) PolyType -> PolyType
+                            , Bind (TyVar, Embed PolyType) PolyType
+                            , MonoType ->  PolyType -> Constraint)
+binder (PolyType_Inst  b) = Just (PolyType_Inst,  b, Constraint_Inst)
+binder (PolyType_Equal b) = Just (PolyType_Equal, b, Constraint_Equal)
+binder _                  = Nothing
+
 nf :: PolyType -> PolyType
 nf = runFreshM . nf'
      where nf' PolyType_Bottom     = return PolyType_Bottom
@@ -90,68 +107,63 @@ nf = runFreshM . nf'
                _ -> return $ f $ bind (x, embed nfEmbed) nfRest
 
 data MonoType = MonoType_Con   String [MonoType]
-              -- | MonoType_Int
-              -- | MonoType_List  MonoType
-              -- | MonoType_Tuple MonoType MonoType
-              | MonoType_Arrow MonoType MonoType
               | MonoType_Var   TyVar
+              | MonoType_Arrow MonoType MonoType
               deriving Eq
 
-intTy :: MonoType
-intTy = MonoType_Con "Integer" []
+pattern MonoType_Int       = MonoType_Con   "Integer" []
+pattern MonoType_List  t   = MonoType_Con   "List" [t]
+pattern MonoType_Tuple a b = MonoType_Con   "Tuple2" [a,b]
+pattern s :-->: r          = MonoType_Arrow s r
 
-listTy :: MonoType -> MonoType
-listTy a = MonoType_Con "List" [a]
-
-tupleTy :: MonoType -> MonoType -> MonoType
-tupleTy a b = MonoType_Con "Tuple2" [a,b]
+arr :: MonoType -> ([MonoType],MonoType)
+arr (s :-->: r) = let (s',r') = arr r in (s:s', r')
+arr m = ([], m)
 
 instance Show MonoType where
-  show (MonoType_Con "List"  [t]) = "[" ++ show t ++ "]"
-  show (MonoType_Con "Tuple2" [t1,t2]) = "(" ++ show t1 ++ "," ++ show t2 ++ ")"
-  show (MonoType_Con c a) = '\'':c ++ concatMap (\x -> " " ++ doParens (show x)) a
-  show (MonoType_Arrow s t) = doParens (show s) ++ " -> " ++ show t
-  show (MonoType_Var v) = show v
+  show (MonoType_List t)      = "[" ++ show t ++ "]"
+  show (MonoType_Tuple t1 t2) = "(" ++ show t1 ++ "," ++ show t2 ++ ")"
+  show (MonoType_Con c a)     = '\'':c ++ concatMap (\x -> " " ++ doParens (show x)) a
+  show (s :-->: t)            = doParens (show s) ++ " -> " ++ show t
+  show (MonoType_Var v)       = show v
+  show _                      = error "Pattern matching check is not that good"
 
 doParens :: String -> String
 doParens s | ' ' `elem` s = '(' : s ++ ")"
            | otherwise    = s
 
-pVar :: TyVar -> PolyType
-pVar = PolyType_Mono . mVar
+class VariableInjection v where
+  var :: TyVar -> v
 
-mVar :: TyVar -> MonoType
-mVar = MonoType_Var
+instance VariableInjection PolyType where
+  var = PolyType_Mono . var
 
-(-->) :: MonoType -> MonoType -> MonoType
-(-->) = MonoType_Arrow
+instance VariableInjection MonoType where
+  var = MonoType_Var
 
-splitType :: (Fresh m, Functor m) => PolyType -> m ([Constraint], MonoType, [TyVar])
-splitType (PolyType_Inst b) = do
+split :: (Fresh m, Functor m) => PolyType -> m ([Constraint], MonoType, [TyVar])
+split (binder -> Just (_, b, constraint)) = do
   ((x, unembed -> s),r) <- unbind b
-  (c, m, v) <- splitType r
-  return (Constraint_Inst (mVar x) s : c, m, insert x v)
-splitType (PolyType_Equal b) = do
-  ((x, unembed -> s),r) <- unbind b
-  (c, m, v) <- splitType r
-  return (Constraint_Equal (mVar x) s : c, m, insert x v)
-splitType (PolyType_Mono m) = return ([], m, [])
-splitType PolyType_Bottom = do
+  (c, m, v) <- split r
+  return (constraint (var x) s : c, m, insert x v)
+split (PolyType_Mono m) = return ([], m, [])
+split PolyType_Bottom = do
   x <- fresh (string2Name "x")
-  return ([Constraint_Inst (mVar x) PolyType_Bottom], mVar x, [x])
+  return ([Constraint_Inst (var x) PolyType_Bottom], var x, [x])
+split _ = error "Pattern matching check is not that good"
 
-closeType :: [Constraint] -> MonoType -> PolyType
-closeType cs m = closeTypeWithException cs m (const False)
+close :: [Constraint] -> MonoType -> PolyType
+close cs m = closeExn cs m (const False)
 
 -- TODO: Perform correct closing by ordering variables
-closeTypeWithException :: [Constraint] -> MonoType -> (TyVar -> Bool) -> PolyType
-closeTypeWithException cs m except = closeTypeA [] (PolyType_Mono m)
-  where closeTypeA pre p = let nextC = filter (not . except) (fv p) \\ pre
-                               filtC = filter (hasCsFv nextC) cs
-                            in case filtC of
-                                 [] -> closeRest nextC p
-                                 _  -> let (inner,usedV) = closeType' filtC p
-                                        in closeTypeA (usedV `union` pre) inner
+closeExn :: [Constraint] -> MonoType -> (TyVar -> Bool) -> PolyType
+closeExn cs m except = closeTypeA [] (PolyType_Mono m)
+  where closeTypeA pref p = let nextC = filter (not . except) (fv p) \\ pref
+                                filtC = filter (hasCsFv nextC) cs
+                             in case filtC of
+                                  [] -> closeRest nextC p
+                                  _  -> let (inner,usedV) = closeType' filtC p
+                                         in closeTypeA (usedV `union` pref) inner
         -- check if fv are there
         hasCsFv lst (Constraint_Inst  (MonoType_Var v) _) = v `elem` lst
         hasCsFv lst (Constraint_Equal (MonoType_Var v) _) = v `elem` lst
@@ -310,19 +322,25 @@ showConstraint (Constraint_Exists b)  = do (x, (q,c)) <- unbind b
                                            c' <- showConstraintList c
                                            return $ "∃" ++ show x ++ "(" ++ q' ++ " => " ++ c' ++ ")"
 
-isExists :: Constraint -> Bool
-isExists (Constraint_Exists _) = True
-isExists _                     = False
+$(makePrisms ''Constraint)
 
-type Env     = [(TermVar, PolyType)]
-type DataEnv = [(String, [TyVar])]
+type FnEnv    = [(TermVar, PolyType)]
+type DataEnv  = [(String, [TyVar])]
+type AxiomEnv = [()]
+data Env      = Env { _fnE    :: FnEnv
+                    , _dataE  :: DataEnv
+                    , _axiomE :: AxiomEnv }
+                deriving Show
+
+$(makeLenses ''Env)
+
 type Defn    = (TermVar, Term, Maybe PolyType)
 type AnnDefn = (TermVar, AnnTerm, PolyType)
 
 initialDataEnv :: DataEnv
 initialDataEnv = [("Integer", [])
-                 ,("List",   [string2Name "a"])
-                 ,("Tuple2", [string2Name "a", string2Name "b"])]
+                 ,("List",    [string2Name "a"])
+                 ,("Tuple2",  [string2Name "a", string2Name "b"])]
 
 -- Derive `unbound` instances
 $(derive [''PolyType, ''MonoType, ''Term, ''AnnTerm, ''Constraint])

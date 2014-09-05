@@ -1,19 +1,21 @@
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE PatternSynonyms #-}
 module Language.Cobalt.Solver (
   SMonad
 , Solution(..)
 , solve
 , toSolution
-, closeType
 ) where
 
-import Control.Monad.Error
+import Control.Lens.Extras
+import Control.Monad.Except
 import Control.Monad.State
 import Data.List (insert, find, delete, partition, nub)
 import Unbound.LocallyNameless
 
 import Language.Cobalt.Solver.Step
 import Language.Cobalt.Syntax
+import Language.Cobalt.Util ()
 
 -- Phase 2: constraint solving
 
@@ -23,12 +25,12 @@ data Solution = Solution { smallGiven   :: [Constraint]
                          , touchable    :: [TyVar]
                          } deriving Show
 
-solve :: [Constraint] -> [Constraint] -> [TyVar] -> (ErrorT String FreshM) Solution
+solve :: [Constraint] -> [Constraint] -> [TyVar] -> (ExceptT String FreshM) Solution
 solve g w t = do evalStateT (solve' g w) t
 
 solve' :: [Constraint] -> [Constraint] -> SMonad Solution
 solve' g w = myTrace ("Solve " ++ show g ++ " ||- " ++ show w) $ do
-  let (implic, simple) = partition isExists w
+  let (implic, simple) = partition (is _Constraint_Exists) w
   s@(Solution _ rs theta _) <- simpl g simple
   solveImpl (g ++ rs) (substs theta implic)
   return $ s
@@ -46,11 +48,6 @@ solveImpl _ _ = error "This should never happen"
 
 makeTouchable :: Monad m => TyVar -> StateT [TyVar] m ()
 makeTouchable x = modify (insert x)
-
-{-
-makeTouchables :: Monad m => [TyVar] -> StateT [TyVar] m ()
-makeTouchables x = modify (union x)
--}
 
 isTouchable :: Monad m => TyVar -> StateT [TyVar] m Bool
 isTouchable x = gets (x `elem`)
@@ -100,7 +97,7 @@ canon isGiven _ (Constraint_Unify t1 t2) = case (t1,t2) of
                               else throwError $ "Unifying non-touchable variable: " ++ show v ++ " ~ " ++ show t2
   (t, v@(MonoType_Var _)) -> return $ Applied [Constraint_Unify v t]  -- Orient
   -- Next are Tdec and Faildec
-  (MonoType_Arrow s1 r1, MonoType_Arrow s2 r2) ->
+  (s1 :-->: r1, s2 :-->: r2) ->
     return $ Applied [Constraint_Unify s1 s2, Constraint_Unify r1 r2]
   (MonoType_Con c1 a1, MonoType_Con c2 a2)
     | c1 == c2 && length a1 == length a2 -> return $ Applied $ zipWith Constraint_Unify a1 a2
@@ -131,21 +128,17 @@ canon _ _ (Constraint_Equal x p) = do
 canon _ _ _ = return NotApplicable
 
 instantiate :: PolyType -> Bool -> SMonad ([Constraint], MonoType)
-instantiate (PolyType_Inst b) tch = do
+instantiate (binder -> Just (_,b,constraint)) tch = do
   ((v,unembed -> s),i) <- unbind b
   when tch $ makeTouchable v
   (c,t) <- instantiate i tch
-  return ((Constraint_Inst (mVar v) s) : c, t)
-instantiate (PolyType_Equal b) tch = do
-  ((v,unembed -> s),i) <- unbind b
-  when tch $ makeTouchable v
-  (c,t) <- instantiate i tch
-  return ((Constraint_Equal (mVar v) s) : c, t)
+  return (constraint (var v) s : c, t)
 instantiate (PolyType_Mono m) _tch = return ([],m)
 instantiate PolyType_Bottom tch = do
   v <- fresh (string2Name "b")
   when tch $ makeTouchable v
-  return ([], mVar v)
+  return ([], var v)
+instantiate _ _ = error "Pattern matching check is not that good"
 
 unifyInteract :: [Constraint] -> [Constraint] -> Constraint -> Constraint -> SMonad SolutionStep
 unifyInteract _ _ = unifyInteract'
@@ -230,24 +223,24 @@ findLub :: [Constraint] -> PolyType -> PolyType -> SMonad (SolutionStep, PolyTyp
 findLub ctx p1 p2 = do
   -- equiv <- areEquivalent ctx p1 p2
   if p1 `aeq` p2 then return (Applied [], p1)
-  else do (q1,t1,v1)  <- splitType p1
-          (q2,t2,v2) <- splitType p2
+  else do (q1,t1,v1) <- split p1
+          (q2,t2,v2) <- split p2
           tau <- fresh $ string2Name "tau"
-          let cs = [Constraint_Unify (mVar tau) t1, Constraint_Unify (mVar tau) t2]
+          let cs = [Constraint_Unify (var tau) t1, Constraint_Unify (var tau) t2]
           tch <- get
           Solution _ r s _ <- lift $ solve ctx (cs ++ q1 ++ q2) (tau : tch ++ v1 ++ v2)
           let s' = substitutionInTermsOf tch s
               r' = map (substs s') r ++ map (\(v,t) -> Constraint_Unify (MonoType_Var v) t) s'
               (floatR, closeR) = partition (\c -> all (`elem` tch) (fv c)) r'
-          return (Applied floatR, closeTypeWithException closeR (substs s' (mVar tau)) (`elem` tch))
+          return (Applied floatR, closeExn closeR (substs s' (var tau)) (`elem` tch))
 
 -- Returning NotApplicable means that we could not prove it
 -- because some things would float out of the types
 checkSubsumption :: [Constraint] -> PolyType -> PolyType -> SMonad SolutionStep
 checkSubsumption ctx p1 p2 =
   if p1 `aeq` p2 then return (Applied [])
-  else do (q1,t1,v1)  <- splitType p1
-          (q2,t2,_v2) <- splitType p2
+  else do (q1,t1,v1)  <- split p1
+          (q2,t2,_v2) <- split p2
           tch <- get
           Solution _ r s _ <- lift $ solve (ctx ++ q2) (Constraint_Unify t1 t2 : q1) (tch `union` v1)
           let s' = substitutionInTermsOf tch s
@@ -285,7 +278,7 @@ checkEquivalence ctx p1 p2 = do
 -- Phase 2b: convert to solution
 
 toSolution :: [Constraint] -> [Constraint] -> [TyVar] -> Solution
-toSolution gs rs vs = let initialSubst = map (\x -> (x, mVar x)) (fv rs)
+toSolution gs rs vs = let initialSubst = map (\x -> (x, var x)) (fv rs)
                           finalSubst   = runSubst initialSubst
                           doFinalSubst = map (substs finalSubst)
                        in Solution (doFinalSubst gs)

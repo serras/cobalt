@@ -10,7 +10,7 @@ module Language.Cobalt.Solver.Step (
 , myTrace
 ) where
 
-import Control.Monad.Error
+import Control.Monad.Except
 import Control.Monad.State
 import Unbound.LocallyNameless
 #define TRACE_SOLVER 0
@@ -21,7 +21,7 @@ import Debug.Trace
 
 import Language.Cobalt.Syntax
 
-type SMonad = StateT [TyVar] (ErrorT String FreshM)
+type SMonad = StateT [TyVar] (ExceptT String FreshM)
 data SolutionStep = NotApplicable | Applied [Constraint]
 
 whileApplicable :: ([Constraint] -> SMonad ([Constraint], Bool))

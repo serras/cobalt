@@ -120,8 +120,8 @@ parseMonoType :: Parsec String s MonoType
 parseMonoType = foldr1 MonoType_Arrow <$> parseMonoAtom `sepBy1` reservedOp "->"
 
 parseMonoAtom :: Parsec String s MonoType
-parseMonoAtom = listTy <$> brackets parseMonoType
-            <|> try (uncurry tupleTy <$>
+parseMonoAtom = MonoType_List <$> brackets parseMonoType
+            <|> try (uncurry MonoType_Tuple <$>
                        parens ((,) <$> parseMonoType
                                    <*  comma
                                    <*> parseMonoType))
@@ -169,10 +169,11 @@ parseExpected :: Parsec String s Bool
 parseExpected = const True  <$> reservedOp "ok"
             <|> const False <$> reservedOp "fail"
 
-parseFile :: Parsec String s (Env,DataEnv,[(Defn,Bool)])
-parseFile = (\x y z -> (y,x,z)) <$> many parseData
-                                <*> many parseSig
-                                <*> many parseDefn
+parseFile :: Parsec String s (Env,[(Defn,Bool)])
+parseFile = (\x y z -> (Env y x [], z))
+                   <$> many parseData
+                   <*> many parseSig
+                   <*> many parseDefn
 
 -- Lexer for Haskell-like language
 
