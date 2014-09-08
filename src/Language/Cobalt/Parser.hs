@@ -6,6 +6,8 @@ module Language.Cobalt.Parser (
 , parseClosedPolyType
 , parseMonoType
 , parseSig
+, parseData
+, parseAxiom
 , parseDefn
 , parseFile
 ) where
@@ -128,12 +130,21 @@ parseMonoAtom = MonoType_List <$> brackets parseMonoType
             <|> parens parseMonoType
             <|> MonoType_Con <$> parseDataName
                              <*> many (    (\x -> MonoType_Con x []) <$> parseDataName
+                                       <|> (\x -> MonoType_Fam x []) <$> parseFamName
+                                       <|> MonoType_Var . string2Name <$> identifier
+                                       <|> parens parseMonoType)
+            <|> MonoType_Fam <$> parseFamName
+                             <*> many (    (\x -> MonoType_Con x []) <$> parseDataName
+                                       <|> (\x -> MonoType_Fam x []) <$> parseFamName
                                        <|> MonoType_Var . string2Name <$> identifier
                                        <|> parens parseMonoType)
             <|> MonoType_Var . string2Name <$> identifier
 
 parseDataName :: Parsec String s String
 parseDataName = id <$ char '\'' <*> identifier
+
+parseFamName :: Parsec String s String
+parseFamName = id <$ char '^' <*> identifier
 
 parseSig :: Parsec String s (TermVar,PolyType)
 parseSig = (,) <$  reserved "import"
@@ -147,6 +158,17 @@ parseData = (,) <$  reserved "data"
                 <*> parseDataName
                 <*> many (string2Name <$> identifier)
                 <*  reservedOp ";"
+
+parseAxiom :: Parsec String s Axiom
+parseAxiom = createAxiomUnify <$  reserved "axiom"
+                              <*> many (braces identifier)
+                              <*> parseMonoType
+                              <*  reservedOp "~"
+                              <*> parseMonoType
+                              <*  reservedOp ";"
+
+createAxiomUnify :: [String] -> MonoType -> MonoType -> Axiom
+createAxiomUnify vs r l = Axiom_Unify (bind (map string2Name vs) (r,l))
 
 parseDefn :: Parsec String s (Defn,Bool)
 parseDefn = try ((\x y z w -> ((x,z,Just y),w))
@@ -171,9 +193,10 @@ parseExpected = const True  <$> reservedOp "ok"
             <|> const False <$> reservedOp "fail"
 
 parseFile :: Parsec String s (Env,[(Defn,Bool)])
-parseFile = (\x y z -> (Env y x [], z))
+parseFile = (\x y w z -> (Env y x w, z))
                    <$> many parseData
                    <*> many parseSig
+                   <*> many parseAxiom
                    <*> many parseDefn
 
 -- Lexer for Haskell-like language

@@ -20,11 +20,13 @@ polytype := "{" tyvar ">" polytype "}" polytype
 		  | "_|_"
 monotype := tyvar
           | dataname monotype*
+		  | famname monotype*
 		  | monotype "->" monotype
 		  | "[" monotype "]"
 		  | "(" monotype "," monotype ")"
 		  | "(" monotype ")"
 dataname := "'" identifier
+famname  := "^" identifier
 
 expr := intliteral
       | termvar

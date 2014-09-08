@@ -11,7 +11,6 @@ module Language.Cobalt.Syntax (
   TyVar
   -- ** Polytypes
 , PolyType(..)
-, binder
 , nf
   -- ** Monotypes
 , MonoType(..)
@@ -34,12 +33,13 @@ module Language.Cobalt.Syntax (
 , showAnnTerm
 , atAnn
 , getAnn
-  -- * Constraints
+  -- * Constraints and axioms
 , Constraint(..)
 , _Constraint_Unify
 , _Constraint_Inst
 , _Constraint_Equal
 , _Constraint_Exists
+, Axiom(..)
   -- * Whole program structure
 , FnEnv
 , DataEnv
@@ -59,54 +59,51 @@ import Data.List ((\\), insert, intercalate)
 import Unbound.LocallyNameless hiding (close)
 
 type TyVar = Name MonoType
-data PolyType = PolyType_Inst   (Bind (TyVar, Embed PolyType) PolyType)
-              | PolyType_Equal  (Bind (TyVar, Embed PolyType) PolyType)
-              | PolyType_Mono   MonoType
+data PolyType = PolyType_Bind (Bind TyVar PolyType)
+              | PolyType_Mono [Constraint] MonoType
               | PolyType_Bottom
 
 instance Show PolyType where
   show = runFreshM . showPolyType'
 
 showPolyType' :: Fresh m => PolyType -> m String
-showPolyType' (PolyType_Inst b) = do
-  ((x, unembed -> p),r) <- unbind b
+showPolyType' (PolyType_Bind b) = do
+  (x, r) <- unbind b
   showR <- showPolyType' r
-  case p of
-    PolyType_Bottom -> return $ "{" ++ show x ++ "} " ++ showR
-    _ -> do showP <- showPolyType' p
-            return $ "{" ++ show x ++ " > " ++ showP ++ "} " ++ showR
-showPolyType' (PolyType_Equal b) = do
-  ((x, unembed -> p),r) <- unbind b
-  showR <- showPolyType' r
-  showP <- showPolyType' p
-  return $ "{" ++ show x ++ " = " ++ showP ++ "} " ++ showR
-showPolyType' (PolyType_Mono m) = return $ show m
-showPolyType' PolyType_Bottom   = return "_|_"
+  return $ "{" ++ show x ++ "} " ++ showR
+showPolyType' (PolyType_Mono [] m) = return $ show m
+showPolyType' (PolyType_Mono cs m) = return $ show cs ++ " => " ++ show m
+showPolyType' PolyType_Bottom   = return "⊥"
 
-binder :: PolyType -> Maybe ( Bind (TyVar, Embed PolyType) PolyType -> PolyType
-                            , Bind (TyVar, Embed PolyType) PolyType
-                            , MonoType ->  PolyType -> Constraint)
-binder (PolyType_Inst  b) = Just (PolyType_Inst,  b, Constraint_Inst)
-binder (PolyType_Equal b) = Just (PolyType_Equal, b, Constraint_Equal)
-binder _                  = Nothing
+-- TODO
+-- nf in two steps: first put the constraints in order
+-- second: replace those which needs to be replaced
 
 nf :: PolyType -> PolyType
-nf = runFreshM . nf'
-     where nf' PolyType_Bottom     = return PolyType_Bottom
-           nf' m@(PolyType_Mono _) = return m
-           nf' (PolyType_Inst  b)  = workWithBind PolyType_Inst b
-           nf' (PolyType_Equal b)  = workWithBind PolyType_Equal b
-           workWithBind f b = do
-             ((x, unembed -> e), r) <- unbind b
-             nfEmbed <- nf' e
-             nfRest  <- nf' r
-             case (x `elem` fv r, nfEmbed, nfRest) of
-               (False, _, _) -> return nfRest
-               (True, _, PolyType_Mono (MonoType_Var v)) | v == x -> return nfEmbed
-               (True, PolyType_Mono monoEmbed, _) -> return $ subst x monoEmbed nfRest
-               _ -> return $ f $ bind (x, embed nfEmbed) nfRest
+nf = runFreshM . nf' []
+     where -- Run over Fresh monad
+           nf' _ PolyType_Bottom = return PolyType_Bottom
+           nf' binders (PolyType_Bind b) = do
+             (x, r) <- unbind b
+             nf' (x:binders) r
+           nf' binders (PolyType_Mono cs m) = nf'' binders [] cs m
+           -- Apply simplification under each constraint
+           nf'' binders cs [] m = reverseBind binders (PolyType_Mono cs m)
+           nf'' binders accum (x:xs) m = case x of
+             (Constraint_Inst (MonoType_Var v) (PolyType_Mono p)) ->
+               nf'' binders [] (map (nf . subst v p) (accum ++ xs)) m
+             (Constraint_Equal (MonoType_Var v) (PolyType_Mono p)) ->
+               nf'' binders [] (map (nf . subst v p) (accum ++ xs)) m
+             (Constraint_Unify (MonoType_Var v) p) ->
+               nf'' binders [] (map (nf . subst v p) (accum ++ xs)) m
+           -- Bind back all binders
+           reverseBind [] p = p
+           reverseBind (x:xs) p
+             | x `elem` fv p = reverseBind xs $ PolyType_Bind (bind x, p)
+             | otherwise     = p
 
 data MonoType = MonoType_Con   String [MonoType]
+              | MonoType_Fam   String [MonoType]
               | MonoType_Var   TyVar
               | MonoType_Arrow MonoType MonoType
               deriving Eq
@@ -124,6 +121,7 @@ instance Show MonoType where
   show (MonoType_List t)      = "[" ++ show t ++ "]"
   show (MonoType_Tuple t1 t2) = "(" ++ show t1 ++ "," ++ show t2 ++ ")"
   show (MonoType_Con c a)     = '\'':c ++ concatMap (\x -> " " ++ doParens (show x)) a
+  show (MonoType_Fam c a)     = '^':c ++ concatMap (\x -> " " ++ doParens (show x)) a
   show (s :-->: t)            = doParens (show s) ++ " -> " ++ show t
   show (MonoType_Var v)       = show v
   show _                      = error "Pattern matching check is not that good"
@@ -142,11 +140,11 @@ instance VariableInjection MonoType where
   var = MonoType_Var
 
 split :: (Fresh m, Functor m) => PolyType -> m ([Constraint], MonoType, [TyVar])
-split (binder -> Just (_, b, constraint)) = do
-  ((x, unembed -> s),r) <- unbind b
+split (PolyType_Bind b) = do
+  (x, r) <- unbind b
   (c, m, v) <- split r
-  return (constraint (var x) s : c, m, insert x v)
-split (PolyType_Mono m) = return ([], m, [])
+  return (c, m, insert x v)
+split (PolyType_Mono cs m) = return (cs, m, [])
 split PolyType_Bottom = do
   x <- fresh (string2Name "x")
   return ([Constraint_Inst (var x) PolyType_Bottom], var x, [x])
@@ -324,9 +322,18 @@ showConstraint (Constraint_Exists b)  = do (x, (q,c)) <- unbind b
 
 $(makePrisms ''Constraint)
 
+data Axiom = Axiom_Unify (Bind [TyVar] (MonoType, MonoType))
+
+instance Show Axiom where
+  show = runFreshM . showAxiom
+
+showAxiom :: (Fresh m, Functor m) => Axiom -> m String
+showAxiom (Axiom_Unify b) = do (xs, (lhs,rhs)) <- unbind b
+                               return $ "∀" ++ show xs ++ " " ++ show lhs ++ " ~ " ++ show rhs
+
 type FnEnv    = [(TermVar, PolyType)]
 type DataEnv  = [(String, [TyVar])]
-type AxiomEnv = [()]
+type AxiomEnv = [Axiom]
 data Env      = Env { _fnE    :: FnEnv
                     , _dataE  :: DataEnv
                     , _axiomE :: AxiomEnv }
@@ -343,7 +350,7 @@ initialDataEnv = [("Integer", [])
                  ,("Tuple2",  [string2Name "a", string2Name "b"])]
 
 -- Derive `unbound` instances
-$(derive [''PolyType, ''MonoType, ''Term, ''AnnTerm, ''Constraint])
+$(derive [''PolyType, ''MonoType, ''Term, ''AnnTerm, ''Constraint, ''Axiom])
 
 instance Alpha PolyType
 instance Subst MonoType PolyType
@@ -369,10 +376,8 @@ instance Subst AnnTerm AnnTerm where
   isvar _                 = Nothing
 instance Subst MonoType AnnTerm
 
-{-
-instance Alpha BasicConstraint
-instance Subst MonoType BasicConstraint
--}
-
 instance Alpha Constraint
 instance Subst MonoType Constraint
+
+instance Alpha Axiom
+instance Subst MonoType Axiom
