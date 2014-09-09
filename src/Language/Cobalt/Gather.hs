@@ -55,7 +55,7 @@ gather higher (Term_Abs b) =
      Gathered tau ann ex c <- extendEnv x (var alpha) $ gather higher e
      let arrow = var alpha :-->: tau
      return $ Gathered arrow (AnnTerm_Abs (bind (translate x) ann) arrow) ex c
-gather higher (Term_AbsAnn b mt@(PolyType_Mono m)) = -- Case monotype
+gather higher (Term_AbsAnn b mt@(PolyType_Mono [] m)) = -- Case monotype
   do (x,e) <- unbind b
      Gathered tau ann ex c <- extendEnv x mt $ gather higher e
      let arrow = m :-->: tau
@@ -77,12 +77,12 @@ gather higher (Term_App e1 e2) =
 gather higher (Term_Let b) =
   do ((x, unembed -> e1),e2) <- unbind b
      Gathered tau1 ann1 ex1 c1 <- gather higher e1
-     Gathered tau2 ann2 ex2 c2 <- extendEnv x (PolyType_Mono tau1) $ gather higher e2
+     Gathered tau2 ann2 ex2 c2 <- extendEnv x (PolyType_Mono [] tau1) $ gather higher e2
      return $ Gathered tau2 (AnnTerm_Let (bind (translate x, embed ann1) ann2) tau2)
                        (ex1 ++ ex2) (c1 ++ c2)
 gather higher (Term_LetAnn b PolyType_Bottom) = -- Case bottom
   gather higher (Term_Let b)
-gather higher (Term_LetAnn b mt@(PolyType_Mono m)) = -- Case monotype
+gather higher (Term_LetAnn b mt@(PolyType_Mono [] m)) = -- Case monotype
   do ((x, unembed -> e1),e2) <- unbind b
      Gathered tau1 ann1 ex1 c1 <- gather higher e1
      Gathered tau2 ann2 ex2 c2 <- extendEnv x mt $ gather higher e2
@@ -121,7 +121,7 @@ gatherAlternative higher dname tyvars resultvar (con, b) =
        MonoType_Con dname2 convars | dname == dname2 -> do
          (args,e) <- unbind b
          let (rest,unifs) = generateExtraUnifications tyvars convars
-             argsT' = map (PolyType_Mono . substs unifs) argsT
+             argsT' = map (PolyType_Mono [] . substs unifs) argsT
          Gathered taui anni exi ci <- extendsEnv (zip args argsT') $ gather higher e
          let extraVars  = unions (map fv argsT') \\ tyvars
              extraQs    = q ++ rest
@@ -149,8 +149,8 @@ generateExtraUnifications vars ms =
 isTrivialConstraint :: Constraint -> Bool
 isTrivialConstraint (Constraint_Inst _ PolyType_Bottom) = True
 isTrivialConstraint (Constraint_Unify t1 t2) | t1 == t2 = True
-isTrivialConstraint (Constraint_Equal t1 (PolyType_Mono t2)) | t1 == t2 = True
-isTrivialConstraint (Constraint_Inst  t1 (PolyType_Mono t2)) | t1 == t2 = True
+isTrivialConstraint (Constraint_Equal t1 (PolyType_Mono [] t2)) | t1 == t2 = True
+isTrivialConstraint (Constraint_Inst  t1 (PolyType_Mono [] t2)) | t1 == t2 = True
 isTrivialConstraint _ = False
 
 unions :: Eq a => [[a]] -> [a]

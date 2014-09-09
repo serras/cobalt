@@ -4,13 +4,13 @@ data 'List a;
 data 'Term v;
 data 'Incr v;
 
-import return :: {m} {r > {a} a -> 'App m a} 'Monad m -> r;
-import bind   :: {m} {r > {a} {b} {t = a -> 'App m b} 'App m a -> t -> 'App m b} 'Monad m -> r;
+import return :: {m} {r} r > {a} a -> 'App m a => 'Monad m -> r;
+import bind   :: {m} {r} r > {a} {b} 'App m a -> (a -> 'App m b) -> 'App m b => 'Monad m -> r;
 
 import nil  :: {a} [a];
 import cons :: {a} a -> [a] -> [a];
 
-import fix :: {a} {x = a -> a} x -> a;
+import fix :: {a} {x} x = a -> a => x -> a;
 
 import Var :: {v} v -> 'Term v;
 import App :: {v} 'Term v -> 'Term v -> 'Term v;
@@ -27,16 +27,15 @@ mapI = \f -> \i -> match i with 'Incr
                    | Zero -> Zero
                    | Succ x -> Succ (f x) => ok;
 
-fixMT :: {s > {a} {b} {f = a -> b} f -> 'Term a -> 'Term b}
-         {g = s -> s} g -> s = fix => ok;
+fixMT :: {s} s > {a} {b} (a -> b) -> 'Term a -> 'Term b => (s -> s) -> s = fix => ok;
 
-fixMT2 :: {r > {a} {b} {f = a -> b} f -> 'Term a -> 'Term b}
-          {s > {a} {b} {f = a -> b} f -> 'Term a -> 'Term b}
-          {t > {a} {b} {f = a -> b} f -> 'Term a -> 'Term b}
-          {g = r -> s} g -> t = fix => ok;
+fixMT2 :: {r} {s} {t} r > {a} {b} (a -> b) -> 'Term a -> 'Term b,
+          s > {a} {b} (a -> b) -> 'Term a -> 'Term b,
+          t > {a} {b} (a -> b) -> 'Term a -> 'Term b =>
+          (r -> s) -> t = fix => ok;
 
-mapT :: {a} {b} {s = a -> b} s -> 'Term a -> 'Term b
+mapT :: {a} {b} (a -> b) -> 'Term a -> 'Term b
   = fix (\mt -> \f -> \t -> match t with 'Term
                             | Var x -> Var (f x)
                             | App t1 t2 -> App (mt f t1) (mt f t2)
-                            | Lam t -> Lam (mt (mapI f) t)) => ok;
+                            | Lam l -> Lam (mt (mapI f) l)) => ok;

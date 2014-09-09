@@ -55,7 +55,8 @@ module Language.Cobalt.Syntax (
 
 import Control.Applicative ((<$>))
 import Control.Lens
-import Data.List ((\\), insert, intercalate)
+import Data.List (insert, intercalate, find, nub)
+import Data.Maybe (isJust)
 import Unbound.LocallyNameless hiding (close)
 
 type TyVar = Name MonoType
@@ -82,24 +83,36 @@ showPolyType' PolyType_Bottom   = return "⊥"
 nf :: PolyType -> PolyType
 nf = runFreshM . nf' []
      where -- Run over Fresh monad
+           nf' :: (Fresh m, Monad m, Functor m)
+               => [TyVar] -> PolyType -> m PolyType
            nf' _ PolyType_Bottom = return PolyType_Bottom
-           nf' binders (PolyType_Bind b) = do
+           nf' bnders (PolyType_Bind b) = do
              (x, r) <- unbind b
-             nf' (x:binders) r
-           nf' binders (PolyType_Mono cs m) = nf'' binders [] cs m
+             nf' (x:bnders) r
+           nf' bnders (PolyType_Mono cs m) = nf'' bnders [] m cs
            -- Apply simplification under each constraint
-           nf'' binders cs [] m = reverseBind binders (PolyType_Mono cs m)
-           nf'' binders accum (x:xs) m = case x of
-             (Constraint_Inst (MonoType_Var v) (PolyType_Mono p)) ->
-               nf'' binders [] (map (nf . subst v p) (accum ++ xs)) m
-             (Constraint_Equal (MonoType_Var v) (PolyType_Mono p)) ->
-               nf'' binders [] (map (nf . subst v p) (accum ++ xs)) m
+           nf'' :: (Fresh m, Monad m, Functor m)
+                => [TyVar] -> [Constraint] -> MonoType
+                -> [Constraint] -> m PolyType
+           nf'' bnders cs m [] = return $ reverseBind bnders (PolyType_Mono cs m)
+           nf'' bnders accum m (x:xs) = case x of
+             (Constraint_Inst (MonoType_Var v)  (PolyType_Mono [] p)) ->
+               nf'' bnders [] m =<< mapM (nfC . subst v p) (accum ++ xs)
+             (Constraint_Equal (MonoType_Var v) (PolyType_Mono [] p)) ->
+               nf'' bnders [] m =<< mapM (nfC . subst v p) (accum ++ xs)
              (Constraint_Unify (MonoType_Var v) p) ->
-               nf'' binders [] (map (nf . subst v p) (accum ++ xs)) m
+               nf'' bnders [] m =<< mapM (nfC . subst v p) (accum ++ xs)
+             _ -> nf'' bnders (x:accum) m xs
+           -- Make normal form of constraints
+           nfC :: (Fresh m, Monad m, Functor m) => Constraint -> m Constraint
+           nfC (Constraint_Inst  m p) = Constraint_Inst  m <$> nf' [] p
+           nfC (Constraint_Equal m p) = Constraint_Equal m <$> nf' [] p
+           nfC c = return c
            -- Bind back all binders
+           reverseBind :: [TyVar] -> PolyType -> PolyType
            reverseBind [] p = p
            reverseBind (x:xs) p
-             | x `elem` fv p = reverseBind xs $ PolyType_Bind (bind x, p)
+             | x `elem` fv p = reverseBind xs $ PolyType_Bind (bind x p)
              | otherwise     = p
 
 data MonoType = MonoType_Con   String [MonoType]
@@ -134,7 +147,7 @@ class VariableInjection v where
   var :: TyVar -> v
 
 instance VariableInjection PolyType where
-  var = PolyType_Mono . var
+  var = PolyType_Mono [] . var
 
 instance VariableInjection MonoType where
   var = MonoType_Var
@@ -148,36 +161,29 @@ split (PolyType_Mono cs m) = return (cs, m, [])
 split PolyType_Bottom = do
   x <- fresh (string2Name "x")
   return ([Constraint_Inst (var x) PolyType_Bottom], var x, [x])
-split _ = error "Pattern matching check is not that good"
 
 close :: [Constraint] -> MonoType -> PolyType
 close cs m = closeExn cs m (const False)
 
 -- TODO: Perform correct closing by ordering variables
 closeExn :: [Constraint] -> MonoType -> (TyVar -> Bool) -> PolyType
-closeExn cs m except = closeTypeA [] (PolyType_Mono m)
-  where closeTypeA pref p = let nextC = filter (not . except) (fv p) \\ pref
-                                filtC = filter (hasCsFv nextC) cs
-                             in case filtC of
-                                  [] -> closeRest nextC p
-                                  _  -> let (inner,usedV) = closeType' filtC p
-                                         in closeTypeA (usedV `union` pref) inner
+closeExn cs m except = let (cns, vars) = closeTypeA (filter (hasCsFv (fv m)) cs)
+                        in finalClose (nub vars) (PolyType_Mono cns m)
+  where closeTypeA preCs = let nextC = filter (not . except) (fv preCs)
+                               filtC = filter (\c -> hasCsFv nextC c
+                                                     && not (isJust (find (`aeq` c) preCs))) cs
+                            in case filtC of
+                                 [] -> (filter (hasCsFv (fv m)) cs, filter (not . except) (fv m))
+                                 _  -> let (finalCs, finalVrs) = closeTypeA (preCs ++ filtC)
+                                        in (finalCs ++ filtC, (fv filtC) ++ finalVrs)
         -- check if fv are there
         hasCsFv lst (Constraint_Inst  (MonoType_Var v) _) = v `elem` lst
         hasCsFv lst (Constraint_Equal (MonoType_Var v) _) = v `elem` lst
+        hasCsFv lst (Constraint_Unify t1 t2) = any (`elem` lst) (fv t1) || any (`elem` lst) (fv t2)
         hasCsFv _ _ = False
-        -- close upon constraints
-        closeType' ((Constraint_Inst (MonoType_Var v) t) : rest) p =
-          let (p',v') = closeType' rest p
-           in (PolyType_Inst $ bind (v,embed t) p', insert v v')
-        closeType' ((Constraint_Equal (MonoType_Var v) t) : rest) p =
-          let (p',v') = closeType' rest p
-           in (PolyType_Equal $ bind (v,embed t) p', insert v v')
-        closeType' (_ : rest) p = closeType' rest p
-        closeType' [] p = (p, [])
-        -- close rest
-        closeRest [] p     = p
-        closeRest (v:vs) p = PolyType_Inst $ bind (v, embed PolyType_Bottom) (closeRest vs p)
+        -- final close
+        finalClose []     p = p
+        finalClose (v:vs) p = PolyType_Bind (bind v (finalClose vs p))
 
 type TermVar = Name Term
 data Term = Term_IntLiteral Integer
@@ -378,6 +384,8 @@ instance Subst MonoType AnnTerm
 
 instance Alpha Constraint
 instance Subst MonoType Constraint
+instance Subst Term Constraint
+instance Subst AnnTerm Constraint
 
 instance Alpha Axiom
 instance Subst MonoType Axiom

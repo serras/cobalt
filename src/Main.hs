@@ -128,6 +128,7 @@ gDefn h e (n,t,Just p)  = do Gathered typ a g w <- runReaderT (gather h t) e
 
 showG :: ((TermVar,Gathered),Bool) -> IO ()
 showG ((n,(Gathered t ann g w)),_) = do
+  let tch :: [TyVar] = fv (getAnn ann) `union` fv w
   setSGR [SetColor Foreground Vivid Blue]
   putStr (name2String n)
   setSGR [Reset]
@@ -141,6 +142,10 @@ showG ((n,(Gathered t ann g w)),_) = do
   putStr " ||- "
   setSGR [Reset]
   putStrLn (show w)
+  setSGR [SetColor Foreground Vivid Green]
+  putStr "Touchables "
+  setSGR [Reset]
+  putStrLn (show tch)
   putStrLn (show ann)
 
 showAnns :: [(Either (TermVar,String) a,Bool)] -> ((a,Bool) -> IO ()) -> IO ()

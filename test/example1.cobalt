@@ -4,18 +4,18 @@ import tuple  :: {a} {b} a -> b -> (a,b);
 import fst    :: {a} {b} (a,b) -> a;
 import snd    :: {a} {b} (a,b) -> b;
 import triple :: {a} {b} {c} a -> b -> c -> 'Triple a b c;
-import triplx :: {a} {b = {x} x} {c} a -> b -> c -> 'Triple a b c;
-import tripla :: {a} {b > {x} x -> x} {c} a -> b -> c -> 'Triple a b c;
+import triplx :: {a} {b} {c} b = {x} x => a -> b -> c -> 'Triple a b c;
+import tripla :: {a} {b} {c} b > {x} x -> x => a -> b -> c -> 'Triple a b c;
 import sing   :: {a} a -> [a];
 import id     :: {a} a -> a;
 
 import bindST    :: {a} {b} {s} 'ST s a -> (a -> 'ST s b) -> 'ST s b;
-import runST     :: {a} {s = {s} 'ST s a} s -> a;
+import runST     :: {a} {s} s = {s} 'ST s a => s -> a;
 import newSTRef  :: {a} {s} a -> 'ST s ('STRef s a);
 import readSTRef :: {a} {s} 'STRef s a -> 'ST s a;
 import zas       :: {s} 'ST s 'Integer;
 
-import f      :: {b} {s = {a} [a] -> b} s -> 'Bool -> b;
+import f      :: {b} {s} s = {a} [a] -> b => s -> 'Bool -> b;
 import length :: {a} [a] -> 'Integer;
 
 checkFunParam1 = \x -> \(y :: {a} a -> a) -> cons (x (tuple y 3)) nil => ok;
@@ -39,8 +39,8 @@ idBis = \x -> x               => ok;
 intRoundtrip = let x = 3 in x => ok;
 
 singId1 = sing id                                               => ok;
-singId2 :: {a = {b} b -> b} [a] = let x = sing id in x          => ok;
-singId3 :: {a > {b} b -> b} [a] = let x = sing id in x          => ok;
+singId2 :: {a} a = {b} b -> b => [a] = let x = sing id in x          => ok;
+singId3 :: {a} a > {b} b -> b => [a] = let x = sing id in x          => ok;
 singIdLet1 = let x = sing id in x                               => ok;
 singIdLet2 = let x = singBis idBis in x                         => ok;
 singIdLet3a    = let x :: ['Integer -> 'Integer] = sing id in x => ok;

@@ -91,22 +91,13 @@ parsePolyType :: Parsec String s PolyType
 parsePolyType = nf <$> parsePolyType'
 
 parsePolyType' :: Parsec String s PolyType
-parsePolyType' = try (createPolyType PolyType_Inst
-                     <$> braces ((,) <$> identifier
-                                     <*  reservedOp ">"
-                                     <*> parsePolyType)
-                     <*> parsePolyType)
-            <|> try (createPolyType PolyType_Equal
-                     <$> braces ((,) <$> identifier
-                                     <*  reservedOp "="
-                                     <*> parsePolyType)
-                     <*> parsePolyType)
-            <|> try (createPolyType PolyType_Inst
-                     <$> braces ((,) <$> identifier
-                                     <*> pure PolyType_Bottom)
-                     <*> parsePolyType)
-            <|> PolyType_Bottom <$ reservedOp "_|_"
-            <|> PolyType_Mono <$> parseMonoType
+parsePolyType' = createPolyTypeBind <$> braces identifier
+                                    <*> parsePolyType'
+             <|> try (PolyType_Mono <$> parseConstraint `sepBy1` comma
+                                    <*  reservedOp "=>"
+                                    <*> parseMonoType)
+             <|> PolyType_Bottom <$ reservedOp "_|_"
+             <|> PolyType_Mono [] <$> parseMonoType
 
 parseClosedPolyType :: Parsec String s PolyType
 parseClosedPolyType = do t <- parsePolyType
@@ -114,9 +105,19 @@ parseClosedPolyType = do t <- parsePolyType
                             then return t
                             else fail "Closed type expected"
 
-createPolyType :: ((Bind (TyVar, Embed PolyType) PolyType) -> PolyType)
-               -> (String,PolyType) -> PolyType -> PolyType
-createPolyType f (x,s) r = f (bind (string2Name x, embed s) r)
+createPolyTypeBind :: String -> PolyType -> PolyType
+createPolyTypeBind x p = PolyType_Bind $ bind (string2Name x) p
+
+parseConstraint :: Parsec String s Constraint
+parseConstraint = try (Constraint_Inst  <$> (var . string2Name <$> identifier)
+                                        <*  reservedOp ">"
+                                        <*> parsePolyType)
+              <|> try (Constraint_Equal <$> (var . string2Name <$> identifier)
+                                        <*  reservedOp "="
+                                        <*> parsePolyType)
+              <|> Constraint_Unify <$> parseMonoType
+                                   <*  reservedOp "~"
+                                   <*> parseMonoType
 
 parseMonoType :: Parsec String s MonoType
 parseMonoType = foldr1 MonoType_Arrow <$> parseMonoAtom `sepBy1` reservedOp "->"

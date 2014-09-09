@@ -103,8 +103,8 @@ canon isGiven _ (Constraint_Unify t1 t2) = case (t1,t2) of
     | c1 == c2 && length a1 == length a2 -> return $ Applied $ zipWith Constraint_Unify a1 a2
   (_, _) -> throwError $ "Different constructor heads: " ++ show t1 ++ " ~ " ++ show t2
 -- Convert from monotype > or = into monotype ~
-canon _ _ (Constraint_Inst  t (PolyType_Mono m)) = return $ Applied [Constraint_Unify t m]
-canon _ _ (Constraint_Equal t (PolyType_Mono m)) = return $ Applied [Constraint_Unify t m]
+canon _ _ (Constraint_Inst  t (PolyType_Mono [] m)) = return $ Applied [Constraint_Unify t m]
+canon _ _ (Constraint_Equal t (PolyType_Mono [] m)) = return $ Applied [Constraint_Unify t m]
 -- This is not needed
 canon _ _ (Constraint_Inst _ PolyType_Bottom)   = return $ Applied []
 -- Constructors and <= and ==
@@ -128,17 +128,16 @@ canon _ _ (Constraint_Equal x p) = do
 canon _ _ _ = return NotApplicable
 
 instantiate :: PolyType -> Bool -> SMonad ([Constraint], MonoType)
-instantiate (binder -> Just (_,b,constraint)) tch = do
-  ((v,unembed -> s),i) <- unbind b
+instantiate (PolyType_Bind b) tch = do
+  (v,i) <- unbind b
   when tch $ makeTouchable v
   (c,t) <- instantiate i tch
-  return (constraint (var v) s : c, t)
-instantiate (PolyType_Mono m) _tch = return ([],m)
+  return (c, t)
+instantiate (PolyType_Mono cs m) _tch = return (cs,m)
 instantiate PolyType_Bottom tch = do
   v <- fresh (string2Name "b")
   when tch $ makeTouchable v
   return ([], var v)
-instantiate _ _ = error "Pattern matching check is not that good"
 
 unifyInteract :: [Constraint] -> [Constraint] -> Constraint -> Constraint -> SMonad SolutionStep
 unifyInteract _ _ = unifyInteract'
