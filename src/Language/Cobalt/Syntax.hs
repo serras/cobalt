@@ -95,13 +95,17 @@ nf = runFreshM . nf' []
                 => [TyVar] -> [Constraint] -> MonoType
                 -> [Constraint] -> m PolyType
            nf'' bnders cs m [] = return $ reverseBind bnders (PolyType_Mono cs m)
+           nf'' _ _ (MonoType_Var v) (Constraint_Inst (MonoType_Var v') p : _)
+             | v == v' = nf' [] p
+           nf'' _ _ (MonoType_Var v) (Constraint_Equal (MonoType_Var v') p : _)
+             | v == v' = nf' [] p
            nf'' bnders accum m (x:xs) = case x of
              (Constraint_Inst (MonoType_Var v)  (PolyType_Mono [] p)) ->
-               nf'' bnders [] m =<< mapM (nfC . subst v p) (accum ++ xs)
+               nf'' bnders [] (subst v p m) =<< mapM (nfC . subst v p) (accum ++ xs)
              (Constraint_Equal (MonoType_Var v) (PolyType_Mono [] p)) ->
-               nf'' bnders [] m =<< mapM (nfC . subst v p) (accum ++ xs)
+               nf'' bnders [] (subst v p m) =<< mapM (nfC . subst v p) (accum ++ xs)
              (Constraint_Unify (MonoType_Var v) p) ->
-               nf'' bnders [] m =<< mapM (nfC . subst v p) (accum ++ xs)
+               nf'' bnders [] (subst v p m) =<< mapM (nfC . subst v p) (accum ++ xs)
              _ -> nf'' bnders (x:accum) m xs
            -- Make normal form of constraints
            nfC :: (Fresh m, Monad m, Functor m) => Constraint -> m Constraint
@@ -165,7 +169,6 @@ split PolyType_Bottom = do
 close :: [Constraint] -> MonoType -> PolyType
 close cs m = closeExn cs m (const False)
 
--- TODO: Perform correct closing by ordering variables
 closeExn :: [Constraint] -> MonoType -> (TyVar -> Bool) -> PolyType
 closeExn cs m except = let (cns, vars) = closeTypeA (filter (hasCsFv (fv m)) cs)
                         in finalClose (nub vars) (PolyType_Mono cns m)
