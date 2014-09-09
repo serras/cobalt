@@ -1,13 +1,17 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Main where
 
-import Control.Lens
+import Control.Lens hiding ((.=))
 import Control.Monad.Except
 import Control.Monad.Reader
+import Data.Aeson hiding (json)
 import System.Console.ANSI
 import System.Environment
+import Text.Parsec (parse)
 import Text.Parsec.String
 import Unbound.LocallyNameless
+import Web.Scotty
 
 import Language.Cobalt.Gather
 import Language.Cobalt.Parser (parseFile)
@@ -16,12 +20,19 @@ import Language.Cobalt.Syntax
 
 main :: IO ()
 main = do
-  todo:file:rest <- getArgs
+  todo:_ <- getArgs
+  case todo of
+   "serve" -> mainServe
+   _       -> mainCmd
+
+mainCmd :: IO ()
+mainCmd = do
+  todo:fname:rest <- getArgs
   let higher = case rest of
                  []         -> UseHigherRanks
                  "higher":_ -> UseHigherRanks
                  _          -> NoHigherRanks
-  p <- parseFromFile parseFile file
+  p <- parseFromFile parseFile fname
   case p of
     Left ep -> do setSGR [SetColor Foreground Vivid Red]
                   putStr "Error while parsing: "
@@ -38,14 +49,34 @@ main = do
             "gather" -> showAnns (doPerDefn' (gDefn higher) const env' defns) showG
             _ -> putStrLn "Unrecognized command"
 
+mainServe :: IO ()
+mainServe = do
+  _:port:_ <- getArgs
+  scotty (read port) $ do
+    get "/" $ do
+      setHeader "Content-Type" "text/html; charset=utf-8"
+      file "static/editor.html"
+    post "/typecheck" $ do
+      code <- param "code"
+      case parse parseFile "code" code of
+       Left ep -> json $ object [ "status"  .= ("error" :: String)
+                                , "message" .= show ep ]
+       Right (env, defns) -> let env' =  env & dataE %~ (++ initialDataEnv)
+                                 vals = showJsonAnns (doPerDefn' (tcDefn UseHigherRanks) tcNextEnv env' defns)
+                              in json $ object [ "status" .= ("ok" :: String)
+                                               , "values" .= vals ]
+    get "/:file" $ do
+      fname <- param "file"
+      file $ "static/" ++ fname
+
 doPerDefn' :: (Env -> Defn -> ExceptT String FreshM a)
            -> (Env -> a -> Env)
-           -> Env -> [(Defn,Bool)] -> [(Either (TermVar,String) a,Bool)]
+           -> Env -> [(Defn,Bool)] -> [(Either (TermVar,String) a, Bool)]
 doPerDefn' f nx e d = runFreshM (doPerDefn f nx e d)
 
 doPerDefn :: (Env -> Defn -> ExceptT String FreshM a)
           -> (Env -> a -> Env)
-          -> Env -> [(Defn,Bool)] -> FreshM [(Either (TermVar,String) a,Bool)]
+          -> Env -> [(Defn,Bool)] -> FreshM [(Either (TermVar,String) a, Bool)]
 doPerDefn _ _ _ [] = return []
 doPerDefn f nx e (((n,t,p),b):xs) = do r <- runExceptT (f e (n,t,p))
                                        case r of
@@ -101,6 +132,14 @@ findDuplicate (x:xs) = if x `elem` xs then Just x else findDuplicate xs
 tcNextEnv :: Env -> (AnnDefn,a) -> Env
 tcNextEnv e ((n,_,t),_) = e & fnE %~ ((n,t):)
 
+gDefn :: UseHigherRanks -> Env -> Defn -> ExceptT String FreshM (TermVar,Gathered)
+gDefn h e (n,t,Nothing) = do r <- runReaderT (gather h t) e
+                             return (n, r)
+gDefn h e (n,t,Just p)  = do Gathered typ a g w <- runReaderT (gather h t) e
+                             (q1,t1,_) <- split p
+                             let extra = Constraint_Unify (getAnn a) t1
+                             return (n, Gathered typ a (g ++ q1) (extra:w))
+
 showTc :: Bool -> ((AnnDefn,[Constraint]),Bool) -> IO ()
 showTc always (((n,t,p),cs),b) = do
   setSGR [SetColor Foreground Vivid Blue]
@@ -118,15 +157,7 @@ showTc always (((n,t,p),cs),b) = do
   when (not b || always) $ do
     putStrLn (show t)
 
-gDefn :: UseHigherRanks -> Env -> Defn -> ExceptT String FreshM (TermVar,Gathered)
-gDefn h e (n,t,Nothing) = do r <- runReaderT (gather h t) e
-                             return (n, r)
-gDefn h e (n,t,Just p)  = do Gathered typ a g w <- runReaderT (gather h t) e
-                             (q1,t1,_) <- split p
-                             let extra = Constraint_Unify (getAnn a) t1
-                             return (n, Gathered typ a (g ++ q1) (extra:w))
-
-showG :: ((TermVar,Gathered),Bool) -> IO ()
+showG :: ((TermVar,Gathered), Bool) -> IO ()
 showG ((n,(Gathered t ann g w)),_) = do
   let tch :: [TyVar] = fv (getAnn ann) `union` fv w
   setSGR [SetColor Foreground Vivid Blue]
@@ -148,7 +179,7 @@ showG ((n,(Gathered t ann g w)),_) = do
   putStrLn (show tch)
   putStrLn (show ann)
 
-showAnns :: [(Either (TermVar,String) a,Bool)] -> ((a,Bool) -> IO ()) -> IO ()
+showAnns :: [(Either (TermVar,String) a, Bool)] -> ((a,Bool) -> IO ()) -> IO ()
 showAnns [] _ = return ()
 showAnns ((Left (n,e),b):xs) f = do
   when b $ putStrLn ""
@@ -169,3 +200,18 @@ showAnns ((Right ok,b):xs) f = do
   f (ok,b)
   showAnns xs f
 
+showJsonAnns :: [(Either (TermVar,String) (AnnDefn,[Constraint]), Bool)] -> [Value]
+showJsonAnns [] = []
+showJsonAnns ((Left (n,e),b):xs) =
+  let this = object [ "text" .= name2String n
+                    , "tags" .= [e]
+                    , "backColor" .= if b then ("#f2dede" :: String)
+                                          else ("#fcf8e3" :: String) ]
+   in this : showJsonAnns xs
+showJsonAnns ((Right ((n,t,p),_cs),b):xs) =
+  let this = object [ "text" .= name2String n
+                    , "tags" .= [show p]
+                    , "backColor" .= if b then ("#dff0d8" :: String)
+                                          else ("#f2dede" :: String)
+                    , "nodes" .= runFreshM (showAnnTermJson t) ]
+   in this : showJsonAnns xs
