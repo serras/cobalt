@@ -8,7 +8,7 @@ import tuple  :: {a} {b} a -> b -> (a,b);
 import exampleInt  :: 'Integer -> 'Example 'Integer;
 import exampleBool :: 'Bool    -> 'Example 'Bool;
 
-import fix :: {a} {x = a -> a} x -> a;
+import fix :: {a} (a -> a) -> a;
 
 import zero :: 'Integer;
 import succ :: 'Integer -> 'Integer;
