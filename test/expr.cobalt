@@ -5,8 +5,8 @@ import nil    :: {a} [a];
 import cons   :: {a} a -> [a] -> [a];
 import tuple  :: {a} {b} a -> b -> (a,b);
 
-import exampleInt  :: 'Int -> 'Example 'Int;
-import exampleBool :: 'Bool    -> 'Example 'Bool;
+import exampleInt  :: 'Int  -> 'Example 'Int;
+import exampleBool :: 'Bool -> 'Example 'Bool;
 
 import fix :: {a} (a -> a) -> a;
 

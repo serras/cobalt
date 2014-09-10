@@ -273,13 +273,13 @@ showAnnTermJson (AnnTerm_Var v t) =
 showAnnTermJson (AnnTerm_Abs b t) = do
   (x,e) <- unbind b
   inner <- showAnnTermJson e
-  return $ [ object [ "text"  .= ("\\" ++ show x ++ " ->")
+  return $ [ object [ "text"  .= ("λ " ++ show x ++ " →")
                     , "tags"  .= [showWithGreek t]
                     , "nodes" .= inner ] ]
 showAnnTermJson (AnnTerm_AbsAnn b p t) = do
   (x,e) <- unbind b
   inner <- showAnnTermJson e
-  return $ [ object [ "text"  .= ("\\" ++ show x ++ " :: " ++ show p ++ " ->")
+  return $ [ object [ "text"  .= ("λ " ++ show x ++ " :: " ++ show p ++ " →")
                     , "tags"  .= [showWithGreek t]
                     , "nodes" .= inner ] ]
 showAnnTermJson (AnnTerm_App a b t) = do
@@ -310,11 +310,11 @@ showAnnTermJson (AnnTerm_Match e c bs t) = do
   e'  <- showAnnTermJson e
   bs' <- mapM (\(d,b) -> do (xs,es) <- unbind b
                             es' <- showAnnTermJson es
-                            return $ object [ "text"  .= ("| " ++ intercalate " " (map show (d:xs)) ++ " ->")
+                            return $ object [ "text"  .= ("| " ++ intercalate " " (map show (d:xs)) ++ " →")
                                             , "nodes" .= es']) bs
   return $ [ object [ "text"  .= ("match" :: String)
                     , "nodes" .= e' ]
-           , object [ "text"  .= ("with " ++ c)
+           , object [ "text"  .= ("with '" ++ c)
                     , "tags"  .= [showWithGreek t]
                     , "nodes" .= bs' ] ]
 
@@ -414,7 +414,7 @@ type Defn    = (TermVar, Term, Maybe PolyType)
 type AnnDefn = (TermVar, AnnTerm, PolyType)
 
 initialDataEnv :: DataEnv
-initialDataEnv = [("Integer", [])
+initialDataEnv = [("Int",     [])
                  ,("List",    [string2Name "a"])
                  ,("Tuple2",  [string2Name "a", string2Name "b"])]
 

@@ -1,0 +1,24 @@
+import nil    :: {a} [a];
+import cons   :: {a} a -> [a] -> [a];
+import tuple  :: {a} {b} a -> b -> (a,b);
+import fst    :: {a} {b} (a,b) -> a;
+import snd    :: {a} {b} (a,b) -> b;
+import triple :: {a} {b} {c} a -> b -> c -> 'Triple a b c;
+import triplx :: {a} {b} {c} b = {x} x => a -> b -> c -> 'Triple a b c;
+import tripla :: {a} {b} {c} b > {x} x -> x => a -> b -> c -> 'Triple a b c;
+
+import f      :: {b} {s} s = {a} [a] -> b => s -> 'Bool -> b;
+import length :: {a} [a] -> 'Int;
+
+instErr1 = cons 3 2                                     => fail;
+idRoundtrip = \x -> fst (tuple x 3)                     => ok;
+instType1 = \x -> \y -> triple x y 3                    => ok;
+instType2 = \x -> \(y :: {b} b) -> triplx x y 3         => ok;
+instType3Err = \x -> \(y :: {b} b -> b) -> triplx x y 3 => fail;
+instType4Err = \x -> \(y :: 'Int) -> triplx x y 3       => fail;
+instType5 = \x -> \(y :: {b} b -> b) -> tripla x y 3    => ok;
+instType6Err = \x -> \(y :: 'Int) -> tripla x y 3       => fail;
+instType7 = \x -> \(y :: {b} 'Int -> b) -> tripla x y 3 => ok;
+
+otherExample1      = f length => ok;
+otherExample2Ambig = f id     => fail;

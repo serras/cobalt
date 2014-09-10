@@ -1,0 +1,22 @@
+import nil    :: {a} [a];
+import cons   :: {a} a -> [a] -> [a];
+import sing   :: {a} a -> [a];
+import id     :: {a} a -> a;
+
+singBis = \x -> cons x nil    => ok;
+idBis = \x -> x               => ok;
+intRoundtrip = let x = 3 in x => ok;
+
+singId1 = sing id                                            => ok;
+singId2 :: {a} a = {b} b -> b => [a] = let x = sing id in x  => ok;
+singId3 :: {a} a > {b} b -> b => [a] = let x = sing id in x  => ok;
+
+singIdLet1 = let x = sing id in x                               => ok;
+singIdLet2 = let x = singBis idBis in x                         => ok;
+singIdLet3a    = let x :: ['Int -> 'Int] = sing id in x         => ok;
+singIdLet3Err1 = let x :: ['Int -> 'Bool] = sing id in x        => fail;
+singIdLet3b    = let x :: {a} [a -> a] = sing id in x           => ok;
+singIdLet3c    = let x :: {a} [[a] -> [a]] = sing id in x       => ok;
+singIdLet3Err2 = let x :: {a} [[a] -> 'Maybe a] = sing id in x  => fail;
+singIdLet3Err3 = let x :: {a} {b} [a -> b] = sing id in x       => fail;
+singIdErr4 :: {a} {b} [a -> b] = sing id                        => fail;
