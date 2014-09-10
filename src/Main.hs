@@ -17,6 +17,7 @@ import Language.Cobalt.Gather
 import Language.Cobalt.Parser (parseFile)
 import Language.Cobalt.Solver
 import Language.Cobalt.Syntax
+import Language.Cobalt.Util (showWithGreek)
 
 main :: IO ()
 main = do
@@ -210,7 +211,7 @@ showJsonAnns ((Left (n,e),b):xs) =
    in this : showJsonAnns xs
 showJsonAnns ((Right ((n,t,p),_cs),b):xs) =
   let this = object [ "text" .= name2String n
-                    , "tags" .= [show p]
+                    , "tags" .= [showWithGreek p]
                     , "backColor" .= if b then ("#dff0d8" :: String)
                                           else ("#f2dede" :: String)
                     , "nodes" .= runFreshM (showAnnTermJson t) ]

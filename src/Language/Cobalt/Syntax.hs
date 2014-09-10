@@ -62,6 +62,8 @@ import Data.List (insert, intercalate, find, nub)
 import Data.Maybe (isJust)
 import Unbound.LocallyNameless hiding (close)
 
+import Language.Cobalt.Util (showWithGreek)
+
 type TyVar = Name MonoType
 data PolyType = PolyType_Bind (Bind TyVar PolyType)
               | PolyType_Mono [Constraint] MonoType
@@ -128,7 +130,7 @@ data MonoType = MonoType_Con   String [MonoType]
               | MonoType_Arrow MonoType MonoType
               deriving Eq
 
-pattern MonoType_Int       = MonoType_Con   "Integer" []
+pattern MonoType_Int       = MonoType_Con   "Int" []
 pattern MonoType_List  t   = MonoType_Con   "List" [t]
 pattern MonoType_Tuple a b = MonoType_Con   "Tuple2" [a,b]
 pattern s :-->: r          = MonoType_Arrow s r
@@ -264,27 +266,27 @@ showAnnTerm' f (AnnTerm_Match e c bs t) = do
 showAnnTermJson :: Fresh m => AnnTerm -> m [Value]
 showAnnTermJson (AnnTerm_IntLiteral n t) =
   return $ [ object [ "text"  .= show n
-                    , "tags"  .= [show t] ] ]
+                    , "tags"  .= [showWithGreek t] ] ]
 showAnnTermJson (AnnTerm_Var v t) =
   return $ [ object [ "text"  .= show v
-                    , "tags"  .= [show t] ] ]
+                    , "tags"  .= [showWithGreek t] ] ]
 showAnnTermJson (AnnTerm_Abs b t) = do
   (x,e) <- unbind b
   inner <- showAnnTermJson e
   return $ [ object [ "text"  .= ("\\" ++ show x ++ " ->")
-                    , "tags"  .= [show t]
+                    , "tags"  .= [showWithGreek t]
                     , "nodes" .= inner ] ]
 showAnnTermJson (AnnTerm_AbsAnn b p t) = do
   (x,e) <- unbind b
   inner <- showAnnTermJson e
   return $ [ object [ "text"  .= ("\\" ++ show x ++ " :: " ++ show p ++ " ->")
-                    , "tags"  .= [show t]
+                    , "tags"  .= [showWithGreek t]
                     , "nodes" .= inner ] ]
 showAnnTermJson (AnnTerm_App a b t) = do
   e1 <- showAnnTermJson a
   e2 <- showAnnTermJson b
   return $ [ object [ "text"  .= ("@" :: String)
-                    , "tags"  .= [show t]
+                    , "tags"  .= [showWithGreek t]
                     , "nodes" .= (e1 ++ e2) ] ]
 showAnnTermJson (AnnTerm_Let b t) = do
   ((x, unembed -> e1),e2) <- unbind b
@@ -293,7 +295,7 @@ showAnnTermJson (AnnTerm_Let b t) = do
   return $ [ object [ "text"  .= ("let " ++ show x ++ " =")
                     , "nodes" .= s1 ]
            , object [ "text"  .= ("in" :: String)
-                    , "tags"  .= [show t]
+                    , "tags"  .= [showWithGreek t]
                     , "nodes" .= s2 ] ]
 showAnnTermJson (AnnTerm_LetAnn b p t) = do
   ((x, unembed -> e1),e2) <- unbind b
@@ -302,7 +304,7 @@ showAnnTermJson (AnnTerm_LetAnn b p t) = do
   return $ [ object [ "text"  .= ("let " ++ show x ++ " :: " ++ show p ++ " =")
                     , "nodes" .= s1 ]
            , object [ "text"  .= ("in" :: String)
-                    , "tags"  .= [show t]
+                    , "tags"  .= [showWithGreek t]
                     , "nodes" .= s2 ] ]
 showAnnTermJson (AnnTerm_Match e c bs t) = do
   e'  <- showAnnTermJson e
@@ -313,7 +315,7 @@ showAnnTermJson (AnnTerm_Match e c bs t) = do
   return $ [ object [ "text"  .= ("match" :: String)
                     , "nodes" .= e' ]
            , object [ "text"  .= ("with " ++ c)
-                    , "tags"  .= [show t]
+                    , "tags"  .= [showWithGreek t]
                     , "nodes" .= bs' ] ]
 
 atAnn :: (MonoType -> MonoType) -> AnnTerm -> AnnTerm

@@ -32,6 +32,14 @@
   #error-msg, .list-group {
     font-family: Menlo,Monaco,Consolas,monospace;
   }
+  
+  #result > .list-group {
+    margin-bottom: 0;
+  }
+
+  #result .list-group-item {
+    clear: both;
+  }
   </style>
 </head>
 <body>
@@ -50,7 +58,7 @@
           <div class="panel-body" id="error-msg"></div>
         </div>
         <div class="panel panel-info" id="result-panel">
-          <div class="panel-heading">Typechecker result</div>
+          <!-- <div class="panel-heading">Typechecker result</div> -->
           <div class="panel-body" id="result"></div>
         </div>
       </div>

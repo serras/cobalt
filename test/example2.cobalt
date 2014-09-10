@@ -5,21 +5,21 @@ import nil    :: {a} [a];
 import cons   :: {a} a -> [a] -> [a];
 import tuple  :: {a} {b} a -> b -> (a,b);
 
-import exampleInt  :: 'Integer -> 'Example 'Integer;
+import exampleInt  :: 'Int -> 'Example 'Int;
 import exampleBool :: 'Bool    -> 'Example 'Bool;
 
 import fix :: {a} (a -> a) -> a;
 
-import zero :: 'Integer;
-import succ :: 'Integer -> 'Integer;
-import plus :: 'Integer -> 'Integer -> 'Integer;
-import mult :: 'Integer -> 'Integer -> 'Integer;
-import gte  :: 'Integer -> 'Integer -> 'Bool;
+import zero :: 'Int;
+import succ :: 'Int -> 'Int;
+import plus :: 'Int -> 'Int -> 'Int;
+import mult :: 'Int -> 'Int -> 'Int;
+import gte  :: 'Int -> 'Int -> 'Bool;
 
 import ifte :: {a} Bool -> a -> a -> a;
 
-import intLit   :: 'Integer -> 'Expr 'Integer;
-import gteE     :: 'Expr 'Integer -> 'Expr 'Integer -> 'Expr Bool;
+import intLit   :: 'Int -> 'Expr 'Int;
+import gteE     :: 'Expr 'Int -> 'Expr 'Int -> 'Expr Bool;
 import ifteE    :: {a} 'Expr 'Bool -> 'Expr a -> 'Expr a -> 'Expr a;
 import evalBool :: 'Expr 'Bool -> 'Bool;
 
@@ -27,7 +27,7 @@ headOrZero = \x -> match x with 'List
                    | nil -> 0
                    | cons x xs -> x => ok;
 
-example :: {a} 'Example a -> 'Integer
+example :: {a} 'Example a -> 'Int
          = \x -> match x with 'Example
                  | exampleInt  x -> x
                  | exampleBool b -> 8 => ok;
@@ -37,11 +37,11 @@ appendA = \a -> \x -> \y -> match x with 'List
                             | cons z zs -> cons z (a zs y) => ok;
 append = fix appendA => ok;
 
-factorial = fix (\f -> \n -> match n with 'Integer
+factorial = fix (\f -> \n -> match n with 'Int
                              | zero -> 1
                              | succ x -> mult (plus x 1) (f x)) => ok;
 
-eval :: 'Expr 'Integer -> 'Integer
+eval :: 'Expr 'Int -> 'Int
   = fix (\e -> \expr -> match expr with 'Expr
                         | intLit x -> x
                         | ifteE b x y -> ifte (evalBool b) (e x) (e y)) => ok;

@@ -13,10 +13,10 @@ import bindST    :: {a} {b} {s} 'ST s a -> (a -> 'ST s b) -> 'ST s b;
 import runST     :: {a} {s} s = {s} 'ST s a => s -> a;
 import newSTRef  :: {a} {s} a -> 'ST s ('STRef s a);
 import readSTRef :: {a} {s} 'STRef s a -> 'ST s a;
-import zas       :: {s} 'ST s 'Integer;
+import zas       :: {s} 'ST s 'Int;
 
 import f      :: {b} {s} s = {a} [a] -> b => s -> 'Bool -> b;
-import length :: {a} [a] -> 'Integer;
+import length :: {a} [a] -> 'Int;
 
 checkFunParam1 = \x -> \(y :: {a} a -> a) -> cons (x (tuple y 3)) nil => ok;
 checkFunParam2 = \(x :: {a} a -> a) -> \y -> cons (x (tuple y 3)) nil => ok;
@@ -29,10 +29,10 @@ idRoundtrip = \x -> fst (tuple x 3)                         => ok;
 instType1 = \x -> \y -> triple x y 3                        => ok;
 instType2 = \x -> \(y :: {b} b) -> triplx x y 3             => ok;
 instType3Err = \x -> \(y :: {b} b -> b) -> triplx x y 3     => fail;
-instType4Err = \x -> \(y :: 'Integer) -> triplx x y 3       => fail;
+instType4Err = \x -> \(y :: 'Int) -> triplx x y 3       => fail;
 instType5 = \x -> \(y :: {b} b -> b) -> tripla x y 3        => ok;
-instType6Err = \x -> \(y :: 'Integer) -> tripla x y 3       => fail;
-instType7 = \x -> \(y :: {b} 'Integer -> b) -> tripla x y 3 => ok;
+instType6Err = \x -> \(y :: 'Int) -> tripla x y 3       => fail;
+instType7 = \x -> \(y :: {b} 'Int -> b) -> tripla x y 3 => ok;
 
 singBis = \x -> cons x nil    => ok;
 idBis = \x -> x               => ok;
@@ -43,8 +43,8 @@ singId2 :: {a} a = {b} b -> b => [a] = let x = sing id in x          => ok;
 singId3 :: {a} a > {b} b -> b => [a] = let x = sing id in x          => ok;
 singIdLet1 = let x = sing id in x                               => ok;
 singIdLet2 = let x = singBis idBis in x                         => ok;
-singIdLet3a    = let x :: ['Integer -> 'Integer] = sing id in x => ok;
-singIdLet3Err1 = let x :: ['Integer -> 'Bool] = sing id in x    => fail;
+singIdLet3a    = let x :: ['Int -> 'Int] = sing id in x => ok;
+singIdLet3Err1 = let x :: ['Int -> 'Bool] = sing id in x    => fail;
 singIdLet3b    = let x :: {a} [a -> a] = sing id in x           => ok;
 singIdLet3c    = let x :: {a} [[a] -> [a]] = sing id in x       => ok;
 singIdLet3Err2 = let x :: {a} [[a] -> 'Maybe a] = sing id in x  => fail;
