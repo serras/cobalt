@@ -7,8 +7,8 @@
   
   <title>Cobalt :: Constraint-Based Little Typechecker</title>
   
-  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.2.0/css/bootstrap.min.css">
-  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.2.0/css/bootstrap-theme.min.css">
+  <link rel="stylesheet" href="bootstrap.min.css">
+  <!-- <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.2.0/css/bootstrap-theme.min.css"> -->
   <!-- <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.2.0/js/bootstrap.min.js"></script> -->
 
   <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
@@ -22,7 +22,7 @@
     height: 400px;
   }
   
-  #tc-button {
+  #tc-button, #info {
     width: 96%;
     margin-left: 2%;
     margin-right: 2%;
@@ -30,7 +30,7 @@
   }
 
   #error-msg, .list-group {
-    font-family: Menlo,Monaco,Consolas,monospace;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'source-code-pro', monospace;
   }
   
   #result > .list-group {
@@ -51,6 +51,7 @@
       <div class="col-md-6">
         <div id="editor"></div>
         <div><button type="button" class="btn btn-primary" id="tc-button">Typecheck!</button></div>
+        <div id="info">Developed by <a href="http://www.cs.uu.nl/staff/mena.html" target="_blank">Alejandro Serrano Mena</a> at <a href="http://www.cs.uu.nl/" target="_blank">Universiteit Utrecht</a></div>
       </div>
       <div class="col-md-6">
         <div class="panel panel-danger" id="error-panel">
