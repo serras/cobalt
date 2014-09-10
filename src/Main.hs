@@ -66,6 +66,9 @@ mainServe = do
                                  vals = showJsonAnns (doPerDefn' (tcDefn UseHigherRanks) tcNextEnv env' defns)
                               in json $ object [ "status" .= ("ok" :: String)
                                                , "values" .= vals ]
+    get "/example/:file" $ do
+      fname <- param "file"
+      file $ "test/" ++ fname
     get "/:file" $ do
       fname <- param "file"
       file $ "static/" ++ fname

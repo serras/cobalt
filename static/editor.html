@@ -6,13 +6,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   
   <title>Cobalt :: Constraint-Based Little Typechecker</title>
-  
-  <link rel="stylesheet" href="bootstrap.min.css">
-  <!-- <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.2.0/css/bootstrap-theme.min.css"> -->
-  <!-- <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.2.0/js/bootstrap.min.js"></script> -->
 
   <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
   <script src="http://cdnjs.cloudflare.com/ajax/libs/ace/1.1.3/ace.js"></script>
+
+  <link rel="stylesheet" href="bootstrap.min.css">
+  <!-- <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.2.0/css/bootstrap-theme.min.css"> -->
+  <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.2.0/js/bootstrap.min.js"></script>
 
   <link rel="stylesheet" href="bootstrap-treeview.min.css">
   <script src="bootstrap-treeview.min.js"></script>
@@ -22,11 +22,22 @@
     height: 400px;
   }
   
-  #tc-button, #info {
+  #load-button, #tc-button, #info {
     width: 96%;
     margin-left: 2%;
     margin-right: 2%;
     margin-top: 10px;
+  }
+
+  .dropdown-menu {
+    width: 96%;
+    margin-left: 2%;
+    margin-right: 2%;
+    padding: 5px 10px;
+  }
+
+  .dropdown-menu > li > a {
+    padding: 5px 10px;
   }
 
   #error-msg, .list-group {
@@ -56,6 +67,18 @@
     <div class="row">
       <div class="col-md-6">
         <div id="editor"></div>
+        <div class="dropdown">
+          <button class="btn btn-default dropdown-toggle" type="button" id="load-button" data-toggle="dropdown">
+            Load example <span class="caret"></span>
+          </button>
+          <ul class="dropdown-menu" role="menu"">
+            <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('basic.cobalt');">Basic higher ranks</a></li>
+            <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('singid.cobalt');">Singleton list with identity</a></li>
+            <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('st.cobalt');">Working with ST</a></li>
+            <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('expr.cobalt');">Expression language with GADTs</a></li>
+            <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('listmatch.cobalt');">Pattern matching on lists</a></li>
+          </ul>
+        </div>
         <div><button type="button" class="btn btn-primary" id="tc-button">Typecheck!</button></div>
         <div id="info">Developed by <a href="http://www.cs.uu.nl/staff/mena.html" target="_blank">Alejandro Serrano Mena</a> at <a href="http://www.cs.uu.nl/" target="_blank">Universiteit Utrecht</a></div>
       </div>
@@ -100,6 +123,12 @@
         }
       }, "json");
     });
+
+    window.loadExample = function(x) {
+      $.get("/example/" + x, function (data) {
+        editor.setValue(data, -1);
+      });
+    }
   </script>
 </body>
 </html>
