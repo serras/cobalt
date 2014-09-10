@@ -231,7 +231,7 @@ showAnnTerm' f (AnnTerm_Abs b t) = do
 showAnnTerm' f (AnnTerm_AbsAnn b p t) = do
   (x,e) <- unbind b
   inner <- showAnnTerm' f e
-  let line1 = "\\" ++ show x ++ " :: " ++ show p ++ " -> ==> " ++ show (f t)
+  let line1 = "\\(" ++ show x ++ " :: " ++ show p ++ ") -> ==> " ++ show (f t)
   return $ line1 : map ("  " ++) inner
 showAnnTerm' f (AnnTerm_App a b t) = do
   e1 <- showAnnTerm' f a
@@ -279,7 +279,7 @@ showAnnTermJson (AnnTerm_Abs b t) = do
 showAnnTermJson (AnnTerm_AbsAnn b p t) = do
   (x,e) <- unbind b
   inner <- showAnnTermJson e
-  return $ [ object [ "text"  .= ("λ " ++ show x ++ " :: " ++ show p ++ " →")
+  return $ [ object [ "text"  .= ("λ (" ++ show x ++ " :: " ++ showWithGreek p ++ ") →")
                     , "tags"  .= [showWithGreek t]
                     , "nodes" .= inner ] ]
 showAnnTermJson (AnnTerm_App a b t) = do
@@ -301,7 +301,7 @@ showAnnTermJson (AnnTerm_LetAnn b p t) = do
   ((x, unembed -> e1),e2) <- unbind b
   s1 <- showAnnTermJson e1
   s2 <- showAnnTermJson e2
-  return $ [ object [ "text"  .= ("let " ++ show x ++ " :: " ++ show p ++ " =")
+  return $ [ object [ "text"  .= ("let " ++ show x ++ " :: " ++ showWithGreek p ++ " =")
                     , "nodes" .= s1 ]
            , object [ "text"  .= ("in" :: String)
                     , "tags"  .= [showWithGreek t]

@@ -209,13 +209,15 @@ showJsonAnns [] = []
 showJsonAnns ((Left (n,e),b):xs) =
   let this = object [ "text" .= name2String n
                     , "tags" .= [e]
-                    , "backColor" .= if b then ("#f2dede" :: String)
-                                          else ("#fcf8e3" :: String) ]
+                    , "color" .= ("white" :: String)
+                    , "backColor" .= if b then ("#F58471" :: String)   -- red
+                                          else ("#F1B75B" :: String) ] -- yellow
    in this : showJsonAnns xs
 showJsonAnns ((Right ((n,t,p),_cs),b):xs) =
   let this = object [ "text" .= name2String n
                     , "tags" .= [showWithGreek p]
-                    , "backColor" .= if b then ("#dff0d8" :: String)
-                                          else ("#f2dede" :: String)
+                    , "color" .= ("white" :: String)
+                    , "backColor" .= if b then ("#85C99E" :: String)  -- green
+                                          else ("#F58471" :: String)  -- red
                     , "nodes" .= runFreshM (showAnnTermJson t) ]
    in this : showJsonAnns xs
