@@ -12,10 +12,12 @@ instance Fresh m => Fresh (ExceptT e m) where
 replace :: Eq a => [a] -> [a] -> [a] -> [a]
 replace old new l = intercalate new . splitOn old $ l
 
+withGreek :: String -> String
+withGreek = replace "alpha" "α"
+            . replace "beta" "β"
+            . replace "tau" "τ"
+            . replace "->" "→"
+            . replace "=>" "⟹"
+
 showWithGreek :: Show a => a -> String
-showWithGreek = replace "alpha" "α"
-                . replace "beta" "β"
-                . replace "tau" "τ"
-                . replace "->" "→"
-                . replace "=>" "⟹"
-                . show
+showWithGreek = withGreek . show

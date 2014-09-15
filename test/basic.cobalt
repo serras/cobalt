@@ -8,7 +8,11 @@ import triplx :: {a} {b} {c} b = {x} x => a -> b -> c -> 'Triple a b c;
 import tripla :: {a} {b} {c} b > {x} x -> x => a -> b -> c -> 'Triple a b c;
 
 import f      :: {b} {s} s = {a} [a] -> b => s -> 'Bool -> b;
+import id     :: {a} a -> a;
 import length :: {a} [a] -> 'Int;
+
+import str    :: ['Char];
+import ids    :: {a} a > {b} b -> b => [a];
 
 instErr1 = cons 3 2                                     => fail;
 idRoundtrip = \x -> fst (tuple x 3)                     => ok;
@@ -22,3 +26,6 @@ instType7 = \x -> \(y :: {b} 'Int -> b) -> tripla x y 3 => ok;
 
 otherExample1      = f length => ok;
 otherExample2Ambig = f id     => fail;
+
+l1 = length str => ok;
+l2 = length ids => ok;

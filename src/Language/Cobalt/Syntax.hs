@@ -19,6 +19,7 @@ module Language.Cobalt.Syntax (
 , pattern MonoType_List
 , pattern MonoType_Tuple
 , pattern (:-->:)
+, isFamilyFree
 , arr
 , var
   -- ** From poly to mono
@@ -134,6 +135,12 @@ pattern MonoType_Int       = MonoType_Con   "Int" []
 pattern MonoType_List  t   = MonoType_Con   "List" [t]
 pattern MonoType_Tuple a b = MonoType_Con   "Tuple2" [a,b]
 pattern s :-->: r          = MonoType_Arrow s r
+
+isFamilyFree :: MonoType -> Bool
+isFamilyFree (MonoType_Con _ args)  = all isFamilyFree args
+isFamilyFree (MonoType_Fam _ _)     = False
+isFamilyFree (MonoType_Var _)       = True
+isFamilyFree (MonoType_Arrow a1 a2) = isFamilyFree a1 && isFamilyFree a2
 
 arr :: MonoType -> ([MonoType],MonoType)
 arr (s :-->: r) = let (s',r') = arr r in (s:s', r')

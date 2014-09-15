@@ -147,16 +147,23 @@ unifyInteract _ _ = unifyInteract'
 unifyInteract' :: Constraint -> Constraint -> SMonad SolutionStep
 unifyInteract' (Constraint_Unify t1 s1) (Constraint_Unify t2 s2) = case (t1,t2) of
   (MonoType_Var v1, MonoType_Var v2)
-    | v1 == v2 -> return $ Applied [Constraint_Unify s1 s2]
-    | v1 `elem` fv s2 -> return $ Applied [Constraint_Unify t2 (subst v1 s1 s2)]
+    | v1 == v2, isFamilyFree s1, isFamilyFree s2 -> return $ Applied [Constraint_Unify s1 s2]
+    | v1 `elem` fv s2, isFamilyFree s1, isFamilyFree s2 -> return $ Applied [Constraint_Unify t2 (subst v1 s1 s2)]
+    | otherwise -> return NotApplicable
+  (MonoType_Var v1, MonoType_Fam _ args)
+    | isFamilyFree s1, all isFamilyFree args, v1 `elem` fv t2 || v1 `elem` fv s2, isFamilyFree s2 ->
+        return $ Applied [Constraint_Unify (subst v1 s1 t2) (subst v1 s1 s2)]
+    | otherwise -> return NotApplicable
+  (MonoType_Fam f1 a1, MonoType_Fam f2 a2)
+    | f1 == f2, a1 == a2, isFamilyFree s1, isFamilyFree s2 -> return $ Applied [Constraint_Unify s1 s2]
     | otherwise -> return NotApplicable
   _ -> return NotApplicable
 -- Replace something over another constraint
 unifyInteract' (Constraint_Unify (MonoType_Var v1) s1) (Constraint_Inst t2 s2)
-  | v1 `elem` fv t2 || v1 `elem` fv s2
+  | v1 `elem` fv t2 || v1 `elem` fv s2, isFamilyFree s1
   = return $ Applied [Constraint_Inst (subst v1 s1 t2) (subst v1 s1 s2)]
 unifyInteract' (Constraint_Unify (MonoType_Var v1) s1) (Constraint_Equal t2 s2)
-  | v1 `elem` fv t2 || v1 `elem` fv s2
+  | v1 `elem` fv t2 || v1 `elem` fv s2, isFamilyFree s1
   = return $ Applied [Constraint_Equal (subst v1 s1 t2) (subst v1 s1 s2)]
 -- Constructors are not canonical
 unifyInteract' (Constraint_Unify _ _) _ = return NotApplicable
