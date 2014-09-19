@@ -178,20 +178,19 @@ parseDefn = try ((\x y z w -> ((x,z,Just y),w))
                      <*> parsePolyType
                      <*  reservedOp "="
                      <*> parseTerm
-                     <*  reservedOp "=>"
                      <*> parseExpected
                      <*  reservedOp ";")
         <|> (\x z w -> ((x,z,Nothing),w))
                      <$> (string2Name <$> identifier)
                      <*  reservedOp "="
                      <*> parseTerm
-                     <*  reservedOp "=>"
                      <*> parseExpected
                      <*  reservedOp ";"
 
 parseExpected :: Parsec String s Bool
-parseExpected = const True  <$> reservedOp "ok"
-            <|> const False <$> reservedOp "fail"
+parseExpected = try (id <$ reservedOp "=>" <*> (    const True  <$> reservedOp "ok"
+                                                <|> const False <$> reservedOp "fail"))
+            <|> pure True
 
 parseFile :: Parsec String s (Env,[(Defn,Bool)])
 parseFile = (\x y w z -> (Env y x w, z))

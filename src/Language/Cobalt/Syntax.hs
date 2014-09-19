@@ -33,7 +33,6 @@ module Language.Cobalt.Syntax (
 , AnnTermVar
 , AnnTerm(..)
 , showAnnTerm
-, showAnnTermJson
 , atAnn
 , getAnn
   -- * Constraints and axioms
@@ -58,12 +57,9 @@ module Language.Cobalt.Syntax (
 
 import Control.Applicative ((<$>))
 import Control.Lens hiding ((.=))
-import Data.Aeson
 import Data.List (insert, intercalate, find, nub)
 import Data.Maybe (isJust)
 import Unbound.LocallyNameless hiding (close)
-
-import Language.Cobalt.Util (showWithGreek)
 
 type TyVar = Name MonoType
 data PolyType = PolyType_Bind (Bind TyVar PolyType)
@@ -269,61 +265,6 @@ showAnnTerm' f (AnnTerm_Match e c bs t) = do
       line2      = "with " ++ c ++ " ==> " ++ show (f t)
       secondPart = line2 : concat bs'
   return $ firstPart ++ secondPart
-
-showAnnTermJson :: Fresh m => AnnTerm -> m [Value]
-showAnnTermJson (AnnTerm_IntLiteral n t) =
-  return $ [ object [ "text"  .= show n
-                    , "tags"  .= [showWithGreek t] ] ]
-showAnnTermJson (AnnTerm_Var v t) =
-  return $ [ object [ "text"  .= show v
-                    , "tags"  .= [showWithGreek t] ] ]
-showAnnTermJson (AnnTerm_Abs b t) = do
-  (x,e) <- unbind b
-  inner <- showAnnTermJson e
-  return $ [ object [ "text"  .= ("λ " ++ show x ++ " →")
-                    , "tags"  .= [showWithGreek t]
-                    , "nodes" .= inner ] ]
-showAnnTermJson (AnnTerm_AbsAnn b p t) = do
-  (x,e) <- unbind b
-  inner <- showAnnTermJson e
-  return $ [ object [ "text"  .= ("λ (" ++ show x ++ " :: " ++ showWithGreek p ++ ") →")
-                    , "tags"  .= [showWithGreek t]
-                    , "nodes" .= inner ] ]
-showAnnTermJson (AnnTerm_App a b t) = do
-  e1 <- showAnnTermJson a
-  e2 <- showAnnTermJson b
-  return $ [ object [ "text"  .= ("@" :: String)
-                    , "tags"  .= [showWithGreek t]
-                    , "nodes" .= (e1 ++ e2) ] ]
-showAnnTermJson (AnnTerm_Let b t) = do
-  ((x, unembed -> e1),e2) <- unbind b
-  s1 <- showAnnTermJson e1
-  s2 <- showAnnTermJson e2
-  return $ [ object [ "text"  .= ("let " ++ show x ++ " =")
-                    , "nodes" .= s1 ]
-           , object [ "text"  .= ("in" :: String)
-                    , "tags"  .= [showWithGreek t]
-                    , "nodes" .= s2 ] ]
-showAnnTermJson (AnnTerm_LetAnn b p t) = do
-  ((x, unembed -> e1),e2) <- unbind b
-  s1 <- showAnnTermJson e1
-  s2 <- showAnnTermJson e2
-  return $ [ object [ "text"  .= ("let " ++ show x ++ " :: " ++ showWithGreek p ++ " =")
-                    , "nodes" .= s1 ]
-           , object [ "text"  .= ("in" :: String)
-                    , "tags"  .= [showWithGreek t]
-                    , "nodes" .= s2 ] ]
-showAnnTermJson (AnnTerm_Match e c bs t) = do
-  e'  <- showAnnTermJson e
-  bs' <- mapM (\(d,b) -> do (xs,es) <- unbind b
-                            es' <- showAnnTermJson es
-                            return $ object [ "text"  .= ("| " ++ intercalate " " (map show (d:xs)) ++ " →")
-                                            , "nodes" .= es']) bs
-  return $ [ object [ "text"  .= ("match" :: String)
-                    , "nodes" .= e' ]
-           , object [ "text"  .= ("with '" ++ c)
-                    , "tags"  .= [showWithGreek t]
-                    , "nodes" .= bs' ] ]
 
 atAnn :: (MonoType -> MonoType) -> AnnTerm -> AnnTerm
 atAnn f = runFreshM . atAnn' f

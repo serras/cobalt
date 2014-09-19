@@ -9,8 +9,7 @@ COnstraint-BAsed Little Typechecker
 program := data* import* defn*
 data    := "data" dataname tyvar* ";"
 import  := "import" termvar "::" polytype ";"
-defn    := termvar "=" expr "=>" okfail ";"
-         | termvar "::" polytype "=" expr "=>" okfail ";"
+defn    := termvar ("::" polytype)? "=" expr ("=>" okfail)? ";"
 okfail  := "ok" | "fail"
 
 polytype := "{" tyvar ">" polytype "}" polytype
