@@ -7,6 +7,11 @@
 {-# LANGUAGE OverlappingInstances #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE OverlappingInstances #-}
 module Language.Cobalt.Syntax (
   -- * Types
   TyVar
@@ -27,12 +32,13 @@ module Language.Cobalt.Syntax (
 , close
 , closeExn
   -- * Terms
+, RawTermVar
+, RawTerm
+, TyTermVar
+, TyTerm
+  -- ** Generic annotated terms
 , TermVar
 , Term(..)
-  -- ** Annotated terms
-, AnnTermVar
-, AnnTerm(..)
-, showAnnTerm
 , atAnn
 , getAnn
   -- * Constraints and axioms
@@ -43,6 +49,7 @@ module Language.Cobalt.Syntax (
 , _Constraint_Exists
 , Axiom(..)
   -- * Whole program structure
+  -- ** Environment
 , FnEnv
 , DataEnv
 , initialDataEnv
@@ -51,12 +58,13 @@ module Language.Cobalt.Syntax (
 , fnE
 , dataE
 , axiomE
+  -- * Definitions
 , Defn
-, AnnDefn
+, TyDefn
 ) where
 
 import Control.Applicative ((<$>))
-import Control.Lens hiding ((.=))
+import Control.Lens hiding ((.=), from, to)
 import Data.List (insert, intercalate, find, nub)
 import Data.Maybe (isJust)
 import Unbound.LocallyNameless hiding (close)
@@ -65,22 +73,6 @@ type TyVar = Name MonoType
 data PolyType = PolyType_Bind (Bind TyVar PolyType)
               | PolyType_Mono [Constraint] MonoType
               | PolyType_Bottom
-
-instance Show PolyType where
-  show = runFreshM . showPolyType'
-
-showPolyType' :: Fresh m => PolyType -> m String
-showPolyType' (PolyType_Bind b) = do
-  (x, r) <- unbind b
-  showR <- showPolyType' r
-  return $ "{" ++ show x ++ "} " ++ showR
-showPolyType' (PolyType_Mono [] m) = return $ show m
-showPolyType' (PolyType_Mono cs m) = return $ show cs ++ " => " ++ show m
-showPolyType' PolyType_Bottom   = return "⊥"
-
--- TODO
--- nf in two steps: first put the constraints in order
--- second: replace those which needs to be replaced
 
 nf :: PolyType -> PolyType
 nf = runFreshM . nf' []
@@ -142,19 +134,6 @@ arr :: MonoType -> ([MonoType],MonoType)
 arr (s :-->: r) = let (s',r') = arr r in (s:s', r')
 arr m = ([], m)
 
-instance Show MonoType where
-  show (MonoType_List t)      = "[" ++ show t ++ "]"
-  show (MonoType_Tuple t1 t2) = "(" ++ show t1 ++ "," ++ show t2 ++ ")"
-  show (MonoType_Con c a)     = '\'':c ++ concatMap (\x -> " " ++ doParens (show x)) a
-  show (MonoType_Fam c a)     = '^':c ++ concatMap (\x -> " " ++ doParens (show x)) a
-  show (s :-->: t)            = doParens (show s) ++ " -> " ++ show t
-  show (MonoType_Var v)       = show v
-  show _                      = error "Pattern matching check is not that good"
-
-doParens :: String -> String
-doParens s | ' ' `elem` s = '(' : s ++ ")"
-           | otherwise    = s
-
 class VariableInjection v where
   var :: TyVar -> v
 
@@ -196,66 +175,287 @@ closeExn cs m except = let (cns, vars) = closeTypeA (filter (hasCsFv (fv m)) cs)
         finalClose []     p = p
         finalClose (v:vs) p = PolyType_Bind (bind v (finalClose vs p))
 
-type TermVar = Name Term
-data Term = Term_IntLiteral Integer
-          | Term_Var    TermVar
-          | Term_Abs    (Bind TermVar Term)
-          | Term_AbsAnn (Bind TermVar Term) PolyType
-          | Term_App    Term Term
-          | Term_Let    (Bind (TermVar, Embed Term) Term)
-          | Term_LetAnn (Bind (TermVar, Embed Term) Term) PolyType
-          | Term_Match  Term String [(TermVar, Bind [TermVar] Term)]
-          deriving Show
+type RawTermVar = TermVar ()
+type RawTerm    = Term ()
+type TyTermVar  = TermVar MonoType
+type TyTerm     = Term MonoType
 
-type AnnTermVar = Name AnnTerm
-data AnnTerm = AnnTerm_IntLiteral Integer MonoType
-             | AnnTerm_Var    AnnTermVar MonoType
-             | AnnTerm_Abs    (Bind AnnTermVar AnnTerm) MonoType
-             | AnnTerm_AbsAnn (Bind AnnTermVar AnnTerm) PolyType MonoType
-             | AnnTerm_App    AnnTerm AnnTerm MonoType
-             | AnnTerm_Let    (Bind (AnnTermVar, Embed AnnTerm) AnnTerm) MonoType
-             | AnnTerm_LetAnn (Bind (AnnTermVar, Embed AnnTerm) AnnTerm) PolyType MonoType
-             | AnnTerm_Match  AnnTerm String [(TermVar, Bind [TermVar] AnnTerm)] MonoType
+type TermVar t = Name (Term t)
+data Term t = Term_IntLiteral Integer t
+            | Term_Var    (TermVar t) t
+            | Term_Abs    (Bind (TermVar t) (Term t)) t
+            | Term_AbsAnn (Bind (TermVar t) (Term t)) PolyType t
+            | Term_App    (Term t) (Term t) t
+            | Term_Let    (Bind ((TermVar t), Embed (Term t)) (Term t)) t
+            | Term_LetAnn (Bind ((TermVar t), Embed (Term t)) (Term t)) PolyType t
+            | Term_Match  (Term t) String [((TermVar t), Bind [TermVar t] (Term t))] t
 
-instance Show AnnTerm where
+atAnn :: (Alpha a, Alpha b) => (a -> b) -> Term a -> Term b
+atAnn f = runFreshM . atAnn' f
+
+atAnn' :: (Fresh m, Alpha a, Alpha b) => (a -> b) -> Term a -> m (Term b)
+atAnn' f (Term_IntLiteral n t) = return $ Term_IntLiteral n (f t)
+atAnn' f (Term_Var v t) = return $ Term_Var (translate v) (f t)
+atAnn' f (Term_Abs b t) = do
+  (x,e) <- unbind b
+  inner <- atAnn' f e
+  return $ Term_Abs (bind (translate x) inner) (f t)
+atAnn' f (Term_AbsAnn b p t) = do
+  (x,e) <- unbind b
+  inner <- atAnn' f e
+  return $ Term_AbsAnn (bind (translate x) inner) p (f t)
+atAnn' f (Term_App a b t) = do
+  e1 <- atAnn' f a
+  e2 <- atAnn' f b
+  return $ Term_App e1 e2 (f t)
+atAnn' f (Term_Let b t) = do
+  ((x, unembed -> e1),e2) <- unbind b
+  s1 <- atAnn' f e1
+  s2 <- atAnn' f e2
+  return $ Term_Let (bind (translate x, embed s1) s2) (f t)
+atAnn' f (Term_LetAnn b p t) = do
+  ((x, unembed -> e1),e2) <- unbind b
+  s1 <- atAnn' f e1
+  s2 <- atAnn' f e2
+  return $ Term_LetAnn (bind (translate x, embed s1) s2) p (f t)
+atAnn' f (Term_Match e c bs t) = do
+  e' <- atAnn' f e
+  b' <- mapM (\(d,b) -> do (xs,expr) <- unbind b
+                           expr' <- atAnn' f expr
+                           return $ (translate d, bind (map translate xs) expr')) bs
+  return $ Term_Match e' c b' (f t)
+
+getAnn :: Term t -> t
+getAnn (Term_IntLiteral _ t) = t
+getAnn (Term_Var _ t)        = t
+getAnn (Term_Abs _ t)        = t
+getAnn (Term_AbsAnn _ _ t)   = t
+getAnn (Term_App _ _ t)      = t
+getAnn (Term_Let _ t)        = t
+getAnn (Term_LetAnn _ _ t)   = t
+getAnn (Term_Match _ _ _ t)  = t
+
+data Constraint = Constraint_Unify MonoType MonoType
+                | Constraint_Inst  MonoType PolyType
+                | Constraint_Equal MonoType PolyType
+                | Constraint_Exists (Bind [TyVar] ([Constraint],[Constraint]))
+
+$(makePrisms ''Constraint)
+
+data Axiom = Axiom_Unify (Bind [TyVar] (MonoType, MonoType))
+
+type FnEnv    = [(RawTermVar, PolyType)]
+type DataEnv  = [(String, [TyVar])]
+type AxiomEnv = [Axiom]
+data Env      = Env { _fnE    :: FnEnv
+                    , _dataE  :: DataEnv
+                    , _axiomE :: AxiomEnv }
+
+$(makeLenses ''Env)
+
+type Defn   = (RawTermVar, RawTerm, Maybe PolyType)
+type TyDefn = (RawTermVar, TyTerm,  PolyType)
+
+initialDataEnv :: DataEnv
+initialDataEnv = [("Int",     [])
+                 ,("List",    [string2Name "a"])
+                 ,("Tuple2",  [string2Name "a", string2Name "b"])]
+
+-- Derive `unbound` instances
+$(derive [''PolyType, ''MonoType, ''Constraint, ''Axiom])
+
+instance Rep t => Rep (Term t) where
+  rep = Data (DT "Term" ((rep :: R t) :+: MNil))
+             [ Con rIntLiteral ((rep :: R Integer) :+: (rep :: R t) :+: MNil)
+             , Con rTermAbs    ((rep :: R (Bind (TermVar t) (Term t))) :+: (rep :: R t) :+: MNil)
+             , Con rTermAbsAnn ((rep :: R (Bind (TermVar t) (Term t))) :+: (rep :: R PolyType) :+: (rep :: R t) :+: MNil)
+             , Con rTermApp    ((rep :: R (Term t)) :+: (rep :: R (Term t)) :+: (rep :: R t) :+: MNil)
+             , Con rTermLet    ((rep :: R ((Bind ((TermVar t), Embed (Term t)) (Term t)))) :+: (rep :: R t) :+: MNil)
+             , Con rTermLetAnn ((rep :: R ((Bind ((TermVar t), Embed (Term t)) (Term t)))) :+: (rep :: R PolyType) :+: (rep :: R t) :+: MNil)
+             , Con rTermMatch  ((rep :: R (Term t)) :+: (rep :: R String) :+: (rep :: R [((TermVar t), Bind [TermVar t] (Term t))]) :+: (rep :: R t) :+: MNil)
+             ]
+
+instance ( Rep t, Sat (ctx t), Sat (ctx (Term t))
+         , Sat (ctx Integer), Sat (ctx String), Sat (ctx PolyType)
+         , Sat (ctx (Bind (TermVar t) (Term t))), Sat (ctx (Bind ((TermVar t), Embed (Term t)) (Term t)))
+         , Sat (ctx [((TermVar t), Bind [TermVar t] (Term t))])) => Rep1 ctx (Term t) where
+  rep1 = rAnnTerm1 dict dict dict dict dict dict dict dict
+
+rAnnTerm1 :: forall t ctx. Rep t
+          => ctx t -> ctx (Term t)
+          -> ctx Integer -> ctx String -> ctx PolyType
+          -> ctx (Bind (TermVar t) (Term t)) -> ctx (Bind ((TermVar t), Embed (Term t)) (Term t))
+          -> ctx [((TermVar t), Bind [TermVar t] (Term t))] -> R1 ctx (Term t)
+rAnnTerm1 ct ctt ci cs cp cb1 cb2 cbl =
+  Data1 (DT "Term" ((rep :: R t) :+: MNil))
+        [ Con rIntLiteral (ci :+: ct :+: MNil)
+        , Con rTermAbs    (cb1 :+: ct :+: MNil)
+        , Con rTermAbsAnn (cb1 :+: cp :+: ct :+: MNil)
+        , Con rTermApp    (ctt :+: ctt :+: ct :+: MNil)
+        , Con rTermLet    (cb2 :+: ct :+: MNil)
+        , Con rTermLetAnn (cb2 :+: cp :+: ct :+: MNil)
+        , Con rTermMatch  (ctt :+: cs :+: cbl :+: ct :+: MNil)
+        ]
+
+rIntLiteral :: Emb (Integer :*: t :*: Nil) (Term t)
+rIntLiteral = Emb { to = \(n :*: t :*: Nil) -> Term_IntLiteral n t
+                  , from = \x -> case x of
+                                   Term_IntLiteral n t -> Just (n :*: t :*: Nil)
+                                   _                   -> Nothing
+                  , labels = Nothing
+                  , name = "Term_IntLiteral"
+                  , fixity = Nonfix
+                  }
+
+rTermAbs :: Emb ((Bind (TermVar t) (Term t)) :*: t :*: Nil) (Term t)
+rTermAbs = Emb { to = \(b :*: t :*: Nil) -> Term_Abs b t
+               , from = \x -> case x of
+                               Term_Abs b t -> Just (b :*: t :*: Nil)
+                               _            -> Nothing
+               , labels = Nothing
+               , name = "Term_Abs"
+               , fixity = Nonfix
+               }
+
+rTermAbsAnn :: Emb ((Bind (TermVar t) (Term t)) :*: PolyType :*: t :*: Nil) (Term t)
+rTermAbsAnn = Emb { to = \(b :*: p :*: t :*: Nil) -> Term_AbsAnn b p t
+                  , from = \x -> case x of
+                                  Term_AbsAnn b p t -> Just (b :*: p :*: t :*: Nil)
+                                  _                 -> Nothing
+                  , labels = Nothing
+                  , name = "Term_AbsAnn"
+                  , fixity = Nonfix
+                  }
+
+rTermApp :: Emb (Term t :*: Term t :*: t :*: Nil) (Term t)
+rTermApp = Emb { to = \(t1 :*: t2 :*: t :*: Nil) -> Term_App t1 t2 t
+               , from = \x -> case x of
+                               Term_App t1 t2 t -> Just (t1 :*: t2 :*: t :*: Nil)
+                               _                -> Nothing
+               , labels = Nothing
+               , name = "Term_App"
+               , fixity = Nonfix
+               }
+
+rTermLet :: Emb ((Bind ((TermVar t), Embed (Term t)) (Term t)) :*: t :*: Nil) (Term t)
+rTermLet = Emb { to = \(b :*: t :*: Nil) -> Term_Let b t
+               , from = \x -> case x of
+                               Term_Let b t -> Just (b :*: t :*: Nil)
+                               _            -> Nothing
+               , labels = Nothing
+               , name = "Term_Let"
+               , fixity = Nonfix
+               }
+
+rTermLetAnn :: Emb ((Bind ((TermVar t), Embed (Term t)) (Term t)) :*: PolyType :*: t :*: Nil) (Term t)
+rTermLetAnn = Emb { to = \(b :*: p :*: t :*: Nil) -> Term_LetAnn b p t
+                  , from = \x -> case x of
+                                  Term_LetAnn b p t -> Just (b :*: p :*: t :*: Nil)
+                                  _                 -> Nothing
+                  , labels = Nothing
+                  , name = "Term_LetAnn"
+                  , fixity = Nonfix
+                  }
+
+rTermMatch :: Emb (Term t :*: String :*: [((TermVar t), Bind [TermVar t] (Term t))] :*: t :*: Nil) (Term t)
+rTermMatch = Emb { to = \(e :*: c :*: alts :*: t :*: Nil) -> Term_Match e c alts t
+                 , from = \x -> case x of
+                                 Term_Match e c alts t -> Just (e :*: c :*: alts :*: t :*: Nil)
+                                 _                     -> Nothing
+                 , labels = Nothing
+                 , name = "Term_Match"
+                 , fixity = Nonfix
+                 }
+
+instance Alpha PolyType
+instance Subst MonoType PolyType
+instance (Subst t PolyType, Subst t Constraint, Subst t MonoType) => Subst (Term t) PolyType
+
+instance Alpha MonoType
+instance Subst MonoType MonoType where
+  isvar (MonoType_Var v) = Just (SubstName v)
+  isvar _                = Nothing
+instance (Subst t MonoType) => Subst (Term t) MonoType
+
+instance Alpha t => Alpha (Term t)
+instance (Alpha t, Subst (Term t) t, Subst t Constraint, Subst t MonoType, Subst t PolyType) => Subst (Term t) (Term t) where
+  isvar (Term_Var v _) = Just (SubstName v)
+  isvar _              = Nothing
+instance (Alpha t, Subst t t, Subst t PolyType) => Subst t (Term t)
+
+instance Alpha Constraint
+instance Subst MonoType Constraint
+instance (Subst t Constraint, Subst t PolyType, Subst t MonoType) => Subst (Term t) Constraint
+
+instance Alpha Axiom
+instance Subst MonoType Axiom
+
+-- Show instances
+
+instance Show PolyType where
+  show = runFreshM . showPolyType'
+
+showPolyType' :: Fresh m => PolyType -> m String
+showPolyType' (PolyType_Bind b) = do
+  (x, r) <- unbind b
+  showR <- showPolyType' r
+  return $ "{" ++ show x ++ "} " ++ showR
+showPolyType' (PolyType_Mono [] m) = return $ show m
+showPolyType' (PolyType_Mono cs m) = return $ show cs ++ " => " ++ show m
+showPolyType' PolyType_Bottom   = return "⊥"
+
+instance Show MonoType where
+  show (MonoType_List t)      = "[" ++ show t ++ "]"
+  show (MonoType_Tuple t1 t2) = "(" ++ show t1 ++ "," ++ show t2 ++ ")"
+  show (MonoType_Con c a)     = '\'':c ++ concatMap (\x -> " " ++ doParens (show x)) a
+  show (MonoType_Fam c a)     = '^':c ++ concatMap (\x -> " " ++ doParens (show x)) a
+  show (s :-->: t)            = doParens (show s) ++ " -> " ++ show t
+  show (MonoType_Var v)       = show v
+  show _                      = error "Pattern matching check is not that good"
+
+doParens :: String -> String
+doParens s | ' ' `elem` s = '(' : s ++ ")"
+           | otherwise    = s
+
+instance (Alpha t, Show t) => Show (Term t) where
   show = showAnnTerm id
 
-showAnnTerm :: Show a => (MonoType -> a) -> AnnTerm -> String
+showAnnTerm :: (Alpha a, Show b) => (a -> b) -> Term a -> String
 showAnnTerm f = unlines . runFreshM . (showAnnTerm' f)
 
-showAnnTerm' :: Fresh m => Show a => (MonoType -> a) -> AnnTerm -> m [String]
-showAnnTerm' f (AnnTerm_IntLiteral n t) = return $ [show n ++ " ==> " ++ show (f t)]
-showAnnTerm' f (AnnTerm_Var v t) = return $ [show v ++ " ==> " ++ show (f t)]
-showAnnTerm' f (AnnTerm_Abs b t) = do
+showAnnTerm' :: (Fresh m, Alpha a, Show b) => (a -> b) -> Term a -> m [String]
+showAnnTerm' f (Term_IntLiteral n t) = return $ [show n ++ " ==> " ++ show (f t)]
+showAnnTerm' f (Term_Var v t) = return $ [show v ++ " ==> " ++ show (f t)]
+showAnnTerm' f (Term_Abs b t) = do
   (x,e) <- unbind b
   inner <- showAnnTerm' f e
   let line1 = "\\" ++ show x ++ " -> ==> " ++ show (f t)
   return $ line1 : map ("  " ++) inner
-showAnnTerm' f (AnnTerm_AbsAnn b p t) = do
+showAnnTerm' f (Term_AbsAnn b p t) = do
   (x,e) <- unbind b
   inner <- showAnnTerm' f e
   let line1 = "\\(" ++ show x ++ " :: " ++ show p ++ ") -> ==> " ++ show (f t)
   return $ line1 : map ("  " ++) inner
-showAnnTerm' f (AnnTerm_App a b t) = do
+showAnnTerm' f (Term_App a b t) = do
   e1 <- showAnnTerm' f a
   e2 <- showAnnTerm' f b
   let line1 = "@ ==> " ++ show (f t)
   return $ line1 : map ("  " ++) (e1 ++ e2)
-showAnnTerm' f (AnnTerm_Let b t) = do
+showAnnTerm' f (Term_Let b t) = do
   ((x, unembed -> e1),e2) <- unbind b
   s1 <- showAnnTerm' f e1
   s2 <- showAnnTerm' f e2
   let line1 = "let " ++ show x ++ " = "
       line2 = "in ==> " ++ show t
   return $ (line1 : map ("  " ++) s1) ++ (line2 : map ("  " ++) s2)
-showAnnTerm' f (AnnTerm_LetAnn b p t) = do
+showAnnTerm' f (Term_LetAnn b p t) = do
   ((x, unembed -> e1),e2) <- unbind b
   s1 <- showAnnTerm' f e1
   s2 <- showAnnTerm' f e2
   let line1 = "let " ++ show x ++ " :: " ++ show p ++ " = "
       line2 = "in ==> " ++ show t
   return $ (line1 : map ("  " ++) s1) ++ (line2 : map ("  " ++) s2)
-showAnnTerm' f (AnnTerm_Match e c bs t) = do
+showAnnTerm' f (Term_Match e c bs t) = do
   e'  <- showAnnTerm' f e
   bs' <- mapM (\(d,b) -> do (xs,es) <- unbind b
                             es' <- showAnnTerm' f es
@@ -265,56 +465,6 @@ showAnnTerm' f (AnnTerm_Match e c bs t) = do
       line2      = "with " ++ c ++ " ==> " ++ show (f t)
       secondPart = line2 : concat bs'
   return $ firstPart ++ secondPart
-
-atAnn :: (MonoType -> MonoType) -> AnnTerm -> AnnTerm
-atAnn f = runFreshM . atAnn' f
-
-atAnn' :: Fresh m => (MonoType -> MonoType) -> AnnTerm -> m AnnTerm
-atAnn' f (AnnTerm_IntLiteral n t) = return $ AnnTerm_IntLiteral n (f t)
-atAnn' f (AnnTerm_Var v t) = return $ AnnTerm_Var v (f t)
-atAnn' f (AnnTerm_Abs b t) = do
-  (x,e) <- unbind b
-  inner <- atAnn' f e
-  return $ AnnTerm_Abs (bind x inner) (f t)
-atAnn' f (AnnTerm_AbsAnn b p t) = do
-  (x,e) <- unbind b
-  inner <- atAnn' f e
-  return $ AnnTerm_AbsAnn (bind x inner) p (f t)
-atAnn' f (AnnTerm_App a b t) = do
-  e1 <- atAnn' f a
-  e2 <- atAnn' f b
-  return $ AnnTerm_App e1 e2 (f t)
-atAnn' f (AnnTerm_Let b t) = do
-  ((x, unembed -> e1),e2) <- unbind b
-  s1 <- atAnn' f e1
-  s2 <- atAnn' f e2
-  return $ AnnTerm_Let (bind (x, embed s1) s2) (f t)
-atAnn' f (AnnTerm_LetAnn b p t) = do
-  ((x, unembed -> e1),e2) <- unbind b
-  s1 <- atAnn' f e1
-  s2 <- atAnn' f e2
-  return $ AnnTerm_LetAnn (bind (x, embed s1) s2) p (f t)
-atAnn' f (AnnTerm_Match e c bs t) = do
-  e' <- atAnn' f e
-  b' <- mapM (\(d,b) -> do (xs,expr) <- unbind b
-                           expr' <- atAnn' f expr
-                           return $ (d,bind xs expr')) bs
-  return $ AnnTerm_Match e' c b' (f t)
-
-getAnn :: AnnTerm -> MonoType
-getAnn (AnnTerm_IntLiteral _ t) = t
-getAnn (AnnTerm_Var _ t)        = t
-getAnn (AnnTerm_Abs _ t)        = t
-getAnn (AnnTerm_AbsAnn _ _ t)   = t
-getAnn (AnnTerm_App _ _ t)      = t
-getAnn (AnnTerm_Let _ t)        = t
-getAnn (AnnTerm_LetAnn _ _ t)   = t
-getAnn (AnnTerm_Match _ _ _ t)  = t
-
-data Constraint = Constraint_Unify MonoType MonoType
-                | Constraint_Inst  MonoType PolyType
-                | Constraint_Equal MonoType PolyType
-                | Constraint_Exists (Bind [TyVar] ([Constraint],[Constraint]))
 
 instance Show [Constraint] where
   show = runFreshM . showConstraintList
@@ -337,10 +487,6 @@ showConstraint (Constraint_Exists b)  = do (x, (q,c)) <- unbind b
                                            c' <- showConstraintList c
                                            return $ "∃" ++ show x ++ "(" ++ q' ++ " => " ++ c' ++ ")"
 
-$(makePrisms ''Constraint)
-
-data Axiom = Axiom_Unify (Bind [TyVar] (MonoType, MonoType))
-
 instance Show Axiom where
   show = runFreshM . showAxiom
 
@@ -348,55 +494,4 @@ showAxiom :: (Fresh m, Functor m) => Axiom -> m String
 showAxiom (Axiom_Unify b) = do (xs, (lhs,rhs)) <- unbind b
                                return $ "∀" ++ show xs ++ " " ++ show lhs ++ " ~ " ++ show rhs
 
-type FnEnv    = [(TermVar, PolyType)]
-type DataEnv  = [(String, [TyVar])]
-type AxiomEnv = [Axiom]
-data Env      = Env { _fnE    :: FnEnv
-                    , _dataE  :: DataEnv
-                    , _axiomE :: AxiomEnv }
-                deriving Show
-
-$(makeLenses ''Env)
-
-type Defn    = (TermVar, Term, Maybe PolyType)
-type AnnDefn = (TermVar, AnnTerm, PolyType)
-
-initialDataEnv :: DataEnv
-initialDataEnv = [("Int",     [])
-                 ,("List",    [string2Name "a"])
-                 ,("Tuple2",  [string2Name "a", string2Name "b"])]
-
--- Derive `unbound` instances
-$(derive [''PolyType, ''MonoType, ''Term, ''AnnTerm, ''Constraint, ''Axiom])
-
-instance Alpha PolyType
-instance Subst MonoType PolyType
-instance Subst Term PolyType
-instance Subst AnnTerm PolyType
-
-instance Alpha MonoType
-instance Subst MonoType MonoType where
-  isvar (MonoType_Var v) = Just (SubstName v)
-  isvar _                = Nothing
-instance Subst Term MonoType
-instance Subst AnnTerm MonoType
-
-instance Alpha Term
-instance Subst Term Term where
-  isvar (Term_Var v) = Just (SubstName v)
-  isvar _            = Nothing
-instance Subst MonoType Term
-
-instance Alpha AnnTerm
-instance Subst AnnTerm AnnTerm where
-  isvar (AnnTerm_Var v _) = Just (SubstName v)
-  isvar _                 = Nothing
-instance Subst MonoType AnnTerm
-
-instance Alpha Constraint
-instance Subst MonoType Constraint
-instance Subst Term Constraint
-instance Subst AnnTerm Constraint
-
-instance Alpha Axiom
-instance Subst MonoType Axiom
+deriving instance Show Env
