@@ -5,7 +5,6 @@ module Main where
 
 import Control.Lens hiding ((.=))
 import Control.Monad.Except
-import Control.Monad.Reader
 import Data.Aeson hiding (json)
 import Data.List (intercalate)
 import System.Console.ANSI
@@ -17,8 +16,9 @@ import Web.Scotty
 
 import Language.Cobalt.Gather
 import Language.Cobalt.Parser (parseFile)
-import Language.Cobalt.Solver
 import Language.Cobalt.Syntax
+import Language.Cobalt.Top
+import Language.Cobalt.Types
 import Language.Cobalt.Util (withGreek, showWithGreek)
 
 main :: IO ()
@@ -47,9 +47,9 @@ mainCmd = do
             "parse"  -> do putStrLn $ show env
                            putStrLn ""
                            mapM_ (putStrLn . show) defns
-            "solve"  -> showAnns (doPerDefn' (tcDefn higher) tcNextEnv env' defns) (showTc True)
-            "report" -> showAnns (doPerDefn' (tcDefn higher) tcNextEnv env' defns) (showTc False)
-            "gather" -> showAnns (doPerDefn' (gDefn higher) const env' defns) showG
+            "solve"  -> showAnns (tcDefns higher env' defns) (showTc True)
+            "report" -> showAnns (tcDefns higher env' defns) (showTc False)
+            "gather" -> showAnns (gDefns higher env' defns) showG
             _ -> putStrLn "Unrecognized command"
 
 mainServe :: IO ()
@@ -65,7 +65,7 @@ mainServe = do
        Left ep -> json $ object [ "status"  .= ("error" :: String)
                                 , "message" .= show ep ]
        Right (env, defns) -> let env' = env & dataE %~ (++ initialDataEnv)
-                                 vals = showJsonAnns (doPerDefn' (tcDefn UseHigherRanks) tcNextEnv env' defns)
+                                 vals = showJsonAnns (tcDefns UseHigherRanks env' defns)
                               in json $ object [ "status" .= ("ok" :: String)
                                                , "values" .= vals ]
     post "/gather" $ do
@@ -74,7 +74,7 @@ mainServe = do
        Left ep -> json $ object [ "status"  .= ("error" :: String)
                                 , "message" .= show ep ]
        Right (env, defns) -> let env' = env & dataE %~ (++ initialDataEnv)
-                                 vals = showJsonConstraints (doPerDefn' (gDefn UseHigherRanks) const env' defns)
+                                 vals = showJsonConstraints (gDefns UseHigherRanks env' defns)
                               in json $ object [ "status" .= ("ok" :: String)
                                                , "values" .= vals ]
     get "/example/:file" $ do
@@ -84,78 +84,7 @@ mainServe = do
       fname <- param "file"
       file $ "static/" ++ fname
 
-doPerDefn' :: (Env -> Defn -> ExceptT String FreshM a)
-           -> (Env -> a -> Env)
-           -> Env -> [(Defn,Bool)] -> [(Either (TermVar,String) a, Bool)]
-doPerDefn' f nx e d = runFreshM (doPerDefn f nx e d)
-
-doPerDefn :: (Env -> Defn -> ExceptT String FreshM a)
-          -> (Env -> a -> Env)
-          -> Env -> [(Defn,Bool)] -> FreshM [(Either (TermVar,String) a, Bool)]
-doPerDefn _ _ _ [] = return []
-doPerDefn f nx e (((n,t,p),b):xs) = do r <- runExceptT (f e (n,t,p))
-                                       case r of
-                                         Left err -> do rest <- doPerDefn f nx e xs
-                                                        return $ (Left (n,err),b) : rest
-                                         Right ok -> do rest <- doPerDefn f nx (nx e ok) xs
-                                                        return $ (Right ok,b) : rest
-
-tcDefn :: UseHigherRanks -> Env -> Defn -> ExceptT String FreshM (AnnDefn,[Constraint])
-tcDefn h e (n,t,Nothing) = do
-  Gathered _ a g w <- runReaderT (gather h t) e
-  let tch = fv (getAnn a) `union` fv w
-  Solution smallG rs sb tch' <- solve g w tch
-  let thisAnn = atAnn (substs sb) a
-      finalT = nf $ closeExn (smallG ++ rs) (getAnn thisAnn) (not . (`elem` tch'))
-  tcCheckErrors rs finalT
-  return ((n,thisAnn,finalT),rs)
-tcDefn h e (n,t,Just p) = do
-  Gathered _ a g w <- runReaderT (gather h t) e
-  (q1,t1,_) <- split p
-  let extra = Constraint_Unify (getAnn a) t1
-      tch = fv (getAnn a) `union` fv w
-  Solution _smallG rs sb _tch' <- solve (g ++ q1) (extra:w) tch
-  let thisAnn = atAnn (substs sb) a
-      -- finalT = nf $ closeTypeWithException (smallG ++ rs) (getAnn thisAnn) (not . (`elem` tch'))
-  if not (null rs) then throwError $ "Could not discharge: " ++ show rs
-                   else return ((n,thisAnn,p),rs)
-
-tcCheckErrors :: [Constraint] -> PolyType -> ExceptT String FreshM ()
-tcCheckErrors rs t = do let fvT :: [TyVar] = fv t
-                        when (not (null fvT)) $ throwError $ case fvT of
-                          [x] -> show x ++ " is a rigid type variable in: " ++ show t
-                          _   -> show fvT ++ " are rigid type variables in: " ++ show t
-                        checkAmbiguity rs
-
-checkAmbiguity :: [Constraint] -> ExceptT String FreshM ()
-checkAmbiguity cs = do let vars = map getVar cs
-                           dup  = findDuplicate vars
-                       case dup of
-                         Nothing -> return ()
-                         Just v  -> let cs' = filter (\c -> getVar c == v) cs
-                                     in throwError $ "Ambiguous variable " ++ show v ++ ": " ++ show cs'
-
-getVar :: Constraint -> TyVar
-getVar (Constraint_Inst  (MonoType_Var v) _) = v
-getVar (Constraint_Equal (MonoType_Var v) _) = v
-getVar _ = error "This should never happen"
-
-findDuplicate :: Eq a => [a] -> Maybe a
-findDuplicate []     = Nothing
-findDuplicate (x:xs) = if x `elem` xs then Just x else findDuplicate xs
-
-tcNextEnv :: Env -> (AnnDefn,a) -> Env
-tcNextEnv e ((n,_,t),_) = e & fnE %~ ((n,t):)
-
-gDefn :: UseHigherRanks -> Env -> Defn -> ExceptT String FreshM (TermVar,Gathered)
-gDefn h e (n,t,Nothing) = do r <- runReaderT (gather h t) e
-                             return (n, r)
-gDefn h e (n,t,Just p)  = do Gathered typ a g w <- runReaderT (gather h t) e
-                             (q1,t1,_) <- split p
-                             let extra = Constraint_Unify (getAnn a) t1
-                             return (n, Gathered typ a (g ++ q1) (extra:w))
-
-showTc :: Bool -> ((AnnDefn,[Constraint]),Bool) -> IO ()
+showTc :: Bool -> ((TyDefn,[Constraint]),Bool) -> IO ()
 showTc always (((n,t,p),cs),b) = do
   setSGR [SetColor Foreground Vivid Blue]
   putStr (name2String n)
@@ -172,7 +101,7 @@ showTc always (((n,t,p),cs),b) = do
   when (not b || always) $ do
     putStrLn (show t)
 
-showG :: ((TermVar,Gathered), Bool) -> IO ()
+showG :: ((TyTermVar,Gathered), Bool) -> IO ()
 showG ((n,(Gathered t ann g w)),_) = do
   let tch :: [TyVar] = fv (getAnn ann) `union` fv w
   setSGR [SetColor Foreground Vivid Blue]
@@ -194,7 +123,7 @@ showG ((n,(Gathered t ann g w)),_) = do
   putStrLn (show tch)
   putStrLn (show ann)
 
-showAnns :: [(Either (TermVar,String) a, Bool)] -> ((a,Bool) -> IO ()) -> IO ()
+showAnns :: [(Either (RawTermVar,String) a, Bool)] -> ((a,Bool) -> IO ()) -> IO ()
 showAnns [] _ = return ()
 showAnns ((Left (n,e),b):xs) f = do
   when b $ putStrLn ""
@@ -215,7 +144,7 @@ showAnns ((Right ok,b):xs) f = do
   f (ok,b)
   showAnns xs f
 
-showJsonAnns :: [(Either (TermVar,String) (AnnDefn,[Constraint]), Bool)] -> [Value]
+showJsonAnns :: [(Either (RawTermVar,String) (TyDefn,[Constraint]), Bool)] -> [Value]
 showJsonAnns [] = []
 showJsonAnns ((Left (n,e),b):xs) =
   let this = object [ "text" .= name2String n
@@ -233,32 +162,32 @@ showJsonAnns ((Right ((n,t,p),_cs),b):xs) =
                     , "nodes" .= runFreshM (showAnnTermJson t) ]
    in this : showJsonAnns xs
 
-showAnnTermJson :: Fresh m => AnnTerm -> m [Value]
-showAnnTermJson (AnnTerm_IntLiteral n t) =
+showAnnTermJson :: Fresh m => TyTerm -> m [Value]
+showAnnTermJson (Term_IntLiteral n t) =
   return $ [ object [ "text"  .= show n
                     , "tags"  .= [showWithGreek t] ] ]
-showAnnTermJson (AnnTerm_Var v t) =
+showAnnTermJson (Term_Var v t) =
   return $ [ object [ "text"  .= show v
                     , "tags"  .= [showWithGreek t] ] ]
-showAnnTermJson (AnnTerm_Abs b t) = do
+showAnnTermJson (Term_Abs b t) = do
   (x,e) <- unbind b
   inner <- showAnnTermJson e
   return $ [ object [ "text"  .= ("λ " ++ show x ++ " →")
                     , "tags"  .= [showWithGreek t]
                     , "nodes" .= inner ] ]
-showAnnTermJson (AnnTerm_AbsAnn b p t) = do
+showAnnTermJson (Term_AbsAnn b p t) = do
   (x,e) <- unbind b
   inner <- showAnnTermJson e
   return $ [ object [ "text"  .= ("λ (" ++ show x ++ " :: " ++ showWithGreek p ++ ") →")
                     , "tags"  .= [showWithGreek t]
                     , "nodes" .= inner ] ]
-showAnnTermJson (AnnTerm_App a b t) = do
+showAnnTermJson (Term_App a b t) = do
   e1 <- showAnnTermJson a
   e2 <- showAnnTermJson b
   return $ [ object [ "text"  .= ("@" :: String)
                     , "tags"  .= [showWithGreek t]
                     , "nodes" .= (e1 ++ e2) ] ]
-showAnnTermJson (AnnTerm_Let b t) = do
+showAnnTermJson (Term_Let b t) = do
   ((x, unembed -> e1),e2) <- unbind b
   s1 <- showAnnTermJson e1
   s2 <- showAnnTermJson e2
@@ -267,7 +196,7 @@ showAnnTermJson (AnnTerm_Let b t) = do
            , object [ "text"  .= ("in" :: String)
                     , "tags"  .= [showWithGreek t]
                     , "nodes" .= s2 ] ]
-showAnnTermJson (AnnTerm_LetAnn b p t) = do
+showAnnTermJson (Term_LetAnn b p t) = do
   ((x, unembed -> e1),e2) <- unbind b
   s1 <- showAnnTermJson e1
   s2 <- showAnnTermJson e2
@@ -276,7 +205,7 @@ showAnnTermJson (AnnTerm_LetAnn b p t) = do
            , object [ "text"  .= ("in" :: String)
                     , "tags"  .= [showWithGreek t]
                     , "nodes" .= s2 ] ]
-showAnnTermJson (AnnTerm_Match e c bs t) = do
+showAnnTermJson (Term_Match e c bs t) = do
   e'  <- showAnnTermJson e
   bs' <- mapM (\(d,b) -> do (xs,es) <- unbind b
                             es' <- showAnnTermJson es
@@ -288,7 +217,7 @@ showAnnTermJson (AnnTerm_Match e c bs t) = do
                     , "tags"  .= [showWithGreek t]
                     , "nodes" .= bs' ] ]
 
-showJsonConstraints :: [(Either (TermVar,String) (TermVar,Gathered), Bool)] -> [Value]
+showJsonConstraints :: [(Either (RawTermVar,String) (TyTermVar,Gathered), Bool)] -> [Value]
 showJsonConstraints [] = []
 showJsonConstraints ((Left (n,e),_):xs) =
   let this = object [ "text" .= name2String n

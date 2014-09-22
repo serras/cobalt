@@ -9,7 +9,9 @@ build-type:          Simple
 cabal-version:       >=1.10
 
 library
-  exposed-modules:   Language.Cobalt.Syntax,
+  exposed-modules:   Language.Cobalt.Top,
+                     Language.Cobalt.Types,
+                     Language.Cobalt.Syntax,
                      Language.Cobalt.Parser,
                      Language.Cobalt.Gather,
                      Language.Cobalt.Solver

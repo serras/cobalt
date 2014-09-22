@@ -19,7 +19,7 @@ import Debug.Trace
 #else
 #endif
 
-import Language.Cobalt.Syntax
+import Language.Cobalt.Types
 
 type SMonad = StateT [TyVar] (ExceptT String FreshM)
 data SolutionStep = NotApplicable | Applied [Constraint]

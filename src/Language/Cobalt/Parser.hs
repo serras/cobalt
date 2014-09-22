@@ -19,11 +19,12 @@ import qualified Text.Parsec.Token as T
 import Unbound.LocallyNameless
 
 import Language.Cobalt.Syntax
+import Language.Cobalt.Types
 
-parseTerm :: Parsec String s Term
-parseTerm = parseAtom `chainl1` (pure Term_App)
+parseTerm :: Parsec String s RawTerm
+parseTerm = parseAtom `chainl1` (pure (\x y -> Term_App x y ()))
 
-parseAtom :: Parsec String s Term
+parseAtom :: Parsec String s RawTerm
 parseAtom = -- Parenthesized expression
             parens parseTerm
         <|> -- Type annotated abstraction
@@ -60,31 +61,32 @@ parseAtom = -- Parenthesized expression
                        <*  reserved "with"
                        <*> parseDataName
                        <*> many parseCaseAlternative
+                       <*> pure ()
         <|> -- Literal
-            Term_IntLiteral <$> integer
+            Term_IntLiteral <$> integer <*> pure ()
         <|> -- Variable
-            Term_Var . string2Name <$> identifier
+            Term_Var . string2Name <$> identifier <*> pure ()
 
-parseCaseAlternative :: Parsec String s (TermVar, Bind [TermVar] Term)
+parseCaseAlternative :: Parsec String s (RawTermVar, Bind [RawTermVar] RawTerm)
 parseCaseAlternative = createCaseAlternative <$  reservedOp "|"
                                              <*> identifier
                                              <*> many identifier
                                              <*  reservedOp "->"
                                              <*> parseTerm
 
-createTermAbsAnn :: (String, PolyType) -> Term -> Term
-createTermAbsAnn (x,t) e = Term_AbsAnn (bind (string2Name x) e) t
+createTermAbsAnn :: (String, PolyType) -> RawTerm -> RawTerm
+createTermAbsAnn (x,t) e = Term_AbsAnn (bind (string2Name x) e) t ()
 
-createTermAbs :: String -> Term -> Term
-createTermAbs x e = Term_Abs (bind (string2Name x) e)
+createTermAbs :: String -> RawTerm -> RawTerm
+createTermAbs x e = Term_Abs (bind (string2Name x) e) ()
 
-createTermLetAbs :: String -> PolyType -> Term -> Term -> Term
-createTermLetAbs x t e1 e2 = Term_LetAnn (bind (string2Name x, embed e1) e2) t
+createTermLetAbs :: String -> PolyType -> RawTerm -> RawTerm -> RawTerm
+createTermLetAbs x t e1 e2 = Term_LetAnn (bind (string2Name x, embed e1) e2) t ()
 
-createTermLet :: String -> Term -> Term -> Term
-createTermLet x e1 e2 = Term_Let (bind (string2Name x, embed e1) e2)
+createTermLet :: String -> RawTerm -> RawTerm -> RawTerm
+createTermLet x e1 e2 = Term_Let (bind (string2Name x, embed e1) e2) ()
 
-createCaseAlternative :: String -> [String] -> Term -> (TermVar, Bind [TermVar] Term)
+createCaseAlternative :: String -> [String] -> RawTerm -> (RawTermVar, Bind [RawTermVar] RawTerm)
 createCaseAlternative con args e = (string2Name con, bind (map string2Name args) e)
 
 parsePolyType :: Parsec String s PolyType
@@ -147,7 +149,7 @@ parseDataName = id <$ char '\'' <*> identifier
 parseFamName :: Parsec String s String
 parseFamName = id <$ char '^' <*> identifier
 
-parseSig :: Parsec String s (TermVar,PolyType)
+parseSig :: Parsec String s (RawTermVar, PolyType)
 parseSig = (,) <$  reserved "import"
                <*> (string2Name <$> identifier)
                <*  reservedOp "::"
@@ -171,7 +173,7 @@ parseAxiom = createAxiomUnify <$  reserved "axiom"
 createAxiomUnify :: [String] -> MonoType -> MonoType -> Axiom
 createAxiomUnify vs r l = Axiom_Unify (bind (map string2Name vs) (r,l))
 
-parseDefn :: Parsec String s (Defn,Bool)
+parseDefn :: Parsec String s (RawDefn,Bool)
 parseDefn = try ((\x y z w -> ((x,z,Just y),w))
                      <$> (string2Name <$> identifier)
                      <*  reservedOp "::"
@@ -192,7 +194,7 @@ parseExpected = try (id <$ reservedOp "=>" <*> (    const True  <$> reservedOp "
                                                 <|> const False <$> reservedOp "fail"))
             <|> pure True
 
-parseFile :: Parsec String s (Env,[(Defn,Bool)])
+parseFile :: Parsec String s (Env,[(RawDefn,Bool)])
 parseFile = (\x y w z -> (Env y x w, z))
                    <$> many parseData
                    <*> many parseSig

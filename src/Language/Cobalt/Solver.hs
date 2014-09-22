@@ -14,7 +14,7 @@ import Data.List (insert, find, delete, partition, nub)
 import Unbound.LocallyNameless
 
 import Language.Cobalt.Solver.Step
-import Language.Cobalt.Syntax
+import Language.Cobalt.Types
 import Language.Cobalt.Util ()
 
 -- Phase 2: constraint solving
