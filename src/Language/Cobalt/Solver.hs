@@ -7,6 +7,7 @@ module Language.Cobalt.Solver (
 , toSolution
 ) where
 
+import Control.Applicative ((<$>))
 import Control.Lens.Extras
 import Control.Monad.Except
 import Control.Monad.State
@@ -42,7 +43,7 @@ solveImpl g (Constraint_Exists b : rest) = do
   Solution _ rs _ _ <- lift $ solve (g ++ q) c vars
   if null rs then solveImpl g rest
              else throwError $ "Could not discharge: " ++ show c
-solveImpl _ _ = error "This should never happen"
+solveImpl _ _ = error "This should never happen (solveImpl)"
 
 -- Utils for touchable variables
 
@@ -90,18 +91,39 @@ canon isGiven _ (Constraint_Unify t1 t2) = case (t1,t2) of
                                                     else return NotApplicable
     | otherwise -> return NotApplicable
   (MonoType_Var v, _)
-    | v `elem` fv t2 -> throwError $ "Infinite type: " ++ show t1 ++ " ~ " ++ show t2
-    | otherwise      -> do b <- isTouchable v
-                           if b || isGiven
-                              then return NotApplicable
-                              else throwError $ "Unifying non-touchable variable: " ++ show v ++ " ~ " ++ show t2
-  (t, v@(MonoType_Var _)) -> return $ Applied [Constraint_Unify v t]  -- Orient
+    | v `elem` fv t2, isFamilyFree t2
+                      -> throwError $ "Infinite type: " ++ show t1 ++ " ~ " ++ show t2
+    | isFamilyFree t2 -> do b <- isTouchable v  -- Check touchability when no family
+                            if b || isGiven
+                               then return NotApplicable
+                               else throwError $ "Unifying non-touchable variable: " ++ show v ++ " ~ " ++ show t2
+    | otherwise -> case t2 of
+                     MonoType_Con c vs -> do (vs2, cons, vars) <- unfamilys vs
+                                             when (not isGiven) (mapM_ makeTouchable vars)
+                                             return $ Applied $ Constraint_Unify (MonoType_Var v) (MonoType_Con c vs2) : cons
+                     s2 :-->: r2       -> do (s2', con1, vars1) <- unfamily s2
+                                             (r2', con2, vars2) <- unfamily r2
+                                             when (not isGiven) (mapM_ makeTouchable (vars1 ++ vars2))
+                                             return $ Applied $ Constraint_Unify (MonoType_Var v) (s2' :-->: r2') : con1 ++ con2
+                     _ | t1 > t2   -> return $ Applied [Constraint_Unify t2 t1]  -- Orient
+                       | otherwise -> return NotApplicable
+  -- Type families
+  (MonoType_Fam f ts, _) | any (not . isFamilyFree) ts -> -- ts has type families we can get out
+                   do (ts2, cons, vars) <- unfamilys ts
+                      when (not isGiven) (mapM_ makeTouchable vars)
+                      return $ Applied $ Constraint_Unify (MonoType_Fam f ts2) t2 : cons
   -- Next are Tdec and Faildec
   (s1 :-->: r1, s2 :-->: r2) ->
     return $ Applied [Constraint_Unify s1 s2, Constraint_Unify r1 r2]
+  (_ :-->: _, MonoType_Con _ _) -> throwError $ "Different constructor heads: " ++ show t1 ++ " ~ " ++ show t2
+  (MonoType_Con _ _, _ :-->: _) -> throwError $ "Different constructor heads: " ++ show t1 ++ " ~ " ++ show t2
   (MonoType_Con c1 a1, MonoType_Con c2 a2)
     | c1 == c2 && length a1 == length a2 -> return $ Applied $ zipWith Constraint_Unify a1 a2
-  (_, _) -> throwError $ "Different constructor heads: " ++ show t1 ++ " ~ " ++ show t2
+    | c1 /= c2 -> throwError $ "Different constructor heads: " ++ show t1 ++ " ~ " ++ show t2
+    | length a1 /= length a2 -> throwError $ "Different number of arguments: " ++ show t1 ++ " ~ " ++ show t2
+  -- Orient
+  (_, _) | t1 > t2   -> return $ Applied [Constraint_Unify t2 t1]
+         | otherwise -> return NotApplicable
 -- Convert from monotype > or = into monotype ~
 canon _ _ (Constraint_Inst  t (PolyType_Mono [] m)) = return $ Applied [Constraint_Unify t m]
 canon _ _ (Constraint_Equal t (PolyType_Mono [] m)) = return $ Applied [Constraint_Unify t m]
@@ -124,8 +146,14 @@ canon _ _ (Constraint_Equal (MonoType_Var v) p)  =
 canon _ _ (Constraint_Equal x p) = do
   (c,t) <- instantiate p False  -- Perform instantiation
   return $ Applied $ (Constraint_Unify x t) : c
+-- Type classes
+canon isGiven _ (Constraint_Class c ts)
+  | any (not . isFamilyFree) ts = do (ts2, cons, vars) <- unfamilys ts
+                                     when (not isGiven) (mapM_ makeTouchable vars)
+                                     return $ Applied $ Constraint_Class c ts2 : cons
+  | otherwise = return NotApplicable
 -- Rest
-canon _ _ _ = return NotApplicable
+canon _ _ (Constraint_Exists _) = return NotApplicable
 
 instantiate :: PolyType -> Bool -> SMonad ([Constraint], MonoType)
 instantiate (PolyType_Bind b) tch = do
@@ -138,6 +166,20 @@ instantiate PolyType_Bottom tch = do
   v <- fresh (string2Name "b")
   when tch $ makeTouchable v
   return ([], var v)
+
+unfamilys :: [MonoType] -> SMonad ([MonoType], [Constraint], [TyVar])
+unfamilys ts = do (args,cons,vars) <- unzip3 <$> mapM unfamily ts
+                  return (args, concat cons, concat vars)
+
+unfamily :: MonoType -> SMonad (MonoType, [Constraint], [TyVar])
+unfamily (MonoType_Fam f vs) = do v <- fresh (string2Name "beta")
+                                  return (var v, [Constraint_Unify (var v) (MonoType_Fam f vs)], [v])
+unfamily (MonoType_Con c as) = do (args,cons,vars) <- unzip3 <$> mapM unfamily as
+                                  return (MonoType_Con c args, concat cons, concat vars)
+unfamily (s :-->: t)         = do (s',c1,v1) <- unfamily s
+                                  (t',c2,v2) <- unfamily t
+                                  return (s' :-->: t', c1 ++ c2, v1 ++ v2)
+unfamily t                   = return (t, [], [])
 
 unifyInteract :: [Constraint] -> [Constraint] -> Constraint -> Constraint -> SMonad SolutionStep
 unifyInteract _ _ = unifyInteract'
@@ -165,6 +207,9 @@ unifyInteract' (Constraint_Unify (MonoType_Var v1) s1) (Constraint_Inst t2 s2)
 unifyInteract' (Constraint_Unify (MonoType_Var v1) s1) (Constraint_Equal t2 s2)
   | v1 `elem` fv t2 || v1 `elem` fv s2, isFamilyFree s1
   = return $ Applied [Constraint_Equal (subst v1 s1 t2) (subst v1 s1 s2)]
+unifyInteract' (Constraint_Unify (MonoType_Var v1) s1) (Constraint_Class c ss2)
+  | v1 `elem` fv ss2, all isFamilyFree ss2
+  = return $ Applied [Constraint_Class c (subst v1 s1 ss2)]
 -- Constructors are not canonical
 unifyInteract' (Constraint_Unify _ _) _ = return NotApplicable
 unifyInteract' _ (Constraint_Unify _ _) = return NotApplicable -- treated sym
@@ -189,6 +234,9 @@ interact_ given ctx (Constraint_Inst t1 p1) (Constraint_Inst t2 p2)
                    else do (Applied q,p) <- findLub ctx p1 p2
                            return $ Applied (Constraint_Inst t1 p : q)
   | otherwise = return NotApplicable
+-- Remove duplicated class constraint
+interact_ _ _ (Constraint_Class c1 a1) (Constraint_Class c2 a2)
+  | c1 == c2, a1 == a2 = return $ Applied [Constraint_Class c1 a1]
 -- Existentials do not interact
 interact_ _ _ (Constraint_Exists _) _ = return NotApplicable
 interact_ _ _ _ (Constraint_Exists _) = return NotApplicable
@@ -223,6 +271,9 @@ simplifies given ctx (Constraint_Inst t1 p1) (Constraint_Equal t2 p2)
 simplifies _given _ctx (Constraint_Inst t1 p1) (Constraint_Unify t2 p2)
   | t1 == t2  = return $ Applied [Constraint_Inst p2 p1]
   | otherwise = return NotApplicable
+-- Remove duplicated class constraint
+simplifies _ _ (Constraint_Class c1 a1) (Constraint_Class c2 a2)
+  | c1 == c2, a1 == a2 = return $ Applied []
 -- Existentials do not interact
 simplifies _ _ (Constraint_Exists _) _ = return NotApplicable
 simplifies _ _ _ (Constraint_Exists _) = return NotApplicable
@@ -242,7 +293,8 @@ findLub ctx p1 p2 = do
           let s' = substitutionInTermsOf tch s
               r' = map (substs s') r ++ map (\(v,t) -> Constraint_Unify (MonoType_Var v) t) s'
               (floatR, closeR) = partition (\c -> all (`elem` tch) (fv c)) r'
-          return (Applied floatR, closeExn closeR (substs s' (var tau)) (`elem` tch))
+              (closedR, _) = closeExn closeR (substs s' (var tau)) (`elem` tch)
+          return (Applied floatR, closedR)
 
 -- Returning NotApplicable means that we could not prove it
 -- because some things would float out of the types

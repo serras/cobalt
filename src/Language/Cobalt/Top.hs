@@ -7,6 +7,8 @@ module Language.Cobalt.Top (
 ) where
 
 import Control.Lens hiding ((.=))
+import Control.Lens.Extras
+import Data.Maybe (catMaybes)
 import Control.Monad.Except
 import Control.Monad.Reader
 import Unbound.LocallyNameless
@@ -58,35 +60,46 @@ tcDefn h e (n,t,annP) = do
   Solution smallG rs sb tch' <- solve g w tch
   let thisAnn = atAnn (substs sb) a
   case annP of
-    Nothing -> do let finalT = nf $ closeExn (smallG ++ rs) (getAnn thisAnn) (not . (`elem` tch'))
-                  tcCheckErrors rs finalT
+    Nothing -> do let (almostFinalT, restC) = closeExn (smallG ++ rs) (getAnn thisAnn) (not . (`elem` tch'))
+                      finalT = nf $ almostFinalT
+                  tcCheckErrors restC finalT
                   return ((n',thisAnn,finalT),rs)
-    Just p  -> if not (null rs) then throwError $ "Could not discharge: " ++ show rs
+    Just p  -> if not (null rs) then throwError $ "Could not deduce: " ++ show rs
                                 else return ((n',thisAnn,p),rs)
 
 tcCheckErrors :: [Constraint] -> PolyType -> ExceptT String FreshM ()
-tcCheckErrors rs t = do let fvT :: [TyVar] = fv t
-                        when (not (null fvT)) $ throwError $ case fvT of
-                          [x] -> show x ++ " is a rigid type variable in: " ++ show t
-                          _   -> show fvT ++ " are rigid type variables in: " ++ show t
+tcCheckErrors rs t = do checkRigidity t
                         checkAmbiguity rs
+                        checkLeftUnclosed rs
+
+checkRigidity :: PolyType -> ExceptT String FreshM ()
+checkRigidity t = do let fvT :: [TyVar] = fv t
+                     when (not (null fvT)) $ throwError $ case fvT of
+                       [x] -> show x ++ " is a rigid type variable in: " ++ show t
+                       _   -> show fvT ++ " are rigid type variables in: " ++ show t
 
 checkAmbiguity :: [Constraint] -> ExceptT String FreshM ()
-checkAmbiguity cs = do let vars = map getVar cs
+checkAmbiguity cs = do let vars = catMaybes $ map getVar cs
                            dup  = findDuplicate vars
                        case dup of
                          Nothing -> return ()
-                         Just v  -> let cs' = filter (\c -> getVar c == v) cs
+                         Just v  -> let cs' = filter (\c -> getVar c == Just v) cs
                                      in throwError $ "Ambiguous variable " ++ show v ++ ": " ++ show cs'
 
-getVar :: Constraint -> TyVar
-getVar (Constraint_Inst  (MonoType_Var v) _) = v
-getVar (Constraint_Equal (MonoType_Var v) _) = v
-getVar _ = error "This should never happen"
+getVar :: Constraint -> Maybe TyVar
+getVar (Constraint_Inst  (MonoType_Var v) _) = Just v
+getVar (Constraint_Equal (MonoType_Var v) _) = Just v
+getVar _ = Nothing
 
 findDuplicate :: Eq a => [a] -> Maybe a
 findDuplicate []     = Nothing
 findDuplicate (x:xs) = if x `elem` xs then Just x else findDuplicate xs
+
+checkLeftUnclosed :: [Constraint] -> ExceptT String FreshM ()
+checkLeftUnclosed cs = let cs' = filter (\x -> not (is _Constraint_Inst x) && not (is _Constraint_Equal x)) cs
+                        in case cs' of
+                             [] -> return ()
+                             _  -> throwError $ "Could not deduce: " ++ show cs'
 
 -- | Typecheck some definitions
 tcDefns :: UseHigherRanks -> Env -> [(RawDefn,Bool)]

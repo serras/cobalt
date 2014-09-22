@@ -36,7 +36,7 @@ module Language.Cobalt.Types (
 
 import Control.Applicative ((<$>))
 import Control.Lens hiding ((.=), from, to)
-import Data.List (insert, intercalate, find, nub, sortBy)
+import Data.List (insert, intercalate, find, nub, sortBy, (\\))
 import Data.Maybe (isJust)
 import Unbound.LocallyNameless hiding (close, GT)
 
@@ -46,6 +46,16 @@ type TyVar = Name MonoType
 data PolyType = PolyType_Bind (Bind TyVar PolyType)
               | PolyType_Mono [Constraint] MonoType
               | PolyType_Bottom
+
+instance Eq PolyType where
+  PolyType_Bind b1   == PolyType_Bind b2 = runFreshM $ do
+    s <- unbind2 b1 b2
+    case s of
+      Just (_,p1,_,p2) -> return $ p1 == p2
+      Nothing          -> return False
+  PolyType_Mono c1 m1 == PolyType_Mono c2 m2 = c1 == c2 && m1 == m2
+  PolyType_Bottom     == PolyType_Bottom     = True
+  _                   == _                   = False
 
 nf :: PolyType -> PolyType
 nf = runFreshM . nf' []
@@ -141,12 +151,12 @@ split PolyType_Bottom = do
   x <- fresh (string2Name "x")
   return ([Constraint_Inst (var x) PolyType_Bottom], var x, [x])
 
-close :: [Constraint] -> MonoType -> PolyType
+close :: [Constraint] -> MonoType -> (PolyType, [Constraint])
 close cs m = closeExn cs m (const False)
 
-closeExn :: [Constraint] -> MonoType -> (TyVar -> Bool) -> PolyType
+closeExn :: [Constraint] -> MonoType -> (TyVar -> Bool) -> (PolyType, [Constraint])
 closeExn cs m except = let (cns, vars) = closeTypeA (filter (hasCsFv (fv m)) cs)
-                        in finalClose (nub vars) (PolyType_Mono cns m)
+                        in (finalClose (nub vars) (PolyType_Mono cns m), cs \\ cns)
   where closeTypeA preCs = let nextC = filter (not . except) (fv preCs)
                                filtC = filter (\c -> hasCsFv nextC c
                                                      && not (isJust (find (`aeq` c) preCs))) cs
@@ -170,6 +180,18 @@ data Constraint = Constraint_Unify MonoType MonoType
                 | Constraint_Exists (Bind [TyVar] ([Constraint],[Constraint]))
 
 $(makePrisms ''Constraint)
+
+instance Eq Constraint where
+  Constraint_Unify m1 m2 == Constraint_Unify n1 n2 = m1 == n1 && m2 == n2
+  Constraint_Inst  m1 m2 == Constraint_Inst  n1 n2 = m1 == n1 && m2 == n2
+  Constraint_Equal m1 m2 == Constraint_Equal n1 n2 = m1 == n1 && m2 == n2
+  Constraint_Class c1 a1 == Constraint_Class c2 a2 = c1 == c2 && a1 == a2
+  Constraint_Exists b1   == Constraint_Exists b2 = runFreshM $ do
+    s <- unbind2 b1 b2
+    case s of
+      Just (_,c1,_,c2) -> return $ c1 == c2
+      Nothing          -> return False
+  _ == _ = False
 
 data Axiom = Axiom_Unify (Bind [TyVar] (MonoType, MonoType))
            | Axiom_Class (Bind [TyVar] ([Constraint], String, [MonoType]))
