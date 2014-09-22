@@ -29,15 +29,18 @@ module Language.Cobalt.Types (
 , _Constraint_Unify
 , _Constraint_Inst
 , _Constraint_Equal
+, _Constraint_Class
 , _Constraint_Exists
 , Axiom(..)
 ) where
 
 import Control.Applicative ((<$>))
 import Control.Lens hiding ((.=), from, to)
-import Data.List (insert, intercalate, find, nub)
+import Data.List (insert, intercalate, find, nub, sortBy)
 import Data.Maybe (isJust)
-import Unbound.LocallyNameless hiding (close)
+import Unbound.LocallyNameless hiding (close, GT)
+
+import Language.Cobalt.Util
 
 type TyVar = Name MonoType
 data PolyType = PolyType_Bind (Bind TyVar PolyType)
@@ -58,7 +61,7 @@ nf = runFreshM . nf' []
            nf'' :: (Fresh m, Monad m, Functor m)
                 => [TyVar] -> [Constraint] -> MonoType
                 -> [Constraint] -> m PolyType
-           nf'' bnders cs m [] = return $ reverseBind bnders (PolyType_Mono cs m)
+           nf'' bnders cs m [] = return $ reverseBind bnders (PolyType_Mono (sortBy orderConstraint cs) m)
            nf'' _ _ (MonoType_Var v) (Constraint_Inst (MonoType_Var v') p : _)
              | v == v' = nf' [] p
            nf'' _ _ (MonoType_Var v) (Constraint_Equal (MonoType_Var v') p : _)
@@ -83,11 +86,26 @@ nf = runFreshM . nf' []
              | x `elem` fv p = reverseBind xs $ PolyType_Bind (bind x p)
              | otherwise     = p
 
-data MonoType = MonoType_Con   String [MonoType]
-              | MonoType_Fam   String [MonoType]
+orderConstraint :: Constraint -> Constraint -> Ordering
+orderConstraint (Constraint_Unify t1 t2) (Constraint_Unify s1 s2) = compare (t1,t2) (s1,s2)
+orderConstraint (Constraint_Unify _ _) _ = LT
+orderConstraint _ (Constraint_Unify _ _) = GT
+orderConstraint (Constraint_Inst t1 _) (Constraint_Inst s1 _) = compare t1 s1
+orderConstraint (Constraint_Inst _ _) _ = LT
+orderConstraint _ (Constraint_Inst _ _) = GT
+orderConstraint (Constraint_Equal t1 _) (Constraint_Equal s1 _) = compare t1 s1
+orderConstraint (Constraint_Equal _ _) _ = LT
+orderConstraint _ (Constraint_Equal _ _) = GT
+orderConstraint (Constraint_Class c1 ts1) (Constraint_Class c2 ts2) = compare (c1,ts1) (c2,ts2)
+orderConstraint (Constraint_Class _ _) _ = LT
+orderConstraint _ (Constraint_Class _ _) = GT
+orderConstraint _ _ = EQ
+
+data MonoType = MonoType_Fam   String [MonoType]
               | MonoType_Var   TyVar
+              | MonoType_Con   String [MonoType]
               | MonoType_Arrow MonoType MonoType
-              deriving Eq
+              deriving (Eq, Ord)
 
 pattern MonoType_Int       = MonoType_Con   "Int" []
 pattern MonoType_List  t   = MonoType_Con   "List" [t]
@@ -148,11 +166,13 @@ closeExn cs m except = let (cns, vars) = closeTypeA (filter (hasCsFv (fv m)) cs)
 data Constraint = Constraint_Unify MonoType MonoType
                 | Constraint_Inst  MonoType PolyType
                 | Constraint_Equal MonoType PolyType
+                | Constraint_Class String [MonoType]
                 | Constraint_Exists (Bind [TyVar] ([Constraint],[Constraint]))
 
 $(makePrisms ''Constraint)
 
 data Axiom = Axiom_Unify (Bind [TyVar] (MonoType, MonoType))
+           | Axiom_Class (Bind [TyVar] ([Constraint], String, [MonoType]))
 
 -- Derive `unbound` instances
 $(derive [''PolyType, ''MonoType, ''Constraint, ''Axiom])
@@ -193,10 +213,6 @@ instance Show MonoType where
   show (MonoType_Var v)       = show v
   show _                      = error "Pattern matching check is not that good"
 
-doParens :: String -> String
-doParens s | ' ' `elem` s = '(' : s ++ ")"
-           | otherwise    = s
-
 instance Show [Constraint] where
   show = runFreshM . showConstraintList
 
@@ -213,6 +229,8 @@ showConstraint (Constraint_Inst  t p) = do p' <- showPolyType' p
                                            return $ show t ++ " > " ++ p'
 showConstraint (Constraint_Equal t p) = do p' <- showPolyType' p
                                            return $ show t ++ " = " ++ p'
+showConstraint (Constraint_Class c t) = do let ps = map (doParens . show) t
+                                           return $ "$" ++ c ++ " " ++ intercalate " " ps
 showConstraint (Constraint_Exists b)  = do (x, (q,c)) <- unbind b
                                            q' <- showConstraintList q
                                            c' <- showConstraintList c
@@ -224,3 +242,7 @@ instance Show Axiom where
 showAxiom :: (Fresh m, Functor m) => Axiom -> m String
 showAxiom (Axiom_Unify b) = do (xs, (lhs,rhs)) <- unbind b
                                return $ "∀" ++ show xs ++ " " ++ show lhs ++ " ~ " ++ show rhs
+showAxiom (Axiom_Class b) = do (xs, (ctx,c,ms)) <- unbind b
+                               let ps = map (doParens . show) ms
+                               return $ "∀" ++ show xs ++ " " ++ show ctx ++
+                                        " => $" ++ c ++ " " ++ intercalate " " ps

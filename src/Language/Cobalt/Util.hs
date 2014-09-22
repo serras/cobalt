@@ -21,3 +21,7 @@ withGreek = replace "alpha" "α"
 
 showWithGreek :: Show a => a -> String
 showWithGreek = withGreek . show
+
+doParens :: String -> String
+doParens s | ' ' `elem` s = '(' : s ++ ")"
+           | otherwise    = s

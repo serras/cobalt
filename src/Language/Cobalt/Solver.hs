@@ -192,6 +192,8 @@ interact_ given ctx (Constraint_Inst t1 p1) (Constraint_Inst t2 p2)
 -- Existentials do not interact
 interact_ _ _ (Constraint_Exists _) _ = return NotApplicable
 interact_ _ _ _ (Constraint_Exists _) = return NotApplicable
+-- Rest of things
+interact_ _ _ _ _ = return NotApplicable
 
 -- Very similar to interact_, but taking care of symmetric cases
 simplifies :: [Constraint] -> [Constraint]
@@ -224,6 +226,8 @@ simplifies _given _ctx (Constraint_Inst t1 p1) (Constraint_Unify t2 p2)
 -- Existentials do not interact
 simplifies _ _ (Constraint_Exists _) _ = return NotApplicable
 simplifies _ _ _ (Constraint_Exists _) = return NotApplicable
+-- Rest of things
+simplifies _ _ _ _ = return NotApplicable
 
 findLub :: [Constraint] -> PolyType -> PolyType -> SMonad (SolutionStep, PolyType)
 findLub ctx p1 p2 = do

@@ -117,6 +117,8 @@ parseConstraint = try (Constraint_Inst  <$> (var . string2Name <$> identifier)
               <|> try (Constraint_Equal <$> (var . string2Name <$> identifier)
                                         <*  reservedOp "="
                                         <*> parsePolyType)
+              <|> Constraint_Class <$> parseClsName
+                                   <*> many parseMonoType
               <|> Constraint_Unify <$> parseMonoType
                                    <*  reservedOp "~"
                                    <*> parseMonoType
@@ -149,6 +151,9 @@ parseDataName = id <$ char '\'' <*> identifier
 parseFamName :: Parsec String s String
 parseFamName = id <$ char '^' <*> identifier
 
+parseClsName :: Parsec String s String
+parseClsName = id <$ char '$' <*> identifier
+
 parseSig :: Parsec String s (RawTermVar, PolyType)
 parseSig = (,) <$  reserved "import"
                <*> (string2Name <$> identifier)
@@ -163,15 +168,23 @@ parseData = (,) <$  reserved "data"
                 <*  reservedOp ";"
 
 parseAxiom :: Parsec String s Axiom
-parseAxiom = createAxiomUnify <$  reserved "axiom"
-                              <*> many (braces identifier)
-                              <*> parseMonoType
-                              <*  reservedOp "~"
-                              <*> parseMonoType
-                              <*  reservedOp ";"
+parseAxiom = id <$ reserved "axiom"
+                <*> (    try (createAxiomUnify <$> many (braces identifier)
+                                               <*> parseMonoType
+                                               <*  reservedOp "~"
+                                               <*> parseMonoType)
+                     <|> createAxiomClass <$> many (braces identifier)
+                                          <*> many parseConstraint
+                                          <*  reservedOp "=>"
+                                          <*> parseClsName
+                                          <*> many parseMonoType )
+                <* reservedOp ";"
 
 createAxiomUnify :: [String] -> MonoType -> MonoType -> Axiom
 createAxiomUnify vs r l = Axiom_Unify (bind (map string2Name vs) (r,l))
+
+createAxiomClass :: [String] -> [Constraint] -> String -> [MonoType] -> Axiom
+createAxiomClass vs ctx c m = Axiom_Class (bind (map string2Name vs) (ctx,c,m))
 
 parseDefn :: Parsec String s (RawDefn,Bool)
 parseDefn = try ((\x y z w -> ((x,z,Just y),w))

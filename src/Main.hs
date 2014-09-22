@@ -19,7 +19,7 @@ import Language.Cobalt.Parser (parseFile)
 import Language.Cobalt.Syntax
 import Language.Cobalt.Top
 import Language.Cobalt.Types
-import Language.Cobalt.Util (withGreek, showWithGreek)
+import Language.Cobalt.Util (withGreek, showWithGreek, doParens)
 
 main :: IO ()
 main = do
@@ -248,6 +248,8 @@ showJsonConstraint (Constraint_Inst t1 t2) =
   return $ object [ "text" .= (showWithGreek t1 ++ " > " ++ showWithGreek t2 :: String) ]
 showJsonConstraint (Constraint_Equal t1 t2) =
   return $ object [ "text" .= (showWithGreek t1 ++ " = " ++ showWithGreek t2 :: String) ]
+showJsonConstraint (Constraint_Class c ts) =
+  return $ object [ "text" .= ("$" ++ c ++ " " ++ intercalate " " (map (doParens . showWithGreek) ts) :: String) ]
 showJsonConstraint (Constraint_Exists b) = do
   (v, (g,w)) <- unbind b
   oG <- showJsonConstraintList g
