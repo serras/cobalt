@@ -38,31 +38,31 @@ doPerDefn f nx e (((n,t,p),b):xs) = do r <- runExceptT (f e (n,t,p))
                                                         return $ (Right ok,b) : rest
 
 -- | Gather constrains from a definition
-gDefn :: UseHigherRanks -> Env -> RawDefn -> ExceptT String FreshM (TyTermVar, Gathered)
-gDefn h e (n,t,Nothing) = do r <- runReaderT (gather h t) e
-                             return (translate n, r)
+gDefn :: UseHigherRanks -> Env -> RawDefn -> ExceptT String FreshM (TyTermVar, Gathered, [TyVar])
+gDefn h e (n,t,Nothing) = do r@(Gathered _ a _ w) <- runReaderT (gather h t) e
+                             return (translate n, r, fv (getAnn a) `union` fv w)
 gDefn h e (n,t,Just p)  = do Gathered typ a g w <- runReaderT (gather h t) e
                              (q1,t1,_) <- split p
                              let extra = Constraint_Unify (getAnn a) t1
-                             return (translate n, Gathered typ a (g ++ q1) (extra:w))
+                             return (translate n, Gathered typ a (g ++ q1) (extra:w), fv (getAnn a) `union` fv w)
 
 -- | Gather constraints from a list of definitions
 gDefns :: UseHigherRanks -> Env -> [(RawDefn,Bool)]
-       -> [(Either (RawTermVar,String) (TyTermVar,Gathered), Bool)]
+       -> [(Either (RawTermVar,String) (TyTermVar,Gathered,[TyVar]), Bool)]
 gDefns higher = doPerDefn' (gDefn higher) const
 
 -- | Typecheck a definition
 tcDefn :: UseHigherRanks -> Env -> RawDefn -> ExceptT String FreshM (TyDefn, [Constraint])
 tcDefn h e (n,t,annP) = do
-  (n', Gathered _ a g w) <- gDefn h e (n,t,annP)
-  let tch = fv (getAnn a) `union` fv w
+  (n', Gathered _ a g w, tch) <- gDefn h e (n,t,annP)
   Solution smallG rs sb tch' <- solve g w tch
   let thisAnn = atAnn (substs sb) a
-      finalT = nf $ closeExn (smallG ++ rs) (getAnn thisAnn) (not . (`elem` tch'))
   case annP of
-    Nothing -> tcCheckErrors rs finalT
-    Just _  -> if not (null rs) then throwError $ "Could not discharge: " ++ show rs else return ()
-  return ((n',thisAnn,finalT),rs)
+    Nothing -> do let finalT = nf $ closeExn (smallG ++ rs) (getAnn thisAnn) (not . (`elem` tch'))
+                  tcCheckErrors rs finalT
+                  return ((n',thisAnn,finalT),rs)
+    Just p  -> if not (null rs) then throwError $ "Could not discharge: " ++ show rs
+                                else return ((n',thisAnn,p),rs)
 
 tcCheckErrors :: [Constraint] -> PolyType -> ExceptT String FreshM ()
 tcCheckErrors rs t = do let fvT :: [TyVar] = fv t

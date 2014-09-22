@@ -122,6 +122,7 @@ initialDataEnv = [("Int",     [])
 instance Rep t => Rep (Term t) where
   rep = Data (DT "Term" ((rep :: R t) :+: MNil))
              [ Con rIntLiteral ((rep :: R Integer) :+: (rep :: R t) :+: MNil)
+             , Con rTermVar    ((rep :: R (TermVar t)) :+: (rep :: R t) :+: MNil)
              , Con rTermAbs    ((rep :: R (Bind (TermVar t) (Term t))) :+: (rep :: R t) :+: MNil)
              , Con rTermAbsAnn ((rep :: R (Bind (TermVar t) (Term t))) :+: (rep :: R PolyType) :+: (rep :: R t) :+: MNil)
              , Con rTermApp    ((rep :: R (Term t)) :+: (rep :: R (Term t)) :+: (rep :: R t) :+: MNil)
@@ -130,20 +131,21 @@ instance Rep t => Rep (Term t) where
              , Con rTermMatch  ((rep :: R (Term t)) :+: (rep :: R String) :+: (rep :: R [((TermVar t), Bind [TermVar t] (Term t))]) :+: (rep :: R t) :+: MNil)
              ]
 
-instance ( Rep t, Sat (ctx t), Sat (ctx (Term t))
+instance ( Rep t, Sat (ctx t), Sat (ctx (Term t)), Sat (ctx (TermVar t))
          , Sat (ctx Integer), Sat (ctx String), Sat (ctx PolyType)
          , Sat (ctx (Bind (TermVar t) (Term t))), Sat (ctx (Bind ((TermVar t), Embed (Term t)) (Term t)))
          , Sat (ctx [((TermVar t), Bind [TermVar t] (Term t))])) => Rep1 ctx (Term t) where
-  rep1 = rAnnTerm1 dict dict dict dict dict dict dict dict
+  rep1 = rAnnTerm1 dict dict dict dict dict dict dict dict dict
 
 rAnnTerm1 :: forall t ctx. Rep t
-          => ctx t -> ctx (Term t)
+          => ctx t -> ctx (Term t) -> ctx (TermVar t)
           -> ctx Integer -> ctx String -> ctx PolyType
           -> ctx (Bind (TermVar t) (Term t)) -> ctx (Bind ((TermVar t), Embed (Term t)) (Term t))
           -> ctx [((TermVar t), Bind [TermVar t] (Term t))] -> R1 ctx (Term t)
-rAnnTerm1 ct ctt ci cs cp cb1 cb2 cbl =
+rAnnTerm1 ct ctt ctv ci cs cp cb1 cb2 cbl =
   Data1 (DT "Term" ((rep :: R t) :+: MNil))
-        [ Con rIntLiteral (ci :+: ct :+: MNil)
+        [ Con rIntLiteral (ci  :+: ct :+: MNil)
+        , Con rTermVar    (ctv :+: ct :+: MNil)
         , Con rTermAbs    (cb1 :+: ct :+: MNil)
         , Con rTermAbsAnn (cb1 :+: cp :+: ct :+: MNil)
         , Con rTermApp    (ctt :+: ctt :+: ct :+: MNil)
@@ -161,6 +163,16 @@ rIntLiteral = Emb { to = \(n :*: t :*: Nil) -> Term_IntLiteral n t
                   , name = "Term_IntLiteral"
                   , fixity = Nonfix
                   }
+
+rTermVar :: Emb ((TermVar t) :*: t :*: Nil) (Term t)
+rTermVar = Emb { to = \(v :*: t :*: Nil) -> Term_Var v t
+               , from = \x -> case x of
+                                Term_Var v t -> Just (v :*: t :*: Nil)
+                                _            -> Nothing
+               , labels = Nothing
+               , name = "Term_Var"
+               , fixity = Nonfix
+               }
 
 rTermAbs :: Emb ((Bind (TermVar t) (Term t)) :*: t :*: Nil) (Term t)
 rTermAbs = Emb { to = \(b :*: t :*: Nil) -> Term_Abs b t

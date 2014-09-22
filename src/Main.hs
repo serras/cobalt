@@ -101,8 +101,8 @@ showTc always (((n,t,p),cs),b) = do
   when (not b || always) $ do
     putStrLn (show t)
 
-showG :: ((TyTermVar,Gathered), Bool) -> IO ()
-showG ((n,(Gathered t ann g w)),_) = do
+showG :: ((TyTermVar,Gathered,[TyVar]), Bool) -> IO ()
+showG ((n,(Gathered t ann g w),_),_) = do
   let tch :: [TyVar] = fv (getAnn ann) `union` fv w
   setSGR [SetColor Foreground Vivid Blue]
   putStr (name2String n)
@@ -217,7 +217,7 @@ showAnnTermJson (Term_Match e c bs t) = do
                     , "tags"  .= [showWithGreek t]
                     , "nodes" .= bs' ] ]
 
-showJsonConstraints :: [(Either (RawTermVar,String) (TyTermVar,Gathered), Bool)] -> [Value]
+showJsonConstraints :: [(Either (RawTermVar,String) (TyTermVar,Gathered,[TyVar]), Bool)] -> [Value]
 showJsonConstraints [] = []
 showJsonConstraints ((Left (n,e),_):xs) =
   let this = object [ "text" .= name2String n
@@ -225,7 +225,7 @@ showJsonConstraints ((Left (n,e),_):xs) =
                     , "color" .= ("white" :: String)
                     , "backColor" .= ("#F58471" :: String) ] -- red
    in this : showJsonConstraints xs
-showJsonConstraints ((Right (n, Gathered t a g w),_):xs) =
+showJsonConstraints ((Right (n, Gathered t a g w, _),_):xs) =
   let this = object [ "text" .= name2String n
                     , "tags" .= [showWithGreek t]
                     , "color" .= ("white" :: String)
