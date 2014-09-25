@@ -2,11 +2,16 @@ axiom ^F 'Int ~ 'Int;
 axiom ^G 'Int ~ 'Bool;
 axiom {a} ^F [a] ~ 'Int;
 
+axiom $Eq 'Int;
+axiom {a} $Eq a => $Eq [a];
+
 import ex1  :: {a} a -> ^G (^F a);
 import bluh :: {a} 'Bluh a;
 
 import nil  :: {a} [a];
 import cons :: {a} a -> [a] -> [a];
+
+import eq :: {a} $Eq a => a -> a -> 'Bool;
 
 ex2 = ex1 3;
 ex3a = ex1 nil;
@@ -14,3 +19,7 @@ ex3b :: 'Bool = ex1 nil;
 ex3c = let n :: ['Int] = nil in ex1 n;
 ex4 = ex1 bluh;
 ex5 = let listOfThree = cons 3 nil in ex1 listOfThree;
+
+cls1 = eq (cons 3 nil);
+cls2 = \x -> eq (cons x nil);
+cls3 :: {a} $Eq a => a -> [a] -> 'Bool = \x -> eq (cons x nil);

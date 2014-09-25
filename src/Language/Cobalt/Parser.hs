@@ -175,11 +175,15 @@ parseAxiom = id <$ reserved "axiom"
                                                <*> parseMonoType
                                                <*  reservedOp "~"
                                                <*> parseMonoType)
-                     <|> createAxiomClass <$> many (braces identifier)
-                                          <*> many parseConstraint
-                                          <*  reservedOp "=>"
-                                          <*> parseClsName
-                                          <*> many parseMonoType )
+                     
+                     <|> try (createAxiomClass <$> many (braces identifier)
+                                               <*> many parseConstraint
+                                               <*  reservedOp "=>"
+                                               <*> parseClsName
+                                               <*> many parseMonoType)
+                     <|> flip createAxiomClass [] <$> many (braces identifier)
+                                                  <*> parseClsName
+                                                  <*> many parseMonoType )
                 <* reservedOp ";"
 
 createAxiomUnify :: [String] -> MonoType -> MonoType -> Axiom

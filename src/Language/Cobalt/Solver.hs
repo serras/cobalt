@@ -229,6 +229,10 @@ unifyInteract' (Constraint_Unify (MonoType_Fam _ vs) _) (Constraint_Inst v@(Mono
   | v `elem` vs
   = do (c,t) <- instantiate p True  -- Perform instantiation
        return $ Applied $ (Constraint_Unify v t) : c
+unifyInteract' (Constraint_Class _ vs) (Constraint_Inst v@(MonoType_Var _) p)
+  | v `elem` vs
+  = do (c,t) <- instantiate p True  -- Perform instantiation
+       return $ Applied $ (Constraint_Unify v t) : c
 -- Constructors are not canonical
 unifyInteract' (Constraint_Unify _ _) _ = return NotApplicable
 unifyInteract' _ (Constraint_Unify _ _) = return NotApplicable -- treated sym
@@ -369,6 +373,17 @@ topReact _ ax@(Axiom_Unify b) (Constraint_Unify (MonoType_Fam f ms) t)
             _  -> return NotApplicable  -- Could not match terms
           `catchError` (\_ -> return NotApplicable)
         _ -> return NotApplicable
+topReact _ ax@(Axiom_Class b) (Constraint_Class c ms)
+  | all isFamilyFree ms = do
+      (aes, (ctx, cls, args)) <- unbind b
+      if cls == c
+         then do let bes = fv ax :: [TyVar]
+                 Solution _ r s _ <- lift $ lift $ solve [] [] (zipWith Constraint_Unify ms args) (aes \\ bes)
+                 case r of
+                   [] -> return $ Applied (substs s ctx)
+                   _  -> return NotApplicable -- Could not match terms
+                 `catchError` (\_ -> return NotApplicable)
+         else return NotApplicable -- Not same class
 topReact _ _ _ = return NotApplicable
 
 -- Phase 2b: convert to solution

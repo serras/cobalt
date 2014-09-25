@@ -168,6 +168,7 @@ closeExn cs m except = let (cns, vars) = closeTypeA (filter (hasCsFv (fv m)) cs)
         hasCsFv lst (Constraint_Inst  (MonoType_Var v) _) = v `elem` lst
         hasCsFv lst (Constraint_Equal (MonoType_Var v) _) = v `elem` lst
         hasCsFv lst (Constraint_Unify t1 t2) = any (`elem` lst) (fv t1) || any (`elem` lst) (fv t2)
+        hasCsFv lst (Constraint_Class _ t)   = any (`elem` lst) (fv t)
         hasCsFv _ _ = False
         -- final close
         finalClose []     p = p

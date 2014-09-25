@@ -18,6 +18,8 @@ import Language.Cobalt.Solver
 import Language.Cobalt.Syntax
 import Language.Cobalt.Types
 
+-- import Debug.Trace
+
 tcNextEnv :: Env -> (TyDefn,a) -> Env
 tcNextEnv e ((n,_,t),_) = e & fnE %~ ((translate n,t):)
 
@@ -62,6 +64,7 @@ tcDefn h e (n,t,annP) = do
   case annP of
     Nothing -> do let (almostFinalT, restC) = closeExn (smallG ++ rs) (getAnn thisAnn) (not . (`elem` tch'))
                       finalT = nf $ almostFinalT
+                  -- trace (show (restC,finalT,smallG ++ rs,thisAnn)) $
                   tcCheckErrors restC finalT
                   return ((n',thisAnn,finalT),rs)
     Just p  -> if not (null rs) then throwError $ "Could not deduce: " ++ show rs
