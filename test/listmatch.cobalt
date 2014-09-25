@@ -5,7 +5,8 @@ data 'Term v;
 data 'Incr v;
 
 import return :: {m} {r} r > {a} a -> 'App m a => 'Monad m -> r;
-import bind   :: {m} {r} r > {a} {b} 'App m a -> (a -> 'App m b) -> 'App m b => 'Monad m -> r;
+import bind   :: {m} {r} r > {a} {b} 'App m a -> (a -> 'App m b) -> 'App m b
+                 => 'Monad m -> r;
 
 import nil  :: {a} [a];
 import cons :: {a} a -> [a] -> [a];
@@ -21,7 +22,8 @@ import Succ :: {v} v -> 'Incr v;
 mapM = fix (\g -> \m -> \f -> \xs ->
   match xs with 'List
   | nil -> return m nil
-  | cons y ys -> bind m (f y) (\z -> bind m (g m f ys) (\zs -> return m (cons z zs)))) => ok;
+  | cons y ys -> bind m (f y) (\z -> bind m (g m f ys)
+                                            (\zs -> return m (cons z zs)))) => ok;
 
 mapI = \f -> \i -> match i with 'Incr
                    | Zero -> Zero
@@ -32,7 +34,7 @@ fixMT :: {s} s > {a} {b} (a -> b) -> 'Term a -> 'Term b => (s -> s) -> s = fix =
 fixMT2 :: {r} {s} {t} r > {a} {b} (a -> b) -> 'Term a -> 'Term b,
           s > {a} {b} (a -> b) -> 'Term a -> 'Term b,
           t > {a} {b} (a -> b) -> 'Term a -> 'Term b =>
-          (r -> s) -> t = fix => ok;
+          (r -> s) -> t = fix => fail;
 
 mapT :: {a} {b} (a -> b) -> 'Term a -> 'Term b
   = fix (\mt -> \f -> \t -> match t with 'Term

@@ -45,6 +45,7 @@ eval :: 'Expr 'Int -> 'Int
   = fix (\e -> \expr -> match expr with 'Expr
                         | intLit x -> x
                         | ifteE b x y -> ifte (evalBool b) (e x) (e y)) => ok;
-evalWithoutSignature = fix (\e -> \expr -> match expr with 'Expr
-                                           | intLit x -> x
-                                           | ifteE b x y -> ifte (evalBool b) (e x) (e y)) => fail;
+evalWithoutSignature 
+  = fix (\e -> \expr -> match expr with 'Expr
+                        | intLit x -> x
+                        | ifteE b x y -> ifte (evalBool b) (e x) (e y)) => fail;
