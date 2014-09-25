@@ -10,6 +10,7 @@ module Language.Cobalt.Solver (
 import Control.Applicative ((<$>))
 import Control.Lens.Extras
 import Control.Monad.Except
+import Control.Monad.Reader
 import Control.Monad.State
 import Data.List (insert, find, delete, partition, nub)
 import Unbound.LocallyNameless
@@ -26,8 +27,8 @@ data Solution = Solution { smallGiven   :: [Constraint]
                          , touchable    :: [TyVar]
                          } deriving Show
 
-solve :: [Constraint] -> [Constraint] -> [TyVar] -> (ExceptT String FreshM) Solution
-solve g w t = do evalStateT (solve' g w) t
+solve :: [Axiom] -> [Constraint] -> [Constraint] -> [TyVar] -> (ExceptT String FreshM) Solution
+solve a g w t = do runReaderT (evalStateT (solve' g w) t) a
 
 solve' :: [Constraint] -> [Constraint] -> SMonad Solution
 solve' g w = myTrace ("Solve " ++ show g ++ " ||- " ++ show w) $ do
@@ -40,10 +41,15 @@ solveImpl :: [Constraint] -> [Constraint] -> SMonad ()
 solveImpl _ [] = return ()
 solveImpl g (Constraint_Exists b : rest) = do
   (vars,(q,c)) <- unbind b
-  Solution _ rs _ _ <- lift $ solve (g ++ q) c vars
+  Solution _ rs _ _ <- liftSolve (g ++ q) c vars
   if null rs then solveImpl g rest
              else throwError $ "Could not discharge: " ++ show c
 solveImpl _ _ = error "This should never happen (solveImpl)"
+
+liftSolve :: [Constraint] -> [Constraint] -> [TyVar] -> SMonad Solution
+liftSolve given wanted vars = do
+  axioms <- ask
+  lift $ lift $ solve axioms given wanted vars
 
 -- Utils for touchable variables
 
@@ -56,25 +62,33 @@ isTouchable x = gets (x `elem`)
 -- Phase 2a: simplifier
 
 simpl :: [Constraint] -> [Constraint] -> SMonad Solution
-simpl given wanted = do (g,_) <- whileApplicable (\c -> do
-                           (interactedGU,apGIU) <- whileApplicable (\cc -> do
-                             (canonicalG,apGC)   <- whileApplicable (stepOverList "canong" (canon True) []) cc
-                             (interactedGU,apGU) <- stepOverProductList "unifyg" unifyInteract [] canonicalG
-                             return (interactedGU, apGC || apGU)) c
-                           (interactedG,apGI) <- stepOverProductListDeleteBoth "interg" interact_ [] interactedGU
-                           return (interactedG, apGIU || apGI)) given
-                        (s,_) <- whileApplicable (\c -> do
-                           (interacted,apI) <- whileApplicable (\cc -> do
-                             (interactedU,apU) <- whileApplicable (\ccc -> do
-                               (canonical2,apC2)  <- whileApplicable (stepOverList "canonw" (canon False) g) ccc
-                               (interacted2,apI2) <- stepOverProductList "unifyw" unifyInteract g canonical2
-                               return (interacted2, apC2 || apI2)) cc
-                             (interacted2,apI2) <- stepOverProductListDeleteBoth "interw" interact_ g interactedU
-                             return (interacted2, apU || apI2)) c
-                           (simplified,apS) <- stepOverTwoLists "simplw" simplifies g interacted
-                           return (simplified, apI || apS)) wanted
-                        v <- get
-                        myTrace ("touchables: " ++ show v) $ return $ toSolution g s v
+simpl given wanted =
+  do axioms <- ask
+     (g,_) <- whileApplicable (\ccTop -> do
+                (interactedG2,apIG2) <- whileApplicable (\c -> do
+                  (interactedGU,apGIU) <- whileApplicable (\cc -> do
+                    (canonicalG,apGC)   <- whileApplicable (stepOverList "canong" (canon True) []) cc
+                    (interactedGU,apGU) <- stepOverProductList "unifyg" unifyInteract [] canonicalG
+                    return (interactedGU, apGC || apGU)) c
+                  (interactedG,apGI) <- stepOverProductListDeleteBoth "interg" interact_ [] interactedGU
+                  return (interactedG, apGIU || apGI)) ccTop
+                (reactedG, apRG) <- stepOverAxioms "topReact" (\ax _ -> topReact True ax) axioms [] interactedG2
+                return (reactedG, apIG2 || apRG)) given
+     (s,_) <- whileApplicable (\ccTop -> do
+                (simplified2,apS2) <- whileApplicable (\c -> do
+                  (interacted,apI) <- whileApplicable (\cc -> do
+                    (interactedU,apU) <- whileApplicable (\ccc -> do
+                      (canonical2,apC2)  <- whileApplicable (stepOverList "canonw" (canon False) g) ccc
+                      (interacted2,apI2) <- stepOverProductList "unifyw" unifyInteract g canonical2
+                      return (interacted2, apC2 || apI2)) cc
+                    (interacted2,apI2) <- stepOverProductListDeleteBoth "interw" interact_ g interactedU
+                    return (interacted2, apU || apI2)) c
+                  (simplified,apS) <- stepOverTwoLists "simplw" simplifies g interacted
+                  return (simplified, apI || apS)) ccTop
+                (reactedW, apRW) <- stepOverAxioms "topReact" (\ax _ -> topReact True ax) axioms g simplified2
+                return (reactedW, apS2 || apRW)) wanted
+     v <- get
+     myTrace ("touchables: " ++ show v) $ return $ toSolution g s v
 
 canon :: Bool -> [Constraint] -> Constraint -> SMonad SolutionStep
 -- Basic unification
@@ -289,7 +303,7 @@ findLub ctx p1 p2 = do
           tau <- fresh $ string2Name "tau"
           let cs = [Constraint_Unify (var tau) t1, Constraint_Unify (var tau) t2]
           tch <- get
-          Solution _ r s _ <- lift $ solve ctx (cs ++ q1 ++ q2) (tau : tch ++ v1 ++ v2)
+          Solution _ r s _ <- liftSolve ctx (cs ++ q1 ++ q2) (tau : tch ++ v1 ++ v2)
           let s' = substitutionInTermsOf tch s
               r' = map (substs s') r ++ map (\(v,t) -> Constraint_Unify (MonoType_Var v) t) s'
               (floatR, closeR) = partition (\c -> all (`elem` tch) (fv c)) r'
@@ -304,7 +318,7 @@ checkSubsumption ctx p1 p2 =
   else do (q1,t1,v1)  <- split p1
           (q2,t2,_v2) <- split p2
           tch <- get
-          Solution _ r s _ <- lift $ solve (ctx ++ q2) (Constraint_Unify t1 t2 : q1) (tch `union` v1)
+          Solution _ r s _ <- liftSolve (ctx ++ q2) (Constraint_Unify t1 t2 : q1) (tch `union` v1)
           let s' = substitutionInTermsOf tch s
               r' = map (substs s') r ++ map (\(v,t) -> Constraint_Unify (MonoType_Var v) t)
                                             (filter (\(v,_) -> v `elem` tch) s')
@@ -336,6 +350,9 @@ checkEquivalence ctx p1 p2 = do
     (NotApplicable, _) -> throwError $ "Equivalence check failed: " ++ show p1 ++ " = " ++ show p2
     (_, NotApplicable) -> throwError $ "Equivalence check failed: " ++ show p1 ++ " = " ++ show p2
     (Applied a1, Applied a2) -> return $ Applied (a1 ++ a2)
+
+topReact :: Bool -> Axiom -> Constraint -> SMonad SolutionStep
+topReact _ _ _ = return NotApplicable
 
 -- Phase 2b: convert to solution
 

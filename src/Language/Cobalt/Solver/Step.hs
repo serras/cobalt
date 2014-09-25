@@ -7,10 +7,12 @@ module Language.Cobalt.Solver.Step (
 , stepOverProductList
 , stepOverProductListDeleteBoth
 , stepOverTwoLists
+, stepOverAxioms
 , myTrace
 ) where
 
 import Control.Monad.Except
+import Control.Monad.Reader
 import Control.Monad.State
 import Unbound.LocallyNameless
 #define TRACE_SOLVER 0
@@ -21,7 +23,7 @@ import Debug.Trace
 
 import Language.Cobalt.Types
 
-type SMonad = StateT [TyVar] (ExceptT String FreshM)
+type SMonad = (StateT [TyVar] (ReaderT [Axiom] (ExceptT String FreshM)))
 data SolutionStep = NotApplicable | Applied [Constraint]
 
 whileApplicable :: ([Constraint] -> SMonad ([Constraint], Bool))
@@ -76,6 +78,16 @@ stepOverTwoLists s f given wanted = stepOverTwoLists' given [] wanted
           r <- stepOverList (s ++ " " ++ show x) (\ws -> f (xs ++ accumG) ws x) [] wanted
           case r of
             (_,    False) -> stepOverTwoLists' xs (x:accumG) w
+            (newW, True)  -> return (newW, True)
+
+stepOverAxioms :: String -> (Axiom -> [Constraint] -> Constraint -> SMonad SolutionStep)
+               -> [Axiom] -> [Constraint] -> [Constraint] -> SMonad ([Constraint], Bool)
+stepOverAxioms s f axs given wanted = stepOverAxioms' axs
+  where stepOverAxioms' []     = return (wanted, False)
+        stepOverAxioms' (a:as) = do
+          r <- stepOverList (s ++ " " ++ show a) (f a) given wanted
+          case r of
+            (_,    False) -> stepOverAxioms' as
             (newW, True)  -> return (newW, True)
 
 myTrace :: String -> a -> a

@@ -57,7 +57,7 @@ gDefns higher = doPerDefn' (gDefn higher) const
 tcDefn :: UseHigherRanks -> Env -> RawDefn -> ExceptT String FreshM (TyDefn, [Constraint])
 tcDefn h e (n,t,annP) = do
   (n', Gathered _ a g w, tch) <- gDefn h e (n,t,annP)
-  Solution smallG rs sb tch' <- solve g w tch
+  Solution smallG rs sb tch' <- solve (e^.axiomE) g w tch
   let thisAnn = atAnn (substs sb) a
   case annP of
     Nothing -> do let (almostFinalT, restC) = closeExn (smallG ++ rs) (getAnn thisAnn) (not . (`elem` tch'))
