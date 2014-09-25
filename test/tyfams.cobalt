@@ -1,0 +1,16 @@
+axiom ^F 'Int ~ 'Int;
+axiom ^G 'Int ~ 'Bool;
+axiom {a} ^F [a] ~ 'Int;
+
+import ex1  :: {a} a -> ^G (^F a);
+import bluh :: {a} 'Bluh a;
+
+import nil  :: {a} [a];
+import cons :: {a} a -> [a] -> [a];
+
+ex2 = ex1 3;
+ex3a = ex1 nil;
+ex3b :: 'Bool = ex1 nil;
+ex3c = let n :: ['Int] = nil in ex1 n;
+ex4 = ex1 bluh;
+ex5 = let listOfThree = cons 3 nil in ex1 listOfThree;

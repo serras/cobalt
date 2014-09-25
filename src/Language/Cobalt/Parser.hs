@@ -136,11 +136,13 @@ parseMonoAtom = MonoType_List <$> brackets parseMonoType
             <|> MonoType_Con <$> parseDataName
                              <*> many (    (\x -> MonoType_Con x []) <$> parseDataName
                                        <|> (\x -> MonoType_Fam x []) <$> parseFamName
+                                       <|> MonoType_List <$> brackets parseMonoType
                                        <|> MonoType_Var . string2Name <$> identifier
                                        <|> parens parseMonoType)
             <|> MonoType_Fam <$> parseFamName
                              <*> many (    (\x -> MonoType_Con x []) <$> parseDataName
                                        <|> (\x -> MonoType_Fam x []) <$> parseFamName
+                                       <|> MonoType_List <$> brackets parseMonoType
                                        <|> MonoType_Var . string2Name <$> identifier
                                        <|> parens parseMonoType)
             <|> MonoType_Var . string2Name <$> identifier
@@ -208,10 +210,10 @@ parseExpected = try (id <$ reservedOp "=>" <*> (    const True  <$> reservedOp "
             <|> pure True
 
 parseFile :: Parsec String s (Env,[(RawDefn,Bool)])
-parseFile = (\x y w z -> (Env y x w, z))
+parseFile = (\d a s df -> (Env s d a, df))
                    <$> many parseData
-                   <*> many parseSig
                    <*> many parseAxiom
+                   <*> many parseSig
                    <*> many parseDefn
 
 -- Lexer for Haskell-like language

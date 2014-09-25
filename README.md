@@ -6,7 +6,7 @@ COnstraint-BAsed Little Typechecker
 ## Syntax
 
 ```
-program := data* import* axiom* defn*
+program := data* axiom* import* defn*
 data    := "data" dataname tyvar* ";"
 import  := "import" termvar "::" polytype ";"
 defn    := termvar ("::" polytype)? "=" expr ("=>" okfail)? ";"

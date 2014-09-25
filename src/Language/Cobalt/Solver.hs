@@ -12,7 +12,7 @@ import Control.Lens.Extras
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State
-import Data.List (insert, find, delete, partition, nub)
+import Data.List (insert, find, delete, partition, nub, (\\))
 import Unbound.LocallyNameless
 
 import Language.Cobalt.Solver.Step
@@ -224,6 +224,11 @@ unifyInteract' (Constraint_Unify (MonoType_Var v1) s1) (Constraint_Equal t2 s2)
 unifyInteract' (Constraint_Unify (MonoType_Var v1) s1) (Constraint_Class c ss2)
   | v1 `elem` fv ss2, all isFamilyFree ss2
   = return $ Applied [Constraint_Class c (subst v1 s1 ss2)]
+-- Special case for instantiating a variable appearing in a type family
+unifyInteract' (Constraint_Unify (MonoType_Fam _ vs) _) (Constraint_Inst v@(MonoType_Var _) p)
+  | v `elem` vs
+  = do (c,t) <- instantiate p True  -- Perform instantiation
+       return $ Applied $ (Constraint_Unify v t) : c
 -- Constructors are not canonical
 unifyInteract' (Constraint_Unify _ _) _ = return NotApplicable
 unifyInteract' _ (Constraint_Unify _ _) = return NotApplicable -- treated sym
@@ -352,6 +357,18 @@ checkEquivalence ctx p1 p2 = do
     (Applied a1, Applied a2) -> return $ Applied (a1 ++ a2)
 
 topReact :: Bool -> Axiom -> Constraint -> SMonad SolutionStep
+topReact _ ax@(Axiom_Unify b) (Constraint_Unify (MonoType_Fam f ms) t)
+  | all isFamilyFree ms, isFamilyFree t = do
+      (aes, (lhs, rhs)) <- unbind b
+      case lhs of
+        MonoType_Fam lF lMs | f == lF -> do
+          let bes = fv ax :: [TyVar]
+          Solution _ r s _ <- lift $ lift $ solve [] [] (zipWith Constraint_Unify ms lMs) (aes \\ bes)
+          case r of
+            [] -> return $ Applied [Constraint_Unify (substs s rhs) t]
+            _  -> return NotApplicable  -- Could not match terms
+          `catchError` (\_ -> return NotApplicable)
+        _ -> return NotApplicable
 topReact _ _ _ = return NotApplicable
 
 -- Phase 2b: convert to solution
