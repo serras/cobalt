@@ -11,7 +11,10 @@ import bind   :: {m} {r} r > {a} {b} 'App m a -> (a -> 'App m b) -> 'App m b
 import nil  :: {a} [a];
 import cons :: {a} a -> [a] -> [a];
 
-import fix :: {a} {x} x = a -> a => x -> a;
+import zero :: 'Int;
+import succ :: 'Int -> 'Int;
+
+import fix :: {a} (a -> a) -> a;
 
 import Var :: {v} v -> 'Term v;
 import App :: {v} 'Term v -> 'Term v -> 'Term v;
@@ -19,25 +22,32 @@ import Lam :: {v} 'Term ('Incr v) -> 'Term v;
 import Zero :: {v} 'Incr v;
 import Succ :: {v} v -> 'Incr v;
 
+import mapI :: {a} {b} (a -> b) -> 'Incr a -> 'Incr b;
+
 mapM = fix (\g -> \m -> \f -> \xs ->
   match xs with 'List
   | nil -> return m nil
   | cons y ys -> bind m (f y) (\z -> bind m (g m f ys)
                                             (\zs -> return m (cons z zs)))) => ok;
 
-mapI = \f -> \i -> match i with 'Incr
-                   | Zero -> Zero
-                   | Succ x -> Succ (f x) => ok;
+mapI2 = \f -> \i -> match i with 'Incr
+                    | Zero -> Zero
+                    | Succ x -> Succ (f x) => ok;
 
 fixMT :: {s} s > {a} {b} (a -> b) -> 'Term a -> 'Term b => (s -> s) -> s = fix => ok;
+
+sum :: 'Int -> 'Int -> 'Int =
+  \n -> \m -> match n with 'Int
+              | zero   -> m
+              | succ p -> succ (sum p m);
 
 fixMT2 :: {r} {s} {t} r > {a} {b} (a -> b) -> 'Term a -> 'Term b,
           s > {a} {b} (a -> b) -> 'Term a -> 'Term b,
           t > {a} {b} (a -> b) -> 'Term a -> 'Term b =>
-          (r -> s) -> t = fix => fail;
+          (r -> s) -> t = \f -> f (fixMT2 f) => ok;
 
-mapT :: {a} {b} (a -> b) -> 'Term a -> 'Term b
-  = fix (\mt -> \f -> \t -> match t with 'Term
-                            | Var x -> Var (f x)
-                            | App t1 t2 -> App (mt f t1) (mt f t2)
-                            | Lam l -> Lam (mt (mapI f) l)) => ok;
+mapT :: {a} {b} (a -> b) -> 'Term a -> 'Term b 
+  = \f -> \t -> match t with 'Term
+               | Var x -> Var (f x)
+               | App t1 t2 -> App (mapT f t1) (mapT f t2)
+               | Lam l -> Lam (mapT (mapI f) l) => ok;

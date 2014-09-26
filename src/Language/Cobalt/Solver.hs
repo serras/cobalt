@@ -19,6 +19,8 @@ import Language.Cobalt.Solver.Step
 import Language.Cobalt.Types
 import Language.Cobalt.Util ()
 
+import Debug.Trace
+
 -- Phase 2: constraint solving
 
 data Solution = Solution { smallGiven   :: [Constraint]
@@ -92,13 +94,31 @@ simpl given wanted =
 
 canon :: Bool -> [Constraint] -> Constraint -> SMonad SolutionStep
 -- Basic unification
-canon isGiven _ (Constraint_Unify t1 t2) = case (t1,t2) of
+canon isGiven rest (Constraint_Unify t1 t2) = case (t1,t2) of
   (MonoType_Var v1, MonoType_Var v2)
     | v1 == v2  -> return $ Applied []  -- Refl
     | otherwise -> do touch1 <- isTouchable v1
                       touch2 <- isTouchable v2
                       case (touch1, touch2) of
-                       (False, False) -> throwError $ "Unifying non-touchable variables: " ++ show v1 ++ " ~ " ++ show v2
+                       (False, False) -> do -- Note: if we have two variables being unified to equal polytypes
+                                            -- it is allowed to unify them, since they represent the same type
+                         let findVar vToSearch (Constraint_Inst  (MonoType_Var v) _) | v == vToSearch = True
+                             findVar vToSearch (Constraint_Equal (MonoType_Var v) _) | v == vToSearch = True
+                             findVar _ _ = False
+                             possible1 = filter (findVar v1) rest
+                             possible2 = filter (findVar v2) rest
+                         let errMsg = "Unifying non-touchable variables: " ++ show v1 ++ " ~ " ++ show v2
+                         ps <- case trace (show (possible1,possible2)) (possible1, possible2) of
+                           ([],_) -> throwError errMsg
+                           (_,[]) -> throwError errMsg
+                           ([Constraint_Inst  (MonoType_Var _) p1],[Constraint_Inst  (MonoType_Var _) p2]) -> return $ Just (p1,p2)
+                           ([Constraint_Equal (MonoType_Var _) p1],[Constraint_Equal (MonoType_Var _) p2]) -> return $ Just (p1,p2)
+                           _ -> return Nothing
+                         case ps of
+                           Nothing -> return NotApplicable
+                           Just (p1,p2) -> do equiv <- areEquivalent rest p1 p2
+                                              if equiv then return NotApplicable
+                                                       else throwError errMsg
                        (True,  False) -> return NotApplicable
                        (False, True)  -> return $ Applied [Constraint_Unify t2 t1]
                        (True,  True)  -> if v1 > v2 then return $ Applied [Constraint_Unify t2 t1]  -- Orient

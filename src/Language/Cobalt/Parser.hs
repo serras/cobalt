@@ -193,20 +193,15 @@ createAxiomClass :: [String] -> [Constraint] -> String -> [MonoType] -> Axiom
 createAxiomClass vs ctx c m = Axiom_Class (bind (map string2Name vs) (ctx,c,m))
 
 parseDefn :: Parsec String s (RawDefn,Bool)
-parseDefn = try ((\x y z w -> ((x,z,Just y),w))
-                     <$> (string2Name <$> identifier)
-                     <*  reservedOp "::"
-                     <*> parsePolyType
-                     <*  reservedOp "="
-                     <*> parseTerm
-                     <*> parseExpected
-                     <*  reservedOp ";")
-        <|> (\x z w -> ((x,z,Nothing),w))
-                     <$> (string2Name <$> identifier)
-                     <*  reservedOp "="
-                     <*> parseTerm
-                     <*> parseExpected
-                     <*  reservedOp ";"
+parseDefn = (\n ty tr ex -> ((n,tr,ty),ex))
+                <$> (string2Name <$> identifier)
+                <*> (    try (Just <$  reservedOp "::"
+                                   <*> parsePolyType)
+                     <|> pure Nothing)
+                <*  reservedOp "="
+                <*> parseTerm
+                <*> parseExpected
+                <*  reservedOp ";"
 
 parseExpected :: Parsec String s Bool
 parseExpected = try (id <$ reservedOp "=>" <*> (    const True  <$> reservedOp "ok"

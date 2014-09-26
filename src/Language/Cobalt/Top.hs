@@ -45,7 +45,9 @@ doPerDefn f nx e (((n,t,p),b):xs) = do r <- runExceptT (f e (n,t,p))
 gDefn :: UseHigherRanks -> Env -> RawDefn -> ExceptT String FreshM (TyTermVar, Gathered, [TyVar])
 gDefn h e (n,t,Nothing) = do r@(Gathered _ a _ w) <- runReaderT (gather h t) e
                              return (translate n, r, fv (getAnn a) `union` fv w)
-gDefn h e (n,t,Just p)  = do Gathered typ a g w <- runReaderT (gather h t) e
+gDefn h e (n,t,Just p)  = do -- Add the annotated type to the environment
+                             let e' = e & fnE %~ ((n,p) :)
+                             Gathered typ a g w <- runReaderT (gather h t) e'
                              (q1,t1,_) <- split p
                              let extra = Constraint_Unify (getAnn a) t1
                              return (translate n, Gathered typ a (g ++ q1) (extra:w), fv (getAnn a) `union` fv w)
