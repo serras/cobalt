@@ -16,6 +16,8 @@
 
   <link rel="stylesheet" href="bootstrap-treeview.min.css">
   <script src="bootstrap-treeview.min.js"></script>
+
+  <script src="http://d3js.org/d3.v3.min.js"></script>
   
   <style>
   #editor {
@@ -70,6 +72,20 @@
 </head>
 <body>
   <!-- <a href="https://github.com/serras/cobalt"><img style="position: absolute; top: 0; right: 0; border: 0; z-index: 100;" src="https://camo.githubusercontent.com/e7bbb0521b397edbd5fe43e7f760759336b5e05f/68747470733a2f2f73332e616d617a6f6e6177732e636f6d2f6769746875622f726962626f6e732f666f726b6d655f72696768745f677265656e5f3030373230302e706e67" alt="Fork me on GitHub" data-canonical-src="https://s3.amazonaws.com/github/ribbons/forkme_right_green_007200.png"></a> -->
+
+  <div class="modal fade" id="graph-modal" tabindex="-1" role="dialog" aria-labelledby="graph-modal" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <button type="button" class="close" data-dismiss="modal"><span aria-hidden="true">&times;</span><span class="sr-only">Close</span></button>
+          <h5 class="modal-title">Simplification graph</h4>
+        </div>
+        <div class="modal-body">
+          <svg id="graph-canvas" width="100%" height="420px" />
+        </div>
+      </div>
+    </div>
+  </div>
   
   <div class="container-fluid">
     <h1>Cobalt <small>:: Constraint-Based Little Typechecker</small></h1>
@@ -144,7 +160,32 @@
       $.get("/example/" + x, function (data) {
         editor.setValue(data, -1);
       });
-    }
+    };
+    // On selecting a node
+    $('#result').on('nodeSelected', function(event, node) {
+      if (node.graph != undefined) {
+        $("#graph-modal").modal({});
+        var graph = node.graph;
+        var svg = d3.select("graph-canvas");
+        var force = d3.layout.force()
+                      .gravity(.05)
+                      .distance(100)
+                      .charge(-100)
+                      .size([svg.width, svg.height])
+                      .nodes(graph.nodes)
+                      .links(graph.links)
+                      .start();
+        var node = svg.selectAll(".node")
+                      .data(graph.nodes)
+                      .enter().append("g")
+                      .attr("class", "node")
+                      .call(force.drag);
+        var link = svg.selectAll(".link")
+                      .data(graph.links)
+                      .enter().append("line")
+                      .attr("class", "link");
+      }
+    });
   </script>
 </body>
 </html>

@@ -21,8 +21,6 @@ import Language.Cobalt.Solver.Step
 import Language.Cobalt.Types
 import Language.Cobalt.Util ()
 
-import Debug.Trace
-
 -- Phase 2: constraint solving
 
 data Solution = Solution { smallGiven   :: [Constraint]
@@ -114,7 +112,7 @@ canon isGiven rest (Constraint_Unify t1 t2) = case (t1,t2) of
                              possible1 = filter (findVar v1) rest
                              possible2 = filter (findVar v2) rest
                          let errMsg = "Unifying non-touchable variables: " ++ show v1 ++ " ~ " ++ show v2
-                         ps <- case trace (show (possible1,possible2)) (possible1, possible2) of
+                         ps <- case (possible1, possible2) of
                            ([],_) -> throwError errMsg
                            (_,[]) -> throwError errMsg
                            ([Constraint_Inst  (MonoType_Var _) p1],[Constraint_Inst  (MonoType_Var _) p2]) -> return $ Just (p1,p2)
