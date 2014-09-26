@@ -16,7 +16,8 @@ library
                      Language.Cobalt.Gather,
                      Language.Cobalt.Solver
   other-modules:     Language.Cobalt.Solver.Step,
-                     Language.Cobalt.Util
+                     Language.Cobalt.Util,
+                     Language.Cobalt.Graph
   build-depends:     base >= 4 && < 5,
                      unbound,
                      parsec,
