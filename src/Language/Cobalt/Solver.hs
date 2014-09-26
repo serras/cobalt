@@ -12,9 +12,11 @@ import Control.Lens.Extras
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State
+import Control.Monad.Writer
 import Data.List (insert, find, delete, partition, nub, (\\))
 import Unbound.LocallyNameless
 
+import Language.Cobalt.Graph as G
 import Language.Cobalt.Solver.Step
 import Language.Cobalt.Types
 import Language.Cobalt.Util ()
@@ -29,8 +31,8 @@ data Solution = Solution { smallGiven   :: [Constraint]
                          , touchable    :: [TyVar]
                          } deriving Show
 
-solve :: [Axiom] -> [Constraint] -> [Constraint] -> [TyVar] -> (ExceptT String FreshM) Solution
-solve a g w t = do runReaderT (evalStateT (solve' g w) t) a
+solve :: [Axiom] -> [Constraint] -> [Constraint] -> [TyVar] -> (ExceptT String FreshM) (Solution, Graph)
+solve a g w t = do runReaderT (runWriterT (evalStateT (solve' g w) t)) a
 
 solve' :: [Constraint] -> [Constraint] -> SMonad Solution
 solve' g w = myTrace ("Solve " ++ show g ++ " ||- " ++ show w) $ do
@@ -41,17 +43,21 @@ solve' g w = myTrace ("Solve " ++ show g ++ " ||- " ++ show w) $ do
 
 solveImpl :: [Constraint] -> [Constraint] -> SMonad ()
 solveImpl _ [] = return ()
-solveImpl g (Constraint_Exists b : rest) = do
+solveImpl g (existsC@(Constraint_Exists b) : rest) = do
   (vars,(q,c)) <- unbind b
-  Solution _ rs _ _ <- liftSolve (g ++ q) c vars
+  (Solution _ rs _ _, graph) <- liftSolve (g ++ q) c vars
+  -- Add the new graph
+  tell graph
+  mapM_ (\x -> tell $ singletonNode existsC x "exists") (q ++ c)
+  -- Continue with the rest, if possible
   if null rs then solveImpl g rest
              else throwError $ "Could not discharge: " ++ show c
 solveImpl _ _ = error "This should never happen (solveImpl)"
 
-liftSolve :: [Constraint] -> [Constraint] -> [TyVar] -> SMonad Solution
+liftSolve :: [Constraint] -> [Constraint] -> [TyVar] -> SMonad (Solution, Graph)
 liftSolve given wanted vars = do
   axioms <- ask
-  lift $ lift $ solve axioms given wanted vars
+  lift $ lift $ lift $ solve axioms given wanted vars
 
 -- Utils for touchable variables
 
@@ -332,7 +338,7 @@ findLub ctx p1 p2 = do
           tau <- fresh $ string2Name "tau"
           let cs = [Constraint_Unify (var tau) t1, Constraint_Unify (var tau) t2]
           tch <- get
-          Solution _ r s _ <- liftSolve ctx (cs ++ q1 ++ q2) (tau : tch ++ v1 ++ v2)
+          (Solution _ r s _, _) <- liftSolve ctx (cs ++ q1 ++ q2) (tau : tch ++ v1 ++ v2)
           let s' = substitutionInTermsOf tch s
               r' = map (substs s') r ++ map (\(v,t) -> Constraint_Unify (MonoType_Var v) t) s'
               (floatR, closeR) = partition (\c -> all (`elem` tch) (fv c)) r'
@@ -347,7 +353,7 @@ checkSubsumption ctx p1 p2 =
   else do (q1,t1,v1)  <- split p1
           (q2,t2,_v2) <- split p2
           tch <- get
-          Solution _ r s _ <- liftSolve (ctx ++ q2) (Constraint_Unify t1 t2 : q1) (tch `union` v1)
+          (Solution _ r s _, _) <- liftSolve (ctx ++ q2) (Constraint_Unify t1 t2 : q1) (tch `union` v1)
           let s' = substitutionInTermsOf tch s
               r' = map (substs s') r ++ map (\(v,t) -> Constraint_Unify (MonoType_Var v) t)
                                             (filter (\(v,_) -> v `elem` tch) s')
@@ -387,7 +393,7 @@ topReact _ ax@(Axiom_Unify b) (Constraint_Unify (MonoType_Fam f ms) t)
       case lhs of
         MonoType_Fam lF lMs | f == lF -> do
           let bes = fv ax :: [TyVar]
-          Solution _ r s _ <- lift $ lift $ solve [] [] (zipWith Constraint_Unify ms lMs) (aes \\ bes)
+          (Solution _ r s _, _) <- lift $ lift $ lift $ solve [] [] (zipWith Constraint_Unify ms lMs) (aes \\ bes)
           case r of
             [] -> return $ Applied [Constraint_Unify (substs s rhs) t]
             _  -> return NotApplicable  -- Could not match terms
@@ -398,7 +404,7 @@ topReact _ ax@(Axiom_Class b) (Constraint_Class c ms)
       (aes, (ctx, cls, args)) <- unbind b
       if cls == c
          then do let bes = fv ax :: [TyVar]
-                 Solution _ r s _ <- lift $ lift $ solve [] [] (zipWith Constraint_Unify ms args) (aes \\ bes)
+                 (Solution _ r s _, _) <- lift $ lift $ lift $ solve [] [] (zipWith Constraint_Unify ms args) (aes \\ bes)
                  case r of
                    [] -> return $ Applied (substs s ctx)
                    _  -> return NotApplicable -- Could not match terms

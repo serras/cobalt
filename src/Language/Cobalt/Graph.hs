@@ -9,6 +9,7 @@ import Language.Cobalt.Types
 data Graph = Graph { counter  :: Int
                    , vertices :: [(Constraint,Int)]
                    , nodes    :: [(Int,Int,String)] }
+             deriving (Show, Eq)
 
 empty :: Graph
 empty = Graph 0 [] []
@@ -16,10 +17,9 @@ empty = Graph 0 [] []
 addVertex :: Constraint -> Graph -> (Graph, Int)
 addVertex c g = case lookup c (vertices g) of
                   Just i  -> (g, i)  -- Already there
-                  Nothing -> let nextCounter = counter g + 1
-                                 newVertices = (c,nextCounter) : (vertices g)
-                              in ( g { counter  = nextCounter, vertices = newVertices }
-                                 , nextCounter )
+                  Nothing -> let newVertices = (vertices g) ++ [(c,counter g)]
+                              in ( g { counter  = counter g + 1, vertices = newVertices }
+                                 , counter g )
 
 singletonNode :: Constraint -> Constraint -> String -> Graph
 singletonNode c1 c2 s = Graph { counter  = 2
@@ -31,6 +31,10 @@ singletonNodeWithTwoParents c1 c2 child s =
   Graph { counter  = 3
         , vertices = [(c1,0),(c2,1),(child,2)]
         , nodes    = [(0,2,s),(1,2,s)] }
+
+singletonNodeOrphan :: Maybe Constraint -> Constraint -> Constraint -> String -> Graph
+singletonNodeOrphan Nothing  = singletonNode
+singletonNodeOrphan (Just x) = singletonNodeWithTwoParents x
 
 merge :: Graph -> Graph -> Graph
 merge g1 (Graph _cnt2 vrt2 nod2) =

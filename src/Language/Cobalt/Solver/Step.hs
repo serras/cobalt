@@ -13,6 +13,7 @@ module Language.Cobalt.Solver.Step (
 
 import Control.Monad.Except
 import Control.Monad.Reader
+import Control.Monad.Writer
 import Control.Monad.State
 import Unbound.LocallyNameless
 #define TRACE_SOLVER 0
@@ -21,9 +22,10 @@ import Debug.Trace
 #else
 #endif
 
+import Language.Cobalt.Graph
 import Language.Cobalt.Types
 
-type SMonad = (StateT [TyVar] (ReaderT [Axiom] (ExceptT String FreshM)))
+type SMonad = (StateT [TyVar] (WriterT Graph (ReaderT [Axiom] (ExceptT String FreshM))))
 data SolutionStep = NotApplicable | Applied [Constraint]
 
 whileApplicable :: ([Constraint] -> SMonad ([Constraint], Bool))
@@ -35,9 +37,9 @@ whileApplicable f c = innerApplicable' c False
             (_,   False) -> return (cs, atAll)
             (newC,True)  -> innerApplicable' newC True
 
-stepOverList :: String -> ([Constraint] -> Constraint -> SMonad SolutionStep)
-             -> [Constraint] -> [Constraint] -> SMonad ([Constraint], Bool)
-stepOverList s f extra lst = stepOverList' lst [] False
+stepOverListG :: Maybe Constraint -> String -> ([Constraint] -> Constraint -> SMonad SolutionStep)
+              -> [Constraint] -> [Constraint] -> SMonad ([Constraint], Bool)
+stepOverListG node s f extra lst = stepOverList' lst [] False
   where -- Finish cases: last two args are changed-in-this-loop, and changed-at-all
         -- stepOverList' [] accum True  _     = stepOverList' accum [] False True
         stepOverList' [] accum atAll = return (accum, atAll)
@@ -46,16 +48,22 @@ stepOverList s f extra lst = stepOverList' lst [] False
           r <- {- myTrace (s ++ " " ++ show x) $ -} f (extra ++ xs ++ accum) x
           case r of
             NotApplicable -> stepOverList' xs (x:accum) atAll
-            Applied newX  -> do -- vars <- get
-                                myTrace (s ++ " " ++ show x ++ " ==> " ++ show newX {- ++ " tch:" ++ show vars -}) $
+            Applied newX  -> do -- Add to graph
+                                mapM_ (\eachNewX -> tell $ singletonNodeOrphan node x eachNewX s) newX
+                                -- vars <- get
+                                myTrace (s ++ " " ++ show node ++ " " ++ show x ++ " ==> " ++ show newX {- ++ " tch:" ++ show vars -}) $
                                   stepOverList' xs (newX ++ accum) True
+
+stepOverList :: String -> ([Constraint] -> Constraint -> SMonad SolutionStep)
+             -> [Constraint] -> [Constraint] -> SMonad ([Constraint], Bool)
+stepOverList = stepOverListG Nothing
 
 stepOverProductList :: String -> ([Constraint] -> [Constraint] -> Constraint -> Constraint -> SMonad SolutionStep)
                     -> [Constraint] -> [Constraint] -> SMonad ([Constraint], Bool)
 stepOverProductList s f given lst = stepOverProductList' lst []
   where stepOverProductList' []     accum = return (accum, False)
         stepOverProductList' (x:xs) accum = do
-          r <- stepOverList (s ++ " " ++ show x) (\cs -> f given cs x) [] (xs ++ accum)
+          r <- stepOverListG (Just x) s (\cs -> f given cs x) [] (xs ++ accum)
           case r of
             (_,     False) -> stepOverProductList' xs (x:accum)
             (newLst,True)  -> return (x:newLst, True)
@@ -65,7 +73,7 @@ stepOverProductListDeleteBoth :: String -> ([Constraint] -> [Constraint] -> Cons
 stepOverProductListDeleteBoth s f given lst = stepOverProductList' lst []
   where stepOverProductList' []     accum = return (accum, False)
         stepOverProductList' (x:xs) accum = do
-          r <- stepOverList (s ++ " " ++ show x) (\cs -> f given cs x) [] (xs ++ accum)
+          r <- stepOverListG (Just x) s (\cs -> f given cs x) [] (xs ++ accum)
           case r of
             (_,     False) -> stepOverProductList' xs (x:accum)
             (newLst,True)  -> return (newLst, True)
@@ -75,7 +83,7 @@ stepOverTwoLists :: String -> ([Constraint] -> [Constraint] -> Constraint -> Con
 stepOverTwoLists s f given wanted = stepOverTwoLists' given [] wanted
   where stepOverTwoLists' []     _      w = return (w, False)
         stepOverTwoLists' (x:xs) accumG w = do
-          r <- stepOverList (s ++ " " ++ show x) (\ws -> f (xs ++ accumG) ws x) [] wanted
+          r <- stepOverListG (Just x) s (\ws -> f (xs ++ accumG) ws x) [] wanted
           case r of
             (_,    False) -> stepOverTwoLists' xs (x:accumG) w
             (newW, True)  -> return (newW, True)

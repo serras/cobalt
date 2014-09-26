@@ -14,14 +14,15 @@ import Control.Monad.Reader
 import Unbound.LocallyNameless
 
 import Language.Cobalt.Gather
+import Language.Cobalt.Graph
 import Language.Cobalt.Solver
 import Language.Cobalt.Syntax
 import Language.Cobalt.Types
 
 -- import Debug.Trace
 
-tcNextEnv :: Env -> (TyDefn,a) -> Env
-tcNextEnv e ((n,_,t),_) = e & fnE %~ ((translate n,t):)
+tcNextEnv :: Env -> (TyDefn,a,b) -> Env
+tcNextEnv e ((n,_,t),_,_) = e & fnE %~ ((translate n,t):)
 
 doPerDefn' :: (Env -> RawDefn -> ExceptT String FreshM a)
            -> (Env -> a -> Env)
@@ -58,19 +59,19 @@ gDefns :: UseHigherRanks -> Env -> [(RawDefn,Bool)]
 gDefns higher = doPerDefn' (gDefn higher) const
 
 -- | Typecheck a definition
-tcDefn :: UseHigherRanks -> Env -> RawDefn -> ExceptT String FreshM (TyDefn, [Constraint])
+tcDefn :: UseHigherRanks -> Env -> RawDefn -> ExceptT String FreshM (TyDefn, [Constraint], Graph)
 tcDefn h e (n,t,annP) = do
   (n', Gathered _ a g w, tch) <- gDefn h e (n,t,annP)
-  Solution smallG rs sb tch' <- solve (e^.axiomE) g w tch
+  (Solution smallG rs sb tch', graph) <- solve (e^.axiomE) g w tch
   let thisAnn = atAnn (substs sb) a
   case annP of
     Nothing -> do let (almostFinalT, restC) = closeExn (smallG ++ rs) (getAnn thisAnn) (not . (`elem` tch'))
                       finalT = nf $ almostFinalT
                   -- trace (show (restC,finalT,smallG ++ rs,thisAnn)) $
                   tcCheckErrors restC finalT
-                  return ((n',thisAnn,finalT),rs)
+                  return ((n',thisAnn,finalT),rs,graph)
     Just p  -> if not (null rs) then throwError $ "Could not deduce: " ++ show rs
-                                else return ((n',thisAnn,p),rs)
+                                else return ((n',thisAnn,p),rs,graph)
 
 tcCheckErrors :: [Constraint] -> PolyType -> ExceptT String FreshM ()
 tcCheckErrors rs t = do checkRigidity t
@@ -108,5 +109,5 @@ checkLeftUnclosed cs = let cs' = filter (\x -> not (is _Constraint_Inst x) && no
 
 -- | Typecheck some definitions
 tcDefns :: UseHigherRanks -> Env -> [(RawDefn,Bool)]
-        -> [(Either (RawTermVar,String) (TyDefn,[Constraint]), Bool)]
+        -> [(Either (RawTermVar,String) (TyDefn,[Constraint],Graph), Bool)]
 tcDefns higher = doPerDefn' (tcDefn higher) tcNextEnv

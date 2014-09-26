@@ -15,6 +15,7 @@ import Unbound.LocallyNameless
 import Web.Scotty
 
 import Language.Cobalt.Gather
+import Language.Cobalt.Graph
 import Language.Cobalt.Parser (parseFile)
 import Language.Cobalt.Syntax
 import Language.Cobalt.Top
@@ -84,8 +85,8 @@ mainServe = do
       fname <- param "file"
       file $ "static/" ++ fname
 
-showTc :: Bool -> ((TyDefn,[Constraint]),Bool) -> IO ()
-showTc always (((n,t,p),cs),b) = do
+showTc :: Bool -> ((TyDefn,[Constraint],Graph),Bool) -> IO ()
+showTc always (((n,t,p),cs,gr),b) = do
   setSGR [SetColor Foreground Vivid Blue]
   putStr (name2String n)
   setSGR [Reset]
@@ -99,7 +100,12 @@ showTc always (((n,t,p),cs),b) = do
   setSGR [Reset]
   putStrLn (show cs)
   when (not b || always) $ do
-    putStrLn (show t)
+    putStr (show t)
+    setSGR [SetColor Foreground Vivid Yellow]
+    putStr "graph: "
+    setSGR [Reset]
+    putStrLn (show gr)
+    putStrLn ""
 
 showG :: ((TyTermVar,Gathered,[TyVar]), Bool) -> IO ()
 showG ((n,(Gathered t ann g w),_),_) = do
@@ -144,7 +150,7 @@ showAnns ((Right ok,b):xs) f = do
   f (ok,b)
   showAnns xs f
 
-showJsonAnns :: [(Either (RawTermVar,String) (TyDefn,[Constraint]), Bool)] -> [Value]
+showJsonAnns :: [(Either (RawTermVar,String) (TyDefn,[Constraint],Graph), Bool)] -> [Value]
 showJsonAnns [] = []
 showJsonAnns ((Left (n,e),b):xs) =
   let this = object [ "text" .= name2String n
@@ -153,13 +159,14 @@ showJsonAnns ((Left (n,e),b):xs) =
                     , "backColor" .= if b then ("#F58471" :: String)   -- red
                                           else ("#F1B75B" :: String) ] -- yellow
    in this : showJsonAnns xs
-showJsonAnns ((Right ((n,t,p),_cs),b):xs) =
+showJsonAnns ((Right ((n,t,p),_cs,gr),b):xs) =
   let this = object [ "text" .= name2String n
                     , "tags" .= [showWithGreek p]
                     , "color" .= ("white" :: String)
                     , "backColor" .= if b then ("#85C99E" :: String)  -- green
                                           else ("#F58471" :: String)  -- red
-                    , "nodes" .= runFreshM (showAnnTermJson t) ]
+                    , "nodes" .= runFreshM (showAnnTermJson t)
+                    , "graph" .= showJsonGraph gr ]
    in this : showJsonAnns xs
 
 showAnnTermJson :: Fresh m => TyTerm -> m [Value]
@@ -259,3 +266,11 @@ showJsonConstraint (Constraint_Exists b) = do
                                         , "nodes" .= oG ]
                                , object [ "text"  .= ("implies" :: String)
                                         , "nodes" .= oW ] ] ]
+
+showJsonGraph :: Graph -> Value
+showJsonGraph (Graph _ vertx edges) =
+  object [ "nodes" .= map (\(x,_) -> object [ "text" .= showWithGreek x ]) vertx
+         , "links" .= map (\(src,tgt,tag) -> object [ "source" .= src
+                                                    , "target" .= tgt
+                                                    , "value"  .= tag])
+                          edges ]
