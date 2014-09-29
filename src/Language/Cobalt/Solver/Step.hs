@@ -49,7 +49,9 @@ stepOverListG node s f extra lst = stepOverList' lst [] False
           case r of
             NotApplicable -> stepOverList' xs (x:accum) atAll
             Applied newX  -> do -- Add to graph
-                                mapM_ (\eachNewX -> tell $ singletonNodeOrphan node x eachNewX s) newX
+                                case newX of
+                                  [] -> tell $ singletonDeleted x
+                                  _  -> mapM_ (\eachNewX -> tell $ singletonNodeOrphan node x eachNewX s) newX
                                 -- vars <- get
                                 myTrace (s ++ " " ++ show node ++ " " ++ show x ++ " ==> " ++ show newX {- ++ " tch:" ++ show vars -}) $
                                   stepOverList' xs (newX ++ accum) True

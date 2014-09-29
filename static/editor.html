@@ -221,7 +221,13 @@
                       .enter().append("circle")
                       .attr("class", "node")
                       .attr("r", 4)
-                      .attr("fill", "#008CBA")
+                      .attr("fill", function(d) {
+                         if (d.deleted) {
+                           return "#F1B75B";
+                         } else {
+                           return "#008CBA";
+                         }
+                      })
                       .call(force.drag);
 
         var text = svg.selectAll(".text")

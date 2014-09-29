@@ -269,7 +269,8 @@ showJsonConstraint (Constraint_Exists b) = do
 
 showJsonGraph :: Graph -> Value
 showJsonGraph (Graph _ vertx edges) =
-  object [ "nodes" .= map (\(x,_) -> object [ "text" .= showWithGreek x ]) vertx
+  object [ "nodes" .= map (\(x,(_,b)) -> object [ "text" .= showWithGreek x
+                                                , "deleted" .= b ]) vertx
          , "links" .= map (\(src,tgt,tag) -> object [ "source" .= src
                                                     , "target" .= tgt
                                                     , "value"  .= tag])
