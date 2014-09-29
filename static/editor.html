@@ -9,6 +9,7 @@
 
   <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
   <script src="http://cdnjs.cloudflare.com/ajax/libs/ace/1.1.3/ace.js"></script>
+  <script src="http://talos.github.com/jquery-svgpan/jquery-svgpan.min.js"></script>
 
   <link rel="stylesheet" href="bootstrap.min.css">
   <!-- <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.2.0/css/bootstrap-theme.min.css"> -->
@@ -18,6 +19,7 @@
   <script src="bootstrap-treeview.min.js"></script>
 
   <script src="http://d3js.org/d3.v3.min.js"></script>
+  <script src="http://marvl.infotech.monash.edu/webcola/cola.v3.min.js"></script>
   
   <style>
   #editor {
@@ -68,6 +70,17 @@
   #result .badge {
     font-size: 14px;
   }
+
+  #graph-canvas .text {
+    pointer-events: none;
+    font-size: 12px;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'source-code-pro', monospace;
+  }
+
+  #graph-canvas .link {
+    stroke-width: 0.5px;
+    stroke: gray;
+  }
   </style>
 </head>
 <body>
@@ -78,10 +91,12 @@
       <div class="modal-content">
         <div class="modal-header">
           <button type="button" class="close" data-dismiss="modal"><span aria-hidden="true">&times;</span><span class="sr-only">Close</span></button>
-          <h5 class="modal-title">Simplification graph</h4>
+          <h5 class="modal-title">Simplification graph <small>drag nodes to move, use wheel to zoom</small></h4>
         </div>
         <div class="modal-body">
-          <svg id="graph-canvas" width="100%" height="420px" />
+          <svg id="graph-canvas" width="100%" height="420px">
+	    <g id="viewport"></g>
+	  </svg>
         </div>
       </div>
     </div>
@@ -132,6 +147,8 @@
     // Initially hide all panels
     $("#error-panel").hide();
     $("#result-panel").hide();
+    // Enable pan and zoom in SVG
+    $('#graph-canvas').svgPan('viewport',false,true);
     // On "Typecheck" or "Gather" click
     var whatToDo = function(rule) {
       return function() {
@@ -166,24 +183,71 @@
       if (node.graph != undefined) {
         $("#graph-modal").modal({});
         var graph = node.graph;
-        var svg = d3.select("graph-canvas");
-        var force = d3.layout.force()
-                      .gravity(.05)
-                      .distance(100)
-                      .charge(-100)
-                      .size([svg.width, svg.height])
-                      .nodes(graph.nodes)
-                      .links(graph.links)
-                      .start();
-        var node = svg.selectAll(".node")
-                      .data(graph.nodes)
-                      .enter().append("g")
-                      .attr("class", "node")
-                      .call(force.drag);
+        var svg = d3.select("#viewport");
+
+        // Delete all previous
+        svg.selectAll("*").remove();
+
+        svg.append("svg:defs").selectAll("marker")
+           .data(["arrow"])
+           .enter().append("svg:marker")
+           .attr("id", "arrow")
+           .attr("viewBox", "0 -5 10 10")
+           .attr("refX", 10)
+           .attr("refY", 0)
+           .attr("markerWidth", 15)
+           .attr("markerHeight", 15)
+           .attr("orient", "auto")
+           .attr("fill", "gray")
+           .append("svg:path")
+           .attr("d", "M0,-5L10,0L0,5");
+
+        var force = cola.d3adaptor() //d3.layout.force()
+                        .nodes(graph.nodes)
+                        .links(graph.links)
+                        .symmetricDiffLinkLengths(20)
+                        .avoidOverlaps(true)
+                        .flowLayout('x', 70)
+                        .size([850, 420]);
+
         var link = svg.selectAll(".link")
                       .data(graph.links)
                       .enter().append("line")
-                      .attr("class", "link");
+                      .attr("class", "link")
+                      .attr("marker-end", "url(#arrow)");
+
+        var node = svg.selectAll(".node")
+                      .data(graph.nodes)
+                      .enter().append("circle")
+                      .attr("class", "node")
+                      .attr("r", 4)
+                      .attr("fill", "#008CBA")
+                      .call(force.drag);
+
+        var text = svg.selectAll(".text")
+                      .data(graph.nodes)
+                      .enter().append("text")
+                      .attr("class", "text")
+                      .call(force.drag)
+                      .text(function(d) { return d.text });
+
+        var tick = function() {
+          node.attr("cx", function(d) { return d.x - 15; })
+              .attr("cy", function(d) { return d.y; });
+          link.attr("x1", function(d) { return d.source.x - 15; })
+              .attr("y1", function(d) { return d.source.y; })
+              .attr("x2", function(d) { return d.target.x - 15; })
+              .attr("y2", function(d) { return d.target.y; });
+          text.attr("x", function(d) { return d.x - 10; })
+              .attr("y", function(d) { return d.y; });
+        };
+        var dragstart = function (d) {
+          d3.select(this).classed("fixed", d.fixed = true);
+        };
+
+        force.on("tick", tick);
+        force.drag().on("dragstart", dragstart);
+        force.start(15,20,50);
       }
     });
   </script>
