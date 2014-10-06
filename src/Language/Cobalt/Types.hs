@@ -3,7 +3,6 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE OverlappingInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
 module Language.Cobalt.Types (
   -- * Types
@@ -31,6 +30,7 @@ module Language.Cobalt.Types (
 , _Constraint_Equal
 , _Constraint_Class
 , _Constraint_Exists
+, showConstraintList
 , Axiom(..)
 ) where
 
@@ -224,7 +224,7 @@ showPolyType' (PolyType_Bind b) = do
   showR <- showPolyType' r
   return $ "{" ++ show x ++ "} " ++ showR
 showPolyType' (PolyType_Mono [] m) = return $ show m
-showPolyType' (PolyType_Mono cs m) = return $ show cs ++ " => " ++ show m
+showPolyType' (PolyType_Mono cs m) = return $ showConstraintList cs ++ " => " ++ show m
 showPolyType' PolyType_Bottom   = return "⊥"
 
 instance Show MonoType where
@@ -236,15 +236,20 @@ instance Show MonoType where
   show (MonoType_Var v)       = show v
   show _                      = error "Pattern matching check is not that good"
 
+{-
 instance Show [Constraint] where
   show = runFreshM . showConstraintList
+-}
 
 instance Show Constraint where
   show = runFreshM . showConstraint
 
-showConstraintList :: (Fresh m, Functor m) => [Constraint] -> m String
-showConstraintList [] = return "∅"
-showConstraintList l  = intercalate " ∧ " <$> mapM showConstraint l
+showConstraintList :: [Constraint] -> String
+showConstraintList = runFreshM . showConstraintList'
+
+showConstraintList' :: (Fresh m, Functor m) => [Constraint] -> m String
+showConstraintList' [] = return "∅"
+showConstraintList' l  = intercalate " ∧ " <$> mapM showConstraint l
 
 showConstraint :: (Fresh m, Functor m) => Constraint -> m String
 showConstraint (Constraint_Unify t p) = return $ show t ++ " ~ " ++ show p
@@ -255,8 +260,8 @@ showConstraint (Constraint_Equal t p) = do p' <- showPolyType' p
 showConstraint (Constraint_Class c t) = do let ps = map (doParens . show) t
                                            return $ "$" ++ c ++ " " ++ intercalate " " ps
 showConstraint (Constraint_Exists b)  = do (x, (q,c)) <- unbind b
-                                           q' <- showConstraintList q
-                                           c' <- showConstraintList c
+                                           q' <- showConstraintList' q
+                                           c' <- showConstraintList' c
                                            return $ "∃" ++ show x ++ "(" ++ q' ++ " => " ++ c' ++ ")"
 
 instance Show Axiom where

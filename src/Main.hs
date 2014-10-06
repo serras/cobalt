@@ -98,7 +98,7 @@ showTc always (((n,t,p),cs,gr),b) = do
   setSGR [SetColor Foreground Vivid Yellow]
   putStr " res: "
   setSGR [Reset]
-  putStrLn (show cs)
+  putStrLn (showConstraintList cs)
   when (not b || always) $ do
     putStr (show t)
     setSGR [SetColor Foreground Vivid Yellow]
@@ -118,11 +118,11 @@ showG ((n,(Gathered t ann g w),_),_) = do
   setSGR [SetColor Foreground Vivid Green]
   putStr "Solve "
   setSGR [Reset]
-  putStr (show g)
+  putStr (showConstraintList g)
   setSGR [SetColor Foreground Vivid Green]
   putStr " ||- "
   setSGR [Reset]
-  putStrLn (show w)
+  putStrLn (showConstraintList w)
   setSGR [SetColor Foreground Vivid Green]
   putStr "Touchables "
   setSGR [Reset]
