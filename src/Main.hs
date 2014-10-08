@@ -6,7 +6,8 @@ module Main where
 import Control.Lens hiding ((.=))
 import Control.Monad.Except
 import Data.Aeson hiding (json)
-import Data.List (intercalate)
+import Data.List (find, intercalate, sort, nub)
+import Data.Maybe (mapMaybe, isNothing)
 import System.Console.ANSI
 import System.Environment
 import Text.Parsec (parse)
@@ -158,7 +159,7 @@ showJsonAnns ((Left (n,e),gr,b):xs) =
                     , "color" .= ("white" :: String)
                     , "backColor" .= if b then ("#F58471" :: String)  -- red
                                           else ("#F1B75B" :: String)  -- yellow
-                    , "graph" .= showJsonGraph gr ]
+                    , "graph" .= showJsonGraph gr (blamedConstraints gr) ]
    in this : showJsonAnns xs
 showJsonAnns ((Right ((n,t,p),_cs),gr,b):xs) =
   let this = object [ "text" .= name2String n
@@ -167,7 +168,7 @@ showJsonAnns ((Right ((n,t,p),_cs),gr,b):xs) =
                     , "backColor" .= if b then ("#85C99E" :: String)  -- green
                                           else ("#F58471" :: String)  -- red
                     , "nodes" .= runFreshM (showAnnTermJson t)
-                    , "graph" .= showJsonGraph gr ]
+                    , "graph" .= showJsonGraph gr [] ]
    in this : showJsonAnns xs
 
 showAnnTermJson :: Fresh m => TyTerm -> m [Value]
@@ -270,11 +271,22 @@ showJsonConstraint (Constraint_Exists b) = do
 showJsonConstraint (Constraint_Inconsistent) =
   return $ object [ "text" .= ("⊥" :: String) ]
 
-showJsonGraph :: Graph -> Value
-showJsonGraph (Graph _ vertx edges) =
+showJsonGraph :: Graph -> [Constraint] -> Value
+showJsonGraph (Graph _ vertx edges) blamed =
   object [ "nodes" .= map (\(x,(_,b)) -> object [ "text" .= showWithGreek x
-                                                , "deleted" .= b ]) vertx
+                                                , "deleted" .= b
+                                                , "blamed"  .= (x `elem` blamed) ]) vertx
          , "links" .= map (\(src,tgt,tag) -> object [ "source" .= src
                                                     , "target" .= tgt
                                                     , "value"  .= tag])
                           edges ]
+
+blamedConstraints :: Graph -> [Constraint]
+blamedConstraints (Graph _ vrtx edges)
+  | Just (_,(n,_)) <- find ((== Constraint_Inconsistent) . fst) vrtx = blame [n]
+  | otherwise = []  -- No one to blame
+  where blame lst = let newLst = nub $ sort $ lst `union` mapMaybe (\(o,d,_) -> if d `elem` lst then Just o else Nothing) edges
+                     in if length newLst /= length lst
+                           then blame newLst -- next step
+                           else let lasts = filter (\n -> isNothing (find (\(_,d,_) -> d == n) edges)) newLst
+                                 in map fst $ mapMaybe (\n -> find (\(_,(m,_)) -> n == m) vrtx) lasts

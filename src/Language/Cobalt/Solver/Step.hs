@@ -46,17 +46,17 @@ stepOverListG node s f extra lst = stepOverList' lst [] False
         -- Rest of cases
         stepOverList' (x:xs) accum atAll = do
           r <- {- myTrace (s ++ " " ++ show x) $ -} f (extra ++ xs ++ accum) x
+              `catchError` (\e -> do tell $ singletonNodeOrphan node x Constraint_Inconsistent s  -- add _|_ edge
+                                     throwError e)
           case r of
             NotApplicable -> stepOverList' xs (x:accum) atAll
             Applied newX  -> do -- Add to graph
                                 case newX of
                                   [] -> tell $ singletonDeleted x
                                   _  -> mapM_ (\eachNewX -> tell $ singletonNodeOrphan node x eachNewX s) newX
-                                -- vars <- get
+                                        -- vars <- get
                                 myTrace (s ++ " " ++ show node ++ " " ++ show x ++ " ==> " ++ show newX {- ++ " tch:" ++ show vars -}) $
                                   stepOverList' xs (newX ++ accum) True
-          `catchError` (\e -> do tell $ singletonNodeOrphan node x Constraint_Inconsistent s  -- add _|_ edge
-                                 throwError e)
 
 stepOverList :: String -> ([Constraint] -> Constraint -> SMonad SolutionStep)
              -> [Constraint] -> [Constraint] -> SMonad ([Constraint], Bool)

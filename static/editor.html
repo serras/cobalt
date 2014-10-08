@@ -147,8 +147,6 @@
     // Initially hide all panels
     $("#error-panel").hide();
     $("#result-panel").hide();
-    // Enable pan and zoom in SVG
-    $('#graph-canvas').svgPan('viewport',false,true);
     // On "Typecheck" or "Gather" click
     var whatToDo = function(rule) {
       return function() {
@@ -183,10 +181,16 @@
       if (node.graph != undefined) {
         $("#graph-modal").modal({});
         var graph = node.graph;
-        var svg = d3.select("#viewport");
+	
+        // Remove everything
+        var canvas = d3.select("#graph-canvas");
+        canvas.selectAll("*").remove();
 
-        // Delete all previous
-        svg.selectAll("*").remove();
+	// Add viewport
+        canvas.append("g").attr("id","viewport");
+        var svg = d3.select("#viewport");
+        // Enable pan and zoom in SVG
+        $('#graph-canvas').svgPan('viewport',false,true);
 
         svg.append("svg:defs").selectAll("marker")
            .data(["arrow"])
@@ -224,6 +228,8 @@
                       .attr("fill", function(d) {
                          if (d.deleted) {
                            return "#F1B75B";
+                         } else if (d.blamed) {
+                           return "#F58471";
                          } else {
                            return "#008CBA";
                          }
