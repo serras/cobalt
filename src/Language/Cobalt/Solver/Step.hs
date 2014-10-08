@@ -25,7 +25,7 @@ import Debug.Trace
 import Language.Cobalt.Graph
 import Language.Cobalt.Types
 
-type SMonad = (StateT [TyVar] (WriterT Graph (ReaderT [Axiom] (ExceptT String FreshM))))
+type SMonad = (StateT [TyVar] (ReaderT [Axiom] (ExceptT String (WriterT Graph FreshM))))
 data SolutionStep = NotApplicable | Applied [Constraint]
 
 whileApplicable :: ([Constraint] -> SMonad ([Constraint], Bool))
@@ -55,6 +55,8 @@ stepOverListG node s f extra lst = stepOverList' lst [] False
                                 -- vars <- get
                                 myTrace (s ++ " " ++ show node ++ " " ++ show x ++ " ==> " ++ show newX {- ++ " tch:" ++ show vars -}) $
                                   stepOverList' xs (newX ++ accum) True
+          `catchError` (\e -> do tell $ singletonNodeOrphan node x Constraint_Inconsistent s  -- add _|_ edge
+                                 throwError e)
 
 stepOverList :: String -> ([Constraint] -> Constraint -> SMonad SolutionStep)
              -> [Constraint] -> [Constraint] -> SMonad ([Constraint], Bool)

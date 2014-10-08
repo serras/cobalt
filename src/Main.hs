@@ -85,8 +85,8 @@ mainServe = do
       fname <- param "file"
       file $ "static/" ++ fname
 
-showTc :: Bool -> ((TyDefn,[Constraint],Graph),Bool) -> IO ()
-showTc always (((n,t,p),cs,gr),b) = do
+showTc :: Bool -> ((TyDefn,[Constraint]),Graph,Bool) -> IO ()
+showTc always (((n,t,p),cs),gr,b) = do
   setSGR [SetColor Foreground Vivid Blue]
   putStr (name2String n)
   setSGR [Reset]
@@ -107,8 +107,8 @@ showTc always (((n,t,p),cs,gr),b) = do
     putStrLn (show gr)
     putStrLn ""
 
-showG :: ((TyTermVar,Gathered,[TyVar]), Bool) -> IO ()
-showG ((n,(Gathered t ann g w),_),_) = do
+showG :: ((TyTermVar,Gathered,[TyVar]),Graph,Bool) -> IO ()
+showG ((n,(Gathered t ann g w),_),_,_) = do
   let tch :: [TyVar] = fv (getAnn ann) `union` fv w
   setSGR [SetColor Foreground Vivid Blue]
   putStr (name2String n)
@@ -129,9 +129,9 @@ showG ((n,(Gathered t ann g w),_),_) = do
   putStrLn (show tch)
   putStrLn (show ann)
 
-showAnns :: [(Either (RawTermVar,String) a, Bool)] -> ((a,Bool) -> IO ()) -> IO ()
+showAnns :: [(Either (RawTermVar,String) a, Graph, Bool)] -> ((a,Graph,Bool) -> IO ()) -> IO ()
 showAnns [] _ = return ()
-showAnns ((Left (n,e),b):xs) f = do
+showAnns ((Left (n,e),_,b):xs) f = do
   when b $ putStrLn ""
   setSGR [SetColor Foreground Vivid Blue]
   putStr (name2String n)
@@ -145,21 +145,22 @@ showAnns ((Left (n,e),b):xs) f = do
   putStrLn e
   when b $ putStrLn ""
   showAnns xs f
-showAnns ((Right ok,b):xs) f = do
+showAnns ((Right ok,g,b):xs) f = do
   when (not b) $ putStrLn ""
-  f (ok,b)
+  f (ok,g,b)
   showAnns xs f
 
-showJsonAnns :: [(Either (RawTermVar,String) (TyDefn,[Constraint],Graph), Bool)] -> [Value]
+showJsonAnns :: [(Either (RawTermVar,String) (TyDefn,[Constraint]), Graph, Bool)] -> [Value]
 showJsonAnns [] = []
-showJsonAnns ((Left (n,e),b):xs) =
+showJsonAnns ((Left (n,e),gr,b):xs) =
   let this = object [ "text" .= name2String n
                     , "tags" .= [withGreek e]
                     , "color" .= ("white" :: String)
-                    , "backColor" .= if b then ("#F58471" :: String)   -- red
-                                          else ("#F1B75B" :: String) ] -- yellow
+                    , "backColor" .= if b then ("#F58471" :: String)  -- red
+                                          else ("#F1B75B" :: String)  -- yellow
+                    , "graph" .= showJsonGraph gr ]
    in this : showJsonAnns xs
-showJsonAnns ((Right ((n,t,p),_cs,gr),b):xs) =
+showJsonAnns ((Right ((n,t,p),_cs),gr,b):xs) =
   let this = object [ "text" .= name2String n
                     , "tags" .= [showWithGreek p]
                     , "color" .= ("white" :: String)
@@ -224,15 +225,15 @@ showAnnTermJson (Term_Match e c bs t) = do
                     , "tags"  .= [showWithGreek t]
                     , "nodes" .= bs' ] ]
 
-showJsonConstraints :: [(Either (RawTermVar,String) (TyTermVar,Gathered,[TyVar]), Bool)] -> [Value]
+showJsonConstraints :: [(Either (RawTermVar,String) (TyTermVar,Gathered,[TyVar]), Graph, Bool)] -> [Value]
 showJsonConstraints [] = []
-showJsonConstraints ((Left (n,e),_):xs) =
+showJsonConstraints ((Left (n,e),_,_):xs) =
   let this = object [ "text" .= name2String n
                     , "tags" .= [withGreek e]
                     , "color" .= ("white" :: String)
                     , "backColor" .= ("#F58471" :: String) ] -- red
    in this : showJsonConstraints xs
-showJsonConstraints ((Right (n, Gathered t a g w, _),_):xs) =
+showJsonConstraints ((Right (n, Gathered t a g w, _),_,_):xs) =
   let this = object [ "text" .= name2String n
                     , "tags" .= [showWithGreek t]
                     , "color" .= ("white" :: String)
@@ -266,6 +267,8 @@ showJsonConstraint (Constraint_Exists b) = do
                                         , "nodes" .= oG ]
                                , object [ "text"  .= ("implies" :: String)
                                         , "nodes" .= oW ] ] ]
+showJsonConstraint (Constraint_Inconsistent) =
+  return $ object [ "text" .= ("⊥" :: String) ]
 
 showJsonGraph :: Graph -> Value
 showJsonGraph (Graph _ vertx edges) =

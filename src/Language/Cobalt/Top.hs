@@ -14,64 +14,78 @@ import Control.Monad.Reader
 import Unbound.LocallyNameless
 
 import Language.Cobalt.Gather
-import Language.Cobalt.Graph
+import Language.Cobalt.Graph as G
 import Language.Cobalt.Solver
 import Language.Cobalt.Syntax
 import Language.Cobalt.Types
 
 -- import Debug.Trace
 
-tcNextEnv :: Env -> (TyDefn,a,b) -> Env
-tcNextEnv e ((n,_,t),_,_) = e & fnE %~ ((translate n,t):)
+tcNextEnv :: Env -> (TyDefn,a) -> Env
+tcNextEnv e ((n,_,t),_) = e & fnE %~ ((translate n,t):)
 
-doPerDefn' :: (Env -> RawDefn -> ExceptT String FreshM a)
+doPerDefn' :: (Env -> RawDefn -> FreshM (Either String a, b))
            -> (Env -> a -> Env)
            -> Env -> [(RawDefn,Bool)]
-           -> [(Either (RawTermVar,String) a, Bool)]
+           -> [(Either (RawTermVar,String) a, b, Bool)]
 doPerDefn' f nx e d = runFreshM (doPerDefn f nx e d)
 
-doPerDefn :: (Env -> RawDefn -> ExceptT String FreshM a)
+doPerDefn :: (Env -> RawDefn -> FreshM (Either String a, b))
           -> (Env -> a -> Env)
           -> Env -> [(RawDefn,Bool)]
-          -> FreshM [(Either (RawTermVar,String) a, Bool)]
+          -> FreshM [(Either (RawTermVar,String) a, b, Bool)]
 doPerDefn _ _ _ [] = return []
-doPerDefn f nx e (((n,t,p),b):xs) = do r <- runExceptT (f e (n,t,p))
+doPerDefn f nx e (((n,t,p),b):xs) = do r <- f e (n,t,p)
                                        case r of
-                                         Left err -> do rest <- doPerDefn f nx e xs
-                                                        return $ (Left (n,err),b) : rest
-                                         Right ok -> do rest <- doPerDefn f nx (nx e ok) xs
-                                                        return $ (Right ok,b) : rest
+                                         (Left err, g) -> do rest <- doPerDefn f nx e xs
+                                                             return $ (Left (n,err),g,b) : rest
+                                         (Right ok, g) -> do rest <- doPerDefn f nx (nx e ok) xs
+                                                             return $ (Right ok,g,b) : rest
 
 -- | Gather constrains from a definition
-gDefn :: UseHigherRanks -> Env -> RawDefn -> ExceptT String FreshM (TyTermVar, Gathered, [TyVar])
-gDefn h e (n,t,Nothing) = do r@(Gathered _ a _ w) <- runReaderT (gather h t) e
-                             return (translate n, r, fv (getAnn a) `union` fv w)
+gDefn :: UseHigherRanks -> Env -> RawDefn -> FreshM (Either String (TyTermVar, Gathered, [TyVar]), Graph)
+gDefn h e (n,t,Nothing) = do result <- runExceptT $ runReaderT (gather h t) e
+                             case result of
+                               Left err -> return (Left err, G.empty)
+                               Right r@(Gathered _ a _ w) ->
+                                 return (Right (translate n, r, fv (getAnn a) `union` fv w), G.empty)
 gDefn h e (n,t,Just p)  = do -- Add the annotated type to the environment
                              let e' = e & fnE %~ ((n,p) :)
-                             Gathered typ a g w <- runReaderT (gather h t) e'
-                             (q1,t1,_) <- split p
-                             let extra = Constraint_Unify (getAnn a) t1
-                             return (translate n, Gathered typ a (g ++ q1) (extra:w), fv (getAnn a) `union` fv w)
+                             result <- runExceptT $ runReaderT (gather h t) e'
+                             case result of
+                               Left err -> return (Left err, G.empty)
+                               Right (Gathered typ a g w) -> do
+                                 (q1,t1,_) <- split p
+                                 let extra = Constraint_Unify (getAnn a) t1
+                                 return (Right (translate n, Gathered typ a (g ++ q1) (extra:w), fv (getAnn a) `union` fv w), G.empty)
 
 -- | Gather constraints from a list of definitions
 gDefns :: UseHigherRanks -> Env -> [(RawDefn,Bool)]
-       -> [(Either (RawTermVar,String) (TyTermVar,Gathered,[TyVar]), Bool)]
+       -> [(Either (RawTermVar,String) (TyTermVar,Gathered,[TyVar]), Graph, Bool)]
 gDefns higher = doPerDefn' (gDefn higher) const
 
 -- | Typecheck a definition
-tcDefn :: UseHigherRanks -> Env -> RawDefn -> ExceptT String FreshM (TyDefn, [Constraint], Graph)
+tcDefn :: UseHigherRanks -> Env -> RawDefn -> FreshM (Either String (TyDefn, [Constraint]), Graph)
 tcDefn h e (n,t,annP) = do
-  (n', Gathered _ a g w, tch) <- gDefn h e (n,t,annP)
-  (Solution smallG rs sb tch', graph) <- solve (e^.axiomE) g w tch
-  let thisAnn = atAnn (substs sb) a
-  case annP of
-    Nothing -> do let (almostFinalT, restC) = closeExn (smallG ++ rs) (getAnn thisAnn) (not . (`elem` tch'))
-                      finalT = nf $ almostFinalT
-                  -- trace (show (restC,finalT,smallG ++ rs,thisAnn)) $
-                  tcCheckErrors restC finalT
-                  return ((n',thisAnn,finalT),rs,graph)
-    Just p  -> if not (null rs) then throwError $ "Could not deduce: " ++ show rs
-                                else return ((n',thisAnn,p),rs,graph)
+  gResult <- gDefn h e (n,t,annP)
+  case gResult of
+    (Left errG, g) -> return (Left errG, g)
+    (Right (n', Gathered _ a g w, tch), _) -> do
+      tcResult <- solve (e^.axiomE) g w tch
+      case tcResult of
+        (Left errTc, gTc) -> return (Left errTc, gTc)
+        (Right (Solution smallG rs sb tch'), graph) -> do
+          let thisAnn = atAnn (substs sb) a
+          case annP of
+            Nothing -> do let (almostFinalT, restC) = closeExn (smallG ++ rs) (getAnn thisAnn) (not . (`elem` tch'))
+                              finalT = nf $ almostFinalT
+                          -- trace (show (restC,finalT,smallG ++ rs,thisAnn)) $
+                          finalCheck <- runExceptT $ tcCheckErrors restC finalT
+                          case finalCheck of
+                            Left errF -> return (Left errF, graph)
+                            Right _   -> return (Right ((n',thisAnn,finalT),rs),graph)
+            Just p  -> if not (null rs) then return (Left ("Could not deduce: " ++ show rs), graph)
+                                        else return (Right ((n',thisAnn,p),rs),graph)
 
 tcCheckErrors :: [Constraint] -> PolyType -> ExceptT String FreshM ()
 tcCheckErrors rs t = do checkRigidity t
@@ -109,5 +123,7 @@ checkLeftUnclosed cs = let cs' = filter (\x -> not (is _Constraint_Inst x) && no
 
 -- | Typecheck some definitions
 tcDefns :: UseHigherRanks -> Env -> [(RawDefn,Bool)]
-        -> [(Either (RawTermVar,String) (TyDefn,[Constraint],Graph), Bool)]
+        -> [(Either (RawTermVar,String) (TyDefn,[Constraint]), Graph, Bool)]
 tcDefns higher = doPerDefn' (tcDefn higher) tcNextEnv
+
+-- FreshM (Either String (TyDefn, [Constraint]), Graph)

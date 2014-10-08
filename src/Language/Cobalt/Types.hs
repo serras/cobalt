@@ -84,6 +84,7 @@ nf = runFreshM . nf' []
                nf'' bnders [] (subst v p m) =<< mapM (nfC . subst v p) (accum ++ xs)
              (Constraint_Unify (MonoType_Var v) p) ->
                nf'' bnders [] (subst v p m) =<< mapM (nfC . subst v p) (accum ++ xs)
+             Constraint_Inconsistent -> error "Inconsistent constraints not allowed in polytypes"
              _ -> nf'' bnders (x:accum) m xs
            -- Make normal form of constraints
            nfC :: (Fresh m, Monad m, Functor m) => Constraint -> m Constraint
@@ -110,7 +111,10 @@ orderConstraint _ (Constraint_Equal _ _) = GT
 orderConstraint (Constraint_Class c1 ts1) (Constraint_Class c2 ts2) = compare (c1,ts1) (c2,ts2)
 orderConstraint (Constraint_Class _ _) _ = LT
 orderConstraint _ (Constraint_Class _ _) = GT
-orderConstraint _ _ = EQ
+orderConstraint (Constraint_Exists _) (Constraint_Exists _) = EQ
+orderConstraint (Constraint_Exists _) _ = LT
+orderConstraint _ (Constraint_Exists _) = GT
+orderConstraint Constraint_Inconsistent Constraint_Inconsistent = EQ
 
 data MonoType = MonoType_Fam   String [MonoType]
               | MonoType_Var   TyVar
@@ -182,19 +186,21 @@ data Constraint = Constraint_Unify MonoType MonoType
                 | Constraint_Equal MonoType PolyType
                 | Constraint_Class String [MonoType]
                 | Constraint_Exists (Bind [TyVar] ([Constraint],[Constraint]))
+                | Constraint_Inconsistent
 
 $(makePrisms ''Constraint)
 
 instance Eq Constraint where
-  Constraint_Unify m1 m2 == Constraint_Unify n1 n2 = m1 == n1 && m2 == n2
-  Constraint_Inst  m1 m2 == Constraint_Inst  n1 n2 = m1 == n1 && m2 == n2
-  Constraint_Equal m1 m2 == Constraint_Equal n1 n2 = m1 == n1 && m2 == n2
-  Constraint_Class c1 a1 == Constraint_Class c2 a2 = c1 == c2 && a1 == a2
-  Constraint_Exists b1   == Constraint_Exists b2 = runFreshM $ do
+  Constraint_Unify m1 m2  == Constraint_Unify n1 n2 = m1 == n1 && m2 == n2
+  Constraint_Inst  m1 m2  == Constraint_Inst  n1 n2 = m1 == n1 && m2 == n2
+  Constraint_Equal m1 m2  == Constraint_Equal n1 n2 = m1 == n1 && m2 == n2
+  Constraint_Class c1 a1  == Constraint_Class c2 a2 = c1 == c2 && a1 == a2
+  Constraint_Exists b1    == Constraint_Exists b2 = runFreshM $ do
     s <- unbind2 b1 b2
     case s of
       Just (_,c1,_,c2) -> return $ c1 == c2
       Nothing          -> return False
+  Constraint_Inconsistent == Constraint_Inconsistent = True
   _ == _ = False
 
 data Axiom = Axiom_Unify (Bind [TyVar] (MonoType, MonoType))
@@ -266,6 +272,7 @@ showConstraint (Constraint_Exists b)  = do (x, (q,c)) <- unbind b
                                            q' <- showConstraintList' q
                                            c' <- showConstraintList' c
                                            return $ "∃" ++ show x ++ "(" ++ q' ++ " => " ++ c' ++ ")"
+showConstraint (Constraint_Inconsistent) = return "⊥"
 
 instance Show Axiom where
   show = runFreshM . showAxiom
