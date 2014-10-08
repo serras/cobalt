@@ -12,6 +12,7 @@ module Language.Cobalt.Types (
 , nf
   -- ** Monotypes
 , MonoType(..)
+, MonoTypes
 , pattern MonoType_Int
 , pattern MonoType_List
 , pattern MonoType_Tuple
@@ -116,6 +117,8 @@ data MonoType = MonoType_Fam   String [MonoType]
               | MonoType_Con   String [MonoType]
               | MonoType_Arrow MonoType MonoType
               deriving (Eq, Ord)
+
+type MonoTypes = [MonoType]
 
 pattern MonoType_Int       = MonoType_Con   "Int" []
 pattern MonoType_List  t   = MonoType_Con   "List" [t]
