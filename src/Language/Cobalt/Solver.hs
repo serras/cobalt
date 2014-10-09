@@ -208,6 +208,7 @@ canon isGiven _ (Constraint_Class c ts)
   | otherwise = return NotApplicable
 -- Rest
 canon _ _ (Constraint_Exists _) = return NotApplicable
+canon _ _ Constraint_Inconsistent = throwError "Inconsistent constraint found"
 
 instantiate :: PolyType -> Bool -> SMonad ([Constraint], MonoType)
 instantiate (PolyType_Bind b) tch = do
