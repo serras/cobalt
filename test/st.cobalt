@@ -4,10 +4,10 @@ import newSTRef  :: {a} {s} a -> 'ST s ('STRef s a);
 import readSTRef :: {a} {s} 'STRef s a -> 'ST s a;
 import zas       :: {s} 'ST s 'Int;
 
-stBind = bindST                                        => ok;
-stExample0 = newSTRef 4                                => ok;
-stExample1 = runST (newSTRef 3)                        => fail;
-stExample2 = bindST (newSTRef 3) readSTRef             => ok;
-stExample3Err = readSTRef (runST (newSTRef 3))         => fail;
+stBind = bindST;
+stExample0 = newSTRef 4;
+stExample1 = runST (newSTRef 3) => fail;
+stExample2 = bindST (newSTRef 3) readSTRef;
+stExample3Err = readSTRef (runST (newSTRef 3)) => fail;
 stExample4Err = runST (readSTRef (runST (newSTRef 3))) => fail;
-stExample5 = runST zas                                 => ok;
+stExample5 = runST zas;

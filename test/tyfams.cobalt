@@ -21,5 +21,5 @@ ex4 = ex1 bluh;
 ex5 = let listOfThree = cons 3 nil in ex1 listOfThree;
 
 cls1 = eq (cons 3 nil);
-cls2 = \x -> eq (cons x nil);
-cls3 :: {a} $Eq a => a -> [a] -> 'Bool = \x -> eq (cons x nil);
+cls2 x = eq (cons x nil);
+cls3 x :: {a} $Eq a => a -> [a] -> 'Bool = eq (cons x nil);

@@ -193,8 +193,8 @@ createAxiomClass :: [String] -> [Constraint] -> String -> [MonoType] -> Axiom
 createAxiomClass vs ctx c m = Axiom_Class (bind (map string2Name vs) (ctx,c,m))
 
 parseDefn :: Parsec String s (RawDefn,Bool)
-parseDefn = (\n ty tr ex -> ((n,tr,ty),ex))
-                <$> (string2Name <$> identifier)
+parseDefn = buildDefn
+                <$> many1 identifier
                 <*> (    try (Just <$  reservedOp "::"
                                    <*> parsePolyType)
                      <|> pure Nothing)
@@ -203,17 +203,37 @@ parseDefn = (\n ty tr ex -> ((n,tr,ty),ex))
                 <*> parseExpected
                 <*  reservedOp ";"
 
+buildDefn :: [String] -> Maybe PolyType -> RawTerm -> Bool -> (RawDefn,Bool)
+buildDefn [] _ _ _ = error "This should never happen"
+buildDefn (n:args) ty tr ex = let finalTerm = foldr createTermAbs tr args
+                               in ((string2Name n,finalTerm,ty),ex)
+
 parseExpected :: Parsec String s Bool
 parseExpected = try (id <$ reservedOp "=>" <*> (    const True  <$> reservedOp "ok"
                                                 <|> const False <$> reservedOp "fail"))
             <|> pure True
 
+data DeclType = AData   (String, [TyVar])
+              | AnAxiom Axiom
+              | ASig    (RawTermVar, PolyType)
+              | ADefn   (RawDefn, Bool)
+
+parseDecl :: Parsec String s DeclType
+parseDecl = AData   <$> parseData
+        <|> AnAxiom <$> parseAxiom
+        <|> ASig    <$> parseSig
+        <|> ADefn   <$> parseDefn
+
+buildProgram :: [DeclType] -> (Env, [(RawDefn,Bool)])
+buildProgram = foldr (\decl (Env s d a, df) -> case decl of
+                        AData i   -> (Env s (i:d) a, df)
+                        AnAxiom i -> (Env s d (i:a), df)
+                        ASig i    -> (Env (i:s) d a, df)
+                        ADefn i   -> (Env s d a, (i:df)))
+                     (Env [] [] [], [])
+
 parseFile :: Parsec String s (Env,[(RawDefn,Bool)])
-parseFile = (\d a s df -> (Env s d a, df))
-                   <$> many parseData
-                   <*> many parseAxiom
-                   <*> many parseSig
-                   <*> many parseDefn
+parseFile = buildProgram <$> many parseDecl
 
 -- Lexer for Haskell-like language
 
