@@ -1,7 +1,7 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE PatternSynonyms #-}
-module Language.Cobalt.Gather (
+module Cobalt.OutsideIn.Gather (
   Gathered(..)
 , GMonad
 , UseHigherRanks(..)
@@ -15,9 +15,9 @@ import Control.Monad.Reader
 import Data.List (partition, nub, (\\))
 import Unbound.LocallyNameless
 
-import Language.Cobalt.Syntax
-import Language.Cobalt.Types
-import Language.Cobalt.Util ()
+import Cobalt.Language.Syntax
+import Cobalt.Types
+import Cobalt.Util ()
 
 data Gathered = Gathered { ty      :: MonoType
                          , annTerm :: TyTerm

@@ -4,7 +4,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE UndecidableInstances #-}
-module Language.Cobalt.Types (
+module Cobalt.Types (
   -- * Types
   TyVar
   -- ** Polytypes
@@ -41,7 +41,7 @@ import Data.List (insert, intercalate, find, nub, sortBy, (\\))
 import Data.Maybe (isJust)
 import Unbound.LocallyNameless hiding (close, GT)
 
-import Language.Cobalt.Util
+import Cobalt.Util
 
 type TyVar = Name MonoType
 data PolyType = PolyType_Bind (Bind TyVar PolyType)

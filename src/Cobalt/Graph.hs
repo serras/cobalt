@@ -1,10 +1,10 @@
-module Language.Cobalt.Graph where
+module Cobalt.Graph where
 
 import Data.List (union)
 import Data.Maybe (fromJust)
 import Data.Monoid
 
-import Language.Cobalt.Types
+import Cobalt.Types
 
 data Graph = Graph { counter  :: Int
                    , vertices :: [(Constraint,(Int,Bool))]

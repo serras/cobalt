@@ -9,15 +9,15 @@ build-type:          Simple
 cabal-version:       >=1.10
 
 library
-  exposed-modules:   Language.Cobalt.Top,
-                     Language.Cobalt.Types,
-                     Language.Cobalt.Syntax,
-                     Language.Cobalt.Parser,
-                     Language.Cobalt.Gather,
-                     Language.Cobalt.Solver
-  other-modules:     Language.Cobalt.Solver.Step,
-                     Language.Cobalt.Util,
-                     Language.Cobalt.Graph
+  exposed-modules:   Cobalt.Types,
+                     Cobalt.Language.Syntax,
+                     Cobalt.Language.Parser,
+                     Cobalt.OutsideIn.Top,
+                     Cobalt.OutsideIn.Gather,
+                     Cobalt.OutsideIn.Solver
+  other-modules:     Cobalt.OutsideIn.Solver.Step,
+                     Cobalt.Util,
+                     Cobalt.Graph
   build-depends:     base >= 4 && < 5,
                      unbound,
                      parsec,

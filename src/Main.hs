@@ -15,13 +15,13 @@ import Text.Parsec.String
 import Unbound.LocallyNameless
 import Web.Scotty
 
-import Language.Cobalt.Gather
-import Language.Cobalt.Graph
-import Language.Cobalt.Parser (parseFile)
-import Language.Cobalt.Syntax
-import Language.Cobalt.Top
-import Language.Cobalt.Types
-import Language.Cobalt.Util (withGreek, showWithGreek, doParens)
+import Cobalt.Graph
+import Cobalt.Language.Parser (parseFile)
+import Cobalt.Language.Syntax
+import Cobalt.OutsideIn.Gather
+import Cobalt.OutsideIn.Top
+import Cobalt.Types
+import Cobalt.Util (withGreek, showWithGreek, doParens)
 
 main :: IO ()
 main = do

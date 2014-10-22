@@ -1,5 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables #-}
-module Language.Cobalt.Top (
+module Cobalt.OutsideIn.Top (
   gDefn
 , gDefns
 , tcDefn
@@ -13,11 +13,11 @@ import Control.Monad.Except
 import Control.Monad.Reader
 import Unbound.LocallyNameless
 
-import Language.Cobalt.Gather
-import Language.Cobalt.Graph as G
-import Language.Cobalt.Solver
-import Language.Cobalt.Syntax
-import Language.Cobalt.Types
+import Cobalt.Graph as G
+import Cobalt.Language.Syntax
+import Cobalt.OutsideIn.Gather
+import Cobalt.OutsideIn.Solver
+import Cobalt.Types
 
 -- import Debug.Trace
 

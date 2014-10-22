@@ -1,6 +1,6 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE PatternSynonyms #-}
-module Language.Cobalt.Solver (
+module Cobalt.OutsideIn.Solver (
   SMonad
 , Solution(..)
 , solve
@@ -16,10 +16,10 @@ import Control.Monad.Writer
 import Data.List (insert, find, delete, partition, nub, (\\))
 import Unbound.LocallyNameless
 
-import Language.Cobalt.Graph as G
-import Language.Cobalt.Solver.Step
-import Language.Cobalt.Types
-import Language.Cobalt.Util ()
+import Cobalt.Graph as G
+import Cobalt.OutsideIn.Solver.Step
+import Cobalt.Types
+import Cobalt.Util ()
 
 -- Phase 2: constraint solving
 

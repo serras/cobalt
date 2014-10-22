@@ -1,5 +1,5 @@
 {-# LANGUAGE CPP #-}
-module Language.Cobalt.Solver.Step (
+module Cobalt.OutsideIn.Solver.Step (
   SMonad
 , SolutionStep(..)
 , whileApplicable
@@ -22,8 +22,8 @@ import Debug.Trace
 #else
 #endif
 
-import Language.Cobalt.Graph
-import Language.Cobalt.Types
+import Cobalt.Graph
+import Cobalt.Types
 
 type SMonad = (StateT [TyVar] (ReaderT [Axiom] (ExceptT String (WriterT Graph FreshM))))
 data SolutionStep = NotApplicable | Applied [Constraint]

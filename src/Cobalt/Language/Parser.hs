@@ -1,6 +1,6 @@
 {-# LANGUAGE TupleSections #-}
 
-module Language.Cobalt.Parser (
+module Cobalt.Language.Parser (
   parseTerm
 , parsePolyType
 , parseClosedPolyType
@@ -18,8 +18,8 @@ import Text.Parsec.Language
 import qualified Text.Parsec.Token as T
 import Unbound.LocallyNameless
 
-import Language.Cobalt.Syntax
-import Language.Cobalt.Types
+import Cobalt.Language.Syntax
+import Cobalt.Types
 
 parseTerm :: Parsec String s RawTerm
 parseTerm = parseAtom `chainl1` (pure (\x y -> Term_App x y ()))

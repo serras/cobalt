@@ -9,7 +9,7 @@
 {-# LANGUAGE OverlappingInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE StandaloneDeriving #-}
-module Language.Cobalt.Syntax (
+module Cobalt.Language.Syntax (
   -- * Terms
   RawTermVar
 , RawTerm
@@ -39,7 +39,7 @@ import Control.Lens hiding ((.=), from, to)
 import Data.List (intercalate)
 import Unbound.LocallyNameless hiding (close)
 
-import Language.Cobalt.Types
+import Cobalt.Types
 
 type RawTermVar = TermVar ()
 type RawTerm    = Term ()
