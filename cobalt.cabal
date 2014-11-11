@@ -15,6 +15,7 @@ library
                      Cobalt.OutsideIn.Top,
                      Cobalt.OutsideIn.Gather,
                      Cobalt.OutsideIn.Solver
+                     Cobalt.Script.Script
   other-modules:     Cobalt.OutsideIn.Solver.Step,
                      Cobalt.Util,
                      Cobalt.Graph
