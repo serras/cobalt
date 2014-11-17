@@ -107,14 +107,14 @@ gather higher (Term_Match e dname bs _) =
      alternatives <- mapM (gatherAlternative higher dname tyvars resultvar) bs
      let allExtras = concatMap (givenC  . snd) alternatives
          allCs     = concatMap (wantedC . snd) alternatives
-         bindings  = map (\((con,vars),g) -> (con, bind vars (annTerm g))) alternatives
+         bindings  = map (\((con,vars),g) -> (con, bind vars (annTerm g), var resultvar)) alternatives
          extra     = Constraint_Unify (MonoType_Con dname (map var tyvars)) tau
      return $ Gathered (var resultvar) (Term_Match ann dname bindings (var resultvar))
                        (ex ++ allExtras) (extra : c ++ allCs)
 
-gatherAlternative :: UseHigherRanks -> String -> [TyVar] -> TyVar -> (RawTermVar, Bind [RawTermVar] RawTerm)
+gatherAlternative :: UseHigherRanks -> String -> [TyVar] -> TyVar -> (RawTermVar, Bind [RawTermVar] RawTerm, pos)
                   -> GMonad ((TyTermVar, [TyTermVar]), Gathered)
-gatherAlternative higher dname tyvars resultvar (con, b) =
+gatherAlternative higher dname tyvars resultvar (con, b, _) =
   do -- Get information about constructor
      sigma <- lookupFail fnE con
      (q,arr -> (argsT,resultT),_) <- split sigma

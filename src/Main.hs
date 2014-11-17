@@ -216,10 +216,10 @@ showAnnTermJson (Term_LetAnn b p t) = do
                     , "nodes" .= s2 ] ]
 showAnnTermJson (Term_Match e c bs t) = do
   e'  <- showAnnTermJson e
-  bs' <- mapM (\(d,b) -> do (xs,es) <- unbind b
-                            es' <- showAnnTermJson es
-                            return $ object [ "text"  .= ("| " ++ intercalate " " (map show (d:xs)) ++ " →")
-                                            , "nodes" .= es']) bs
+  bs' <- mapM (\(d,b,_) -> do (xs,es) <- unbind b
+                              es' <- showAnnTermJson es
+                              return $ object [ "text"  .= ("| " ++ intercalate " " (map show (d:xs)) ++ " →")
+                                              , "nodes" .= es']) bs
   return $ [ object [ "text"  .= ("match" :: String)
                     , "nodes" .= e' ]
            , object [ "text"  .= ("with '" ++ c)

@@ -22,72 +22,96 @@ import Cobalt.Language.Syntax
 import Cobalt.Types
 
 parseTerm :: Parsec String s RawTerm
-parseTerm = parseAtom `chainl1` (pure (\x y -> Term_App x y ()))
+parseTerm = parseAtom `chainl1` (pure joinTerms)
+            where joinTerms x y = let (xInn,xFin) = getAnn x
+                                      (yInn,yFin) = getAnn y
+                                   in Term_App x y (min xInn yInn, max xFin yFin)
 
 parseAtom :: Parsec String s RawTerm
 parseAtom = -- Parenthesized expression
             parens parseTerm
         <|> -- Type annotated abstraction
-            try (createTermAbsAnn <$  reservedOp "\\"
+            try (createTermAbsAnn <$> getPosition
+                                  <*  reservedOp "\\"
                                   <*> parens ((,) <$> identifier
                                                   <*  reservedOp "::"
                                                   <*> parseClosedPolyType)
                                   <*  reservedOp "->"
-                                  <*> parseTerm)
+                                  <*> parseTerm
+                                  <*> getPosition)
         <|> -- Abstraction
-            createTermAbs <$  reservedOp "\\"
+            createTermAbs <$> getPosition
+                          <*  reservedOp "\\"
                           <*> identifier
                           <*  reservedOp "->"
                           <*> parseTerm
+                          <*> getPosition
         <|> -- Type annotated let
-            try (createTermLetAbs <$  reserved "let"
+            try (createTermLetAbs <$> getPosition
+                                  <*  reserved "let"
                                   <*> identifier
                                   <*  reservedOp "::"
                                   <*> parseClosedPolyType
                                   <*  reservedOp "="
                                   <*> parseTerm
                                   <*  reserved "in"
-                                  <*> parseTerm)
+                                  <*> parseTerm
+                                  <*> getPosition)
         <|> -- Let
-            createTermLet <$  reserved "let"
+            createTermLet <$> getPosition
+                          <*  reserved "let"
                           <*> identifier
                           <*  reservedOp "="
                           <*> parseTerm
                           <*  reserved "in"
                           <*> parseTerm
+                          <*> getPosition
         <|> -- Case
-            Term_Match <$  reserved "match"
-                       <*> parseTerm
-                       <*  reserved "with"
-                       <*> parseDataName
-                       <*> many parseCaseAlternative
-                       <*> pure ()
+            createTermMatch <$> getPosition
+                            <*  reserved "match"
+                            <*> parseTerm
+                            <*  reserved "with"
+                            <*> parseDataName
+                            <*> many parseCaseAlternative
+                            <*> getPosition
         <|> -- Literal
-            Term_IntLiteral <$> integer <*> pure ()
+            (\i n f -> Term_IntLiteral n (i,f)) <$> getPosition
+                                                <*> integer
+                                                <*> getPosition
         <|> -- Variable
-            Term_Var . string2Name <$> identifier <*> pure ()
+            (\i v f -> Term_Var (string2Name v) (i,f)) <$> getPosition
+                                                       <*> identifier
+                                                       <*> getPosition
 
-parseCaseAlternative :: Parsec String s (RawTermVar, Bind [RawTermVar] RawTerm)
-parseCaseAlternative = createCaseAlternative <$  reservedOp "|"
+parseCaseAlternative :: Parsec String s (RawTermVar, Bind [RawTermVar] RawTerm, (SourcePos,SourcePos))
+parseCaseAlternative = createCaseAlternative <$> getPosition
+                                             <*  reservedOp "|"
                                              <*> identifier
                                              <*> many identifier
                                              <*  reservedOp "->"
                                              <*> parseTerm
+                                             <*> getPosition
 
-createTermAbsAnn :: (String, PolyType) -> RawTerm -> RawTerm
-createTermAbsAnn (x,t) e = Term_AbsAnn (bind (string2Name x) e) t ()
+createTermAbsAnn :: SourcePos -> (String, PolyType) -> RawTerm -> SourcePos -> RawTerm
+createTermAbsAnn i (x,t) e f = Term_AbsAnn (bind (string2Name x) e) t (i,f)
 
-createTermAbs :: String -> RawTerm -> RawTerm
-createTermAbs x e = Term_Abs (bind (string2Name x) e) ()
+createTermAbs :: SourcePos -> String -> RawTerm -> SourcePos -> RawTerm
+createTermAbs i x e f = Term_Abs (bind (string2Name x) e) (i,f)
 
-createTermLetAbs :: String -> PolyType -> RawTerm -> RawTerm -> RawTerm
-createTermLetAbs x t e1 e2 = Term_LetAnn (bind (string2Name x, embed e1) e2) t ()
+createTermLetAbs :: SourcePos -> String -> PolyType -> RawTerm -> RawTerm -> SourcePos -> RawTerm
+createTermLetAbs i x t e1 e2 f = Term_LetAnn (bind (string2Name x, embed e1) e2) t (i,f)
 
-createTermLet :: String -> RawTerm -> RawTerm -> RawTerm
-createTermLet x e1 e2 = Term_Let (bind (string2Name x, embed e1) e2) ()
+createTermLet :: SourcePos -> String -> RawTerm -> RawTerm -> SourcePos -> RawTerm
+createTermLet i x e1 e2 f = Term_Let (bind (string2Name x, embed e1) e2) (i,f)
 
-createCaseAlternative :: String -> [String] -> RawTerm -> (RawTermVar, Bind [RawTermVar] RawTerm)
-createCaseAlternative con args e = (string2Name con, bind (map string2Name args) e)
+createTermMatch :: SourcePos -> RawTerm -> String
+                -> [(RawTermVar, Bind [RawTermVar] RawTerm, (SourcePos, SourcePos))]
+                -> SourcePos -> RawTerm
+createTermMatch i e t c f = Term_Match e t c (i,f)
+
+createCaseAlternative :: SourcePos -> String -> [String] -> RawTerm -> SourcePos
+                      -> (RawTermVar, Bind [RawTermVar] RawTerm, (SourcePos, SourcePos))
+createCaseAlternative i con args e f = (string2Name con, bind (map string2Name args) e, (i,f))
 
 parsePolyType :: Parsec String s PolyType
 parsePolyType = nf <$> parsePolyType'
@@ -194,7 +218,8 @@ createAxiomClass vs ctx c m = Axiom_Class (bind (map string2Name vs) (ctx,c,m))
 
 parseDefn :: Parsec String s (RawDefn,Bool)
 parseDefn = buildDefn
-                <$> many1 identifier
+                <$> getPosition
+                <*> many1 identifier
                 <*> (    try (Just <$  reservedOp "::"
                                    <*> parsePolyType)
                      <|> pure Nothing)
@@ -202,11 +227,12 @@ parseDefn = buildDefn
                 <*> parseTerm
                 <*> parseExpected
                 <*  reservedOp ";"
+                <*> getPosition
 
-buildDefn :: [String] -> Maybe PolyType -> RawTerm -> Bool -> (RawDefn,Bool)
-buildDefn [] _ _ _ = error "This should never happen"
-buildDefn (n:args) ty tr ex = let finalTerm = foldr createTermAbs tr args
-                               in ((string2Name n,finalTerm,ty),ex)
+buildDefn :: SourcePos -> [String] -> Maybe PolyType -> RawTerm -> Bool -> SourcePos -> (RawDefn,Bool)
+buildDefn _ [] _ _ _ _ = error "This should never happen"
+buildDefn i (n:args) ty tr ex f = let finalTerm = foldr (\x y -> createTermAbs i x y f) tr args
+                                  in ((string2Name n,finalTerm,ty),ex)
 
 parseExpected :: Parsec String s Bool
 parseExpected = try (id <$ reservedOp "=>" <*> (    const True  <$> reservedOp "ok"
