@@ -17,7 +17,8 @@ library
                      Cobalt.OutsideIn.Solver,
                      Cobalt.Script.Syntax,
                      Cobalt.Script.Script,
-                     Cobalt.Script.Gather
+                     Cobalt.Script.Gather,
+                     Cobalt.Script.Top
   other-modules:     Cobalt.OutsideIn.Solver.Step,
                      Cobalt.Util,
                      Cobalt.Graph
@@ -44,6 +45,23 @@ executable cobalt
                      split,
                      scotty
   main-is:           Main.hs
+  hs-source-dirs:    src
+  default-language:  Haskell2010
+  ghc-options:       -Wall
+
+executable cobalt-u
+  build-depends:     cobalt,
+                     ansi-terminal > 0.6,
+                     base >= 4 && < 5,
+                     unbound,
+                     parsec,
+                     mtl > 2.2,
+                     lens,
+                     aeson,
+                     split,
+                     t-regex,
+                     scotty
+  main-is:           MainU.hs
   hs-source-dirs:    src
   default-language:  Haskell2010
   ghc-options:       -Wall

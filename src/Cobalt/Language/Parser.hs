@@ -268,7 +268,9 @@ parseFile = buildProgram <$> many parseDecl
 -- Lexer for Haskell-like language
 
 lexer :: T.TokenParser t
-lexer = T.makeTokenParser $ haskellDef { T.reservedNames = "with" : T.reservedNames haskellDef }
+lexer = T.makeTokenParser $ haskellDef { T.reservedNames = "rule" : "check" : "script"
+                                                           : "peritem" : "any" : "app" : "var"
+                                                           : "with" : T.reservedNames haskellDef }
 
 parens :: Parsec String s a -> Parsec String s a
 parens = T.parens lexer

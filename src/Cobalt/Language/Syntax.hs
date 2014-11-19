@@ -120,6 +120,26 @@ initialDataEnv = [("Int",     [])
                  ,("List",    [string2Name "a"])
                  ,("Tuple2",  [string2Name "a", string2Name "b"])]
 
+data Rule = Rule RuleRegex RuleScript
+
+data RuleRegexVar = Name RuleRegex
+data RuleRegex = RuleRegex_Square RuleRegexVar
+               | RuleRegex_Iter (Bind RuleRegexVar RuleRegex)
+               | RuleRegex_Any
+               | RuleRegex_Choice RuleRegex RuleRegex
+               | RuleRegex_App RuleRegex RuleRegex
+               | RuleRegex_Var String
+               | RuleRegex_Capture String
+               | RuleRegex_CaptureList String
+
+data RuleScript = RuleScript_Merge RuleScriptList String
+                | RuleScript_Asym RuleScript RuleScript String
+                | RuleScript_Singleton Constraint String
+                | RuleScript_Ref String
+data RuleScriptList = RuleScriptList_List [RuleScript]
+                    | RuleScriptList_PerItem Constraint
+                    | RuleScriptList_Ref String
+
 -- Hand-written `RepLib` instance for `unbound`
 instance Rep t => Rep (Term t) where
   rep = Data (DT "Term" ((rep :: R t) :+: MNil))

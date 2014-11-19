@@ -4,16 +4,14 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 module Cobalt.Script.Gather (
-  Gathered
+  Gathered(..)
 , givenC
 , wantedC
 , ty
 , mainTypeRules
 ) where
 
-import Control.Applicative
 import Control.Lens hiding (at)
-import Control.Monad.State (MonadState)
 import Data.Monoid
 import Data.Regex.Generics hiding (var)
 import Data.Regex.Rules
@@ -30,6 +28,7 @@ data Gathered = Gathered { _givenC  :: [Constraint]
                          , _wantedC :: TyScript
                          , _ty      :: [TyVar]
                          }
+              deriving Show
 makeLenses ''Gathered
 
 instance Monoid Gathered where
@@ -77,28 +76,36 @@ absRule = rule $ \inner ->
   shallow (UTerm_Abs_ __ __ (inner <<- any_) __) ->>> \(UTerm_Abs v (_,vty) _ (p,thisTy)) -> do
     at inner . inh . fnE %= ((translate v, var vty) : ) -- Add to environment
     innerSyn <- use (at inner . syn)
-    case innerSyn of
-     Right (Gathered g w [ity]) -> do
-       this.syn._Right.givenC  .= g
-       let msg = "Function must have an arrow type"
-       this.syn._Right.wantedC .= Asym (Singleton (Constraint_Unify (var thisTy) (var vty :-->: var ity))
-                                                  (Just p, msg))
-                                       w (Just p, msg)
-       this.syn._Right.ty .= [thisTy]
-     _ -> this.syn .= innerSyn
+    this.syn .= innerSyn
+    this.syn._Right.givenC  .= case innerSyn of
+      Right (Gathered g _ _) -> g
+      _                      -> thisIsNotOk
+    let msg = "Function must have an arrow type"
+    this.syn._Right.wantedC .= case innerSyn of
+      Right (Gathered _ w [ity]) -> Asym (Singleton (Constraint_Unify (var thisTy) (var vty :-->: var ity))
+                                                    (Just p, msg))
+                                         w (Just p, msg)
+      _                          -> thisIsNotOk
+    this.syn._Right.ty .= [thisTy]
 
 appRule :: TypeRule
 appRule = rule $ \e1 e2 ->
   shallow (UTerm_App_ (e1 <<- any_) (e2 <<- any_) __) ->>> \(UTerm_App _ _ (p,thisTy)) -> do
     e1Syn <- use (at e1 . syn)
     e2Syn <- use (at e2 . syn)
-    case (e1Syn, e2Syn) of
-      (Right (Gathered g1 w1 [ity1]), Right (Gathered g2 w2 [ity2])) -> do
-        this.syn._Right.givenC  .= g1 ++ g2
-        let msg = "Application must have correct domain and codomain"
-        this.syn._Right.wantedC .= Asym (Singleton (Constraint_Unify (var ity1) (var ity2 :-->: var thisTy))
-                                                   (Just p, msg))
-                                        (Merge [w1,w2] (Just p, "Expressions must be compatible"))
-                                        (Just p, msg)
-        this.syn._Right.ty .= [thisTy]
-      _ -> this.syn .= mappend e1Syn e2Syn
+    this.syn .= mappend e1Syn e2Syn
+    this.syn._Right.givenC  .= case (e1Syn, e2Syn) of
+      (Right (Gathered g1 _ _), Right (Gathered g2 _ _)) -> g1 ++ g2
+      _ -> thisIsNotOk
+    let msg = "Application must have correct domain and codomain"
+    this.syn._Right.wantedC .= case (e1Syn, e2Syn) of
+      (Right (Gathered _ w1 [ity1]), Right (Gathered _ w2 [ity2])) ->
+        Asym (Singleton (Constraint_Unify (var ity1) (var ity2 :-->: var thisTy))
+                        (Just p, msg))
+             (Merge [w1,w2] (Just p, "Expressions must be compatible"))
+             (Just p, msg)
+      _ -> thisIsNotOk
+    this.syn._Right.ty .= [thisTy]
+
+thisIsNotOk :: a
+thisIsNotOk = error "This should never happen"
