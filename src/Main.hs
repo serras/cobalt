@@ -178,13 +178,13 @@ showAnnTermJson (Term_IntLiteral n t) =
 showAnnTermJson (Term_Var v t) =
   return $ [ object [ "text"  .= show v
                     , "tags"  .= [showWithGreek t] ] ]
-showAnnTermJson (Term_Abs b t) = do
+showAnnTermJson (Term_Abs b _ t) = do
   (x,e) <- unbind b
   inner <- showAnnTermJson e
   return $ [ object [ "text"  .= ("λ " ++ show x ++ " →")
                     , "tags"  .= [showWithGreek t]
                     , "nodes" .= inner ] ]
-showAnnTermJson (Term_AbsAnn b p t) = do
+showAnnTermJson (Term_AbsAnn b _ p t) = do
   (x,e) <- unbind b
   inner <- showAnnTermJson e
   return $ [ object [ "text"  .= ("λ (" ++ show x ++ " :: " ++ showWithGreek p ++ ") →")

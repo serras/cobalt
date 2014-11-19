@@ -33,16 +33,20 @@ parseAtom = -- Parenthesized expression
         <|> -- Type annotated abstraction
             try (createTermAbsAnn <$> getPosition
                                   <*  reservedOp "\\"
-                                  <*> parens ((,) <$> identifier
-                                                  <*  reservedOp "::"
-                                                  <*> parseClosedPolyType)
+                                  <*> parens ((,,,) <$> getPosition
+                                                    <*> identifier
+                                                    <*  reservedOp "::"
+                                                    <*> parseClosedPolyType
+                                                    <*> getPosition)
                                   <*  reservedOp "->"
                                   <*> parseTerm
                                   <*> getPosition)
         <|> -- Abstraction
             createTermAbs <$> getPosition
                           <*  reservedOp "\\"
+                          <*> getPosition
                           <*> identifier
+                          <*> getPosition
                           <*  reservedOp "->"
                           <*> parseTerm
                           <*> getPosition
@@ -92,11 +96,11 @@ parseCaseAlternative = createCaseAlternative <$> getPosition
                                              <*> parseTerm
                                              <*> getPosition
 
-createTermAbsAnn :: SourcePos -> (String, PolyType) -> RawTerm -> SourcePos -> RawTerm
-createTermAbsAnn i (x,t) e f = Term_AbsAnn (bind (string2Name x) e) t (i,f)
+createTermAbsAnn :: SourcePos -> (SourcePos,String, PolyType,SourcePos) -> RawTerm -> SourcePos -> RawTerm
+createTermAbsAnn i (vi,x,t,vf) e f = Term_AbsAnn (bind (string2Name x) e) (vi,vf) t (i,f)
 
-createTermAbs :: SourcePos -> String -> RawTerm -> SourcePos -> RawTerm
-createTermAbs i x e f = Term_Abs (bind (string2Name x) e) (i,f)
+createTermAbs :: SourcePos -> SourcePos -> String -> SourcePos -> RawTerm -> SourcePos -> RawTerm
+createTermAbs i vi x vf e f = Term_Abs (bind (string2Name x) e) (vi,vf) (i,f)
 
 createTermLetAbs :: SourcePos -> String -> PolyType -> RawTerm -> RawTerm -> SourcePos -> RawTerm
 createTermLetAbs i x t e1 e2 f = Term_LetAnn (bind (string2Name x, embed e1) e2) t (i,f)
@@ -231,7 +235,7 @@ parseDefn = buildDefn
 
 buildDefn :: SourcePos -> [String] -> Maybe PolyType -> RawTerm -> Bool -> SourcePos -> (RawDefn,Bool)
 buildDefn _ [] _ _ _ _ = error "This should never happen"
-buildDefn i (n:args) ty tr ex f = let finalTerm = foldr (\x y -> createTermAbs i x y f) tr args
+buildDefn i (n:args) ty tr ex f = let finalTerm = foldr (\x y -> createTermAbs i i x f y f) tr args
                                   in ((string2Name n,finalTerm,ty),ex)
 
 parseExpected :: Parsec String s Bool

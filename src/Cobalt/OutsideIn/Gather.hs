@@ -50,23 +50,23 @@ gather _ (Term_Var x _) =
      tau <- var <$> fresh (string2Name "tau")
      return $ Gathered tau (Term_Var (translate x) tau)
                        [] [Constraint_Inst tau sigma]
-gather higher (Term_Abs b _) =
+gather higher (Term_Abs b _ _) =
   do (x,e) <- unbind b
      alpha <- fresh (string2Name "alpha")
      Gathered tau ann ex c <- extendEnv x (var alpha) $ gather higher e
      let arrow = var alpha :-->: tau
-     return $ Gathered arrow (Term_Abs (bind (translate x) ann) arrow) ex c
-gather higher (Term_AbsAnn b mt@(PolyType_Mono [] m) _) = -- Case monotype
+     return $ Gathered arrow (Term_Abs (bind (translate x) ann) (var alpha) arrow) ex c
+gather higher (Term_AbsAnn b _ mt@(PolyType_Mono [] m) _) = -- Case monotype
   do (x,e) <- unbind b
      Gathered tau ann ex c <- extendEnv x mt $ gather higher e
      let arrow = m :-->: tau
-     return $ Gathered arrow (Term_Abs (bind (translate x) ann) arrow) ex c
-gather higher (Term_AbsAnn b t _) = -- Case polytype
+     return $ Gathered arrow (Term_Abs (bind (translate x) ann) m arrow) ex c
+gather higher (Term_AbsAnn b _ t _) = -- Case polytype
   do (x,e) <- unbind b
      alpha <- fresh (string2Name "alpha")
      Gathered tau ann ex c <- extendEnv x t $ gather higher e
      let arrow = var alpha :-->: tau
-     return $ Gathered arrow (Term_AbsAnn (bind (translate x) ann) t arrow)
+     return $ Gathered arrow (Term_AbsAnn (bind (translate x) ann) (var alpha) t arrow)
                        (ex ++ [Constraint_Equal (var alpha) t]) c
 gather higher (Term_App e1 e2 _) =
   do Gathered tau1 ann1 ex1 c1 <- gather higher e1

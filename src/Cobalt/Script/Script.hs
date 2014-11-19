@@ -1,16 +1,17 @@
 {-# LANGUAGE GADTs #-}
 module Cobalt.Script.Script where
 
+import Cobalt.Language.Syntax (SourcePos)
 import Cobalt.Types
 
-data Script var constraint msg
+data Script var constraint info
   = Empty
-  | Singleton constraint msg
-  | Merge  [Script var constraint msg] msg
-  | Asym   (Script var constraint msg) (Script var constraint msg) msg
-  | Exists [var] [constraint] (Script var constraint msg)
+  | Singleton constraint info
+  | Merge  [Script var constraint info] info
+  | Asym   (Script var constraint info) (Script var constraint info) info
+  | Exists [var] [constraint] (Script var constraint info)
 
-type TyScript = Script TyVar Constraint String
+type TyScript = Script TyVar Constraint (Maybe (SourcePos,SourcePos),String)
 
 gather :: ([var] -> [constraint] -> [constraint] -> constraint)  -- Exists
        -> Script var constraint msg  -- Script

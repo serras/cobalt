@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -13,10 +14,28 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE TypeFamilies #-}
-module Cobalt.Script.Syntax where
+module Cobalt.Script.Syntax (
+  UCaseAlternative(..)
+, UTerm_(..)
+, UTerm
+, UTermVar
+, pattern UTerm_IntLiteral
+, pattern UTerm_Var
+, pattern UTerm_Abs
+, pattern UTerm_AbsAnn
+, pattern UTerm_App
+, pattern UTerm_Let
+, pattern UTerm_LetAnn
+, pattern UTerm_Match
+, unbindTerm
+, tyvared
+, ann
+) where
 
-import Control.Applicative ((<$>), (<*>), pure)
-import Data.Regex.Generics
+import Control.Applicative (Applicative, (<$>), (<*>), pure)
+import Data.Foldable
+import Data.Traversable (traverse)
+import Data.Regex.Generics hiding (var)
 import qualified GHC.Generics as G
 import Unbound.LocallyNameless hiding (close)
 
@@ -26,8 +45,8 @@ import Cobalt.Types
 data UTerm_ t (f :: *)
   = UTerm_IntLiteral_ Integer t
   | UTerm_Var_    (UTermVar t) t
-  | UTerm_Abs_    (UTermVar t) f t
-  | UTerm_AbsAnn_ (UTermVar t) f PolyType t
+  | UTerm_Abs_    (UTermVar t) t f t
+  | UTerm_AbsAnn_ (UTermVar t) t f PolyType t
   | UTerm_App_    f f t
   | UTerm_Let_    (UTermVar t) f f t
   | UTerm_LetAnn_ (UTermVar t) f f PolyType t
@@ -35,48 +54,82 @@ data UTerm_ t (f :: *)
   deriving (Show, G.Generic1)
 
 data UCaseAlternative t f = UCaseAlternative (UTermVar t) [UTermVar t] f t
-  deriving (Show, Functor)
+  deriving (Show, Functor, Foldable)
 
 type UTerm t    = Fix (UTerm_ t)
 type UTermVar t = Name (UTerm t)
 
 pattern UTerm_IntLiteral n   a = Fix (UTerm_IntLiteral_ n a)
 pattern UTerm_Var v          a = Fix (UTerm_Var_ v a)
-pattern UTerm_Abs v e        a = Fix (UTerm_Abs_ v e a)
-pattern UTerm_AbsAnn v p e   a = Fix (UTerm_AbsAnn_ v p e a)
+pattern UTerm_Abs v i e      a = Fix (UTerm_Abs_ v i e a)
+pattern UTerm_AbsAnn v i p e a = Fix (UTerm_AbsAnn_ v i p e a)
 pattern UTerm_App e1 e2      a = Fix (UTerm_App_ e1 e2 a)
 pattern UTerm_Let v b e      a = Fix (UTerm_Let_ v b e a)
 pattern UTerm_LetAnn v b e p a = Fix (UTerm_LetAnn_ v b e p a)
 pattern UTerm_Match e k cs   a = Fix (UTerm_Match_ e k cs a)
 
-unboundTerm :: Alpha t => Term t -> FreshM (UTerm t)
-unboundTerm (Term_IntLiteral n a) = return $ UTerm_IntLiteral n a
-unboundTerm (Term_Var v a)        = return $ UTerm_Var (translate v) a
-unboundTerm (Term_Abs b a)        = do (v,e) <- unbind b
-                                       e_ <- unboundTerm e
-                                       return $ UTerm_Abs (translate v) e_ a
-unboundTerm (Term_AbsAnn b p a)   = do (v,e) <- unbind b
-                                       e_ <- unboundTerm e
-                                       return $ UTerm_AbsAnn (translate v) e_ p a
-unboundTerm (Term_App e1 e2 a)    = UTerm_App <$> unboundTerm e1
-                                              <*> unboundTerm e2
-                                              <*> pure a
-unboundTerm (Term_Let b a)        = do ((v, unembed -> e1),e2) <- unbind b
-                                       e1_ <- unboundTerm e1
-                                       e2_ <- unboundTerm e2
-                                       return $ UTerm_Let (translate v) e1_ e2_ a
-unboundTerm (Term_LetAnn b p a)   = do ((v, unembed -> e1),e2) <- unbind b
-                                       e1_ <- unboundTerm e1
-                                       e2_ <- unboundTerm e2
-                                       return $ UTerm_LetAnn (translate v) e1_ e2_ p a
-unboundTerm (Term_Match e k cs a) = do us <- mapM (\(v,b,t) -> do
-                                                     (vs,inner) <- unbind b
-                                                     inner_ <- unboundTerm inner
-                                                     return $ UCaseAlternative (translate v)
-                                                                               (map translate vs)
-                                                                               inner_ t) cs
-                                       e_ <- unboundTerm e
-                                       return $ UTerm_Match e_ k us a
+unbindTerm :: Alpha t => Term t -> FreshM (UTerm t)
+unbindTerm (Term_IntLiteral n a) = return $ UTerm_IntLiteral n a
+unbindTerm (Term_Var v a)        = return $ UTerm_Var (translate v) a
+unbindTerm (Term_Abs b i a)      = do (v,e) <- unbind b
+                                      e_ <- unbindTerm e
+                                      return $ UTerm_Abs (translate v) i e_ a
+unbindTerm (Term_AbsAnn b i p a) = do (v,e) <- unbind b
+                                      e_ <- unbindTerm e
+                                      return $ UTerm_AbsAnn (translate v) i e_ p a
+unbindTerm (Term_App e1 e2 a)    = UTerm_App <$> unbindTerm e1
+                                             <*> unbindTerm e2
+                                             <*> pure a
+unbindTerm (Term_Let b a)        = do ((v, unembed -> e1),e2) <- unbind b
+                                      e1_ <- unbindTerm e1
+                                      e2_ <- unbindTerm e2
+                                      return $ UTerm_Let (translate v) e1_ e2_ a
+unbindTerm (Term_LetAnn b p a)   = do ((v, unembed -> e1),e2) <- unbind b
+                                      e1_ <- unbindTerm e1
+                                      e2_ <- unbindTerm e2
+                                      return $ UTerm_LetAnn (translate v) e1_ e2_ p a
+unbindTerm (Term_Match e k cs a) = do us <- mapM (\(v,b,t) -> do
+                                                    (vs,inner) <- unbind b
+                                                    inner_ <- unbindTerm inner
+                                                    return $ UCaseAlternative (translate v)
+                                                                              (map translate vs)
+                                                                              inner_ t) cs
+                                      e_ <- unbindTerm e
+                                      return $ UTerm_Match e_ k us a
+
+tyvared :: (Applicative m, Fresh m, Rep t) => UTerm t -> m (UTerm (t,TyVar))
+tyvared (UTerm_IntLiteral n a)     = UTerm_IntLiteral <$> pure n <*> upgrade a
+tyvared (UTerm_Var v a)            = UTerm_Var <$> pure (translate v) <*> upgrade a
+tyvared (UTerm_Abs v i e a)        = UTerm_Abs <$> pure (translate v) <*> upgrade i
+                                               <*> tyvared e <*> upgrade a
+tyvared (UTerm_AbsAnn v i e p a)   = UTerm_AbsAnn <$> pure (translate v) <*> upgrade i <*> tyvared e
+                                                  <*> pure p <*> upgrade a
+tyvared (UTerm_App e1 e2 a)        = UTerm_App <$> tyvared e1 <*> tyvared e2 <*> upgrade a
+tyvared (UTerm_Let v e1 e2 a)      = UTerm_Let <$> pure (translate v) <*> tyvared e1
+                                               <*> tyvared e2 <*> upgrade a
+tyvared (UTerm_LetAnn v e1 e2 p a) = UTerm_LetAnn <$> pure (translate v) <*> tyvared e1
+                                                  <*> tyvared e2 <*> pure p <*> upgrade a
+tyvared (UTerm_Match e k us a)     = UTerm_Match <$> tyvared e <*> pure k
+                                                 <*> traverse caseTyvared us <*> upgrade a
+  where caseTyvared (UCaseAlternative v vs inner t) = UCaseAlternative <$> pure (translate v)
+                                                                       <*> pure (map translate vs)
+                                                                       <*> tyvared inner
+                                                                       <*> upgrade t
+tyvared _ = error "You should never get here"
+
+upgrade :: (Applicative m, Fresh m) => t -> m (t,TyVar)
+upgrade t = (,) <$> pure t <*> fresh (s2n "t")
+
+ann :: UTerm t -> t
+ann (UTerm_IntLiteral _ a)   = a
+ann (UTerm_Var _ a)          = a
+ann (UTerm_Abs _ _ _ a)      = a
+ann (UTerm_AbsAnn _ _ _ _ a) = a
+ann (UTerm_App _ _ a)        = a
+ann (UTerm_Let _ _ _ a)      = a
+ann (UTerm_LetAnn _ _ _ _ a) = a
+ann (UTerm_Match _ _ _ a)    = a
+ann _ = error "You should never get here"
 
 
 -- INSTANCES FOR GENERICS LIBRARIES
@@ -87,8 +140,8 @@ instance Rep t => Rep (UTerm t) where
   rep = Data (DT "UTerm" ((rep :: R t) :+: MNil))
              [ Con rIntLiteral ((rep :: R Integer) :+: (rep :: R t) :+: MNil)
              , Con rTermVar    ((rep :: R (UTermVar t)) :+: (rep :: R t) :+: MNil)
-             , Con rTermAbs    ((rep :: R (UTermVar t)) :+: (rep :: R (UTerm t)) :+: (rep :: R t) :+: MNil)
-             , Con rTermAbsAnn ((rep :: R (UTermVar t)) :+: (rep :: R (UTerm t)) :+: (rep :: R PolyType) :+: (rep :: R t) :+: MNil)
+             , Con rTermAbs    ((rep :: R (UTermVar t)) :+: (rep :: R t) :+: (rep :: R (UTerm t)) :+: (rep :: R t) :+: MNil)
+             , Con rTermAbsAnn ((rep :: R (UTermVar t)) :+: (rep :: R t) :+: (rep :: R (UTerm t)) :+: (rep :: R PolyType) :+: (rep :: R t) :+: MNil)
              , Con rTermApp    ((rep :: R (UTerm t)) :+: (rep :: R (UTerm t)) :+: (rep :: R t) :+: MNil)
              , Con rTermLet    ((rep :: R (UTermVar t)) :+: (rep :: R (UTerm t)) :+: (rep :: R (UTerm t)) :+: (rep :: R t) :+: MNil)
              , Con rTermLetAnn ((rep :: R (UTermVar t)) :+: (rep :: R (UTerm t)) :+: (rep :: R (UTerm t))
@@ -114,8 +167,8 @@ rAnnTerm1 ct ctt ctv ci cs cp cbl =
   Data1 (DT "UTerm" ((rep :: R t) :+: MNil))
         [ Con rIntLiteral (ci  :+: ct :+: MNil)
         , Con rTermVar    (ctv :+: ct :+: MNil)
-        , Con rTermAbs    (ctv :+: ctt :+: ct :+: MNil)
-        , Con rTermAbsAnn (ctv :+: ctt :+: cp :+: ct :+: MNil)
+        , Con rTermAbs    (ctv :+: ct :+: ctt :+: ct :+: MNil)
+        , Con rTermAbsAnn (ctv :+: ct :+: ctt :+: cp :+: ct :+: MNil)
         , Con rTermApp    (ctt :+: ctt :+: ct :+: MNil)
         , Con rTermLet    (ctv :+: ctt :+: ctt :+: ct :+: MNil)
         , Con rTermLetAnn (ctv :+: ctt :+: ctt :+: cp :+: ct :+: MNil)
@@ -154,21 +207,21 @@ rTermVar = Emb { to = \(v :*: t :*: Nil) -> UTerm_Var v t
                , fixity = Nonfix
                }
 
-rTermAbs :: Emb (UTermVar t :*: UTerm t :*: t :*: Nil) (UTerm t)
-rTermAbs = Emb { to = \(v :*: e :*: t :*: Nil) -> UTerm_Abs v e t
+rTermAbs :: Emb (UTermVar t :*: t :*: UTerm t :*: t :*: Nil) (UTerm t)
+rTermAbs = Emb { to = \(v :*: i :*: e :*: t :*: Nil) -> UTerm_Abs v i e t
                , from = \x -> case x of
-                               UTerm_Abs v e t -> Just (v :*: e :*: t :*: Nil)
-                               _               -> Nothing
+                               UTerm_Abs v i e t -> Just (v :*: i :*: e :*: t :*: Nil)
+                               _                 -> Nothing
                , labels = Nothing
                , name = "UTerm_Abs"
                , fixity = Nonfix
                }
 
-rTermAbsAnn :: Emb (UTermVar t :*: UTerm t :*: PolyType :*: t :*: Nil) (UTerm t)
-rTermAbsAnn = Emb { to = \(v :*: e :*: p :*: t :*: Nil) -> UTerm_AbsAnn v e p t
+rTermAbsAnn :: Emb (UTermVar t :*: t :*: UTerm t :*: PolyType :*: t :*: Nil) (UTerm t)
+rTermAbsAnn = Emb { to = \(v :*: i :*: e :*: p :*: t :*: Nil) -> UTerm_AbsAnn v i e p t
                   , from = \x -> case x of
-                                  UTerm_AbsAnn v e p t -> Just (v :*: e :*: p :*: t :*: Nil)
-                                  _                    -> Nothing
+                                  UTerm_AbsAnn v i e p t -> Just (v :*: i :*: e :*: p :*: t :*: Nil)
+                                  _                      -> Nothing
                   , labels = Nothing
                   , name = "UTerm_AbsAnn"
                   , fixity = Nonfix

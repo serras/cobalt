@@ -1,167 +1,104 @@
-{-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
 module Cobalt.Script.Gather (
-  Gathered(..)
-, GMonad
-, gather
+  Gathered
+, givenC
+, wantedC
+, ty
+, mainTypeRules
 ) where
 
 import Control.Applicative
-import Control.Lens
-import Control.Monad.Except
-import Control.Monad.Reader
-import Data.List (partition, nub, (\\))
+import Control.Lens hiding (at)
+import Control.Monad.State (MonadState)
+import Data.Monoid
+import Data.Regex.Generics hiding (var)
+import Data.Regex.Rules
 import Unbound.LocallyNameless
 
-import Cobalt.Language.Syntax
+import Cobalt.Language.Syntax (Env, fnE, SourcePos)
+import Cobalt.Script.Syntax
 import Cobalt.Script.Script
 import Cobalt.Types
 import Cobalt.Util ()
 
-data Gathered = Gathered { ty      :: MonoType
-                         , annTerm :: TyTerm
-                         , givenC  :: [Constraint]
-                         , wantedC :: TyScript
-                         } deriving Show
-type GMonad = ReaderT Env (ExceptT String FreshM)
+type Errors = [String]
+data Gathered = Gathered { _givenC  :: [Constraint]
+                         , _wantedC :: TyScript
+                         , _ty      :: [TyVar]
+                         }
+makeLenses ''Gathered
 
-lookupFail :: (Show a, Eq a) => Lens' Env [(a,b)] -> a -> GMonad b
-lookupFail p v = do place <- asks (^. p)
-                    case lookup v place of
-                      Nothing -> throwError $ "Cannot find " ++ show v
-                      Just t  -> return t
+instance Monoid Gathered where
+  mempty = Gathered [] Empty []
+  (Gathered g1 w1 v1) `mappend` (Gathered g2 w2 v2)
+    = Gathered (g1 ++ g2) (Merge [w1,w2] (Nothing,"")) (v1 ++ v2)
 
-extendEnv :: RawTermVar -> PolyType -> GMonad a -> GMonad a
-extendEnv v s = local $ \(Env f d x) -> Env ((v,s):f) d x
+type Inh = Env
+type Syn = Either Errors Gathered
 
-extendsEnv :: [(RawTermVar, PolyType)] -> GMonad a -> GMonad a
-extendsEnv v = local $ \(Env f d x) -> Env (v ++ f) d x
+instance Monoid Syn where
+  mempty = Right mempty
+  (Left s)  `mappend` (Left r)  = Left (s ++ r)
+  (Left s)  `mappend` _         = Left s
+  _         `mappend` (Left r)  = Left r
+  (Right s) `mappend` (Right r) = Right (s `mappend` r)
 
--- Phase 1: constraint gathering
+type UTermWithPos = UTerm_ ((SourcePos,SourcePos),TyVar)
+type TypeRule = Rule Integer UTermWithPos Inh Syn
 
-gather :: -> RawTerm -> GMonad Gathered
-gather (Term_IntLiteral n _) =
-  return $ Gathered MonoType_Int (Term_IntLiteral n MonoType_Int) [] Empty
-gather (Term_Var x _) =
-  do sigma <- lookupFail fnE x
-     tau <- var <$> fresh (string2Name "tau")
-     return $ Gathered tau (Term_Var (translate x) tau) []
-                       (Singleton (Constraint_Inst tau sigma) "Not an instance")
-gather (Term_Abs b _) =
-  do (x,e) <- unbind b
-     alpha <- fresh (string2Name "alpha")
-     Gathered tau ann ex c <- extendEnv x (var alpha) $ gather e
-     let arrow = var alpha :-->: tau
-     return $ Gathered arrow (Term_Abs (bind (translate x) ann) arrow) ex c
-gather (Term_AbsAnn b mt@(PolyType_Mono [] m) _) = -- Case monotype
-  do (x,e) <- unbind b
-     Gathered tau ann ex c <- extendEnv x mt $ gather e
-     let arrow = m :-->: tau
-     return $ Gathered arrow (Term_Abs (bind (translate x) ann) arrow) ex c
-gather (Term_AbsAnn b t _) = -- Case polytype
-  do (x,e) <- unbind b
-     alpha <- fresh (string2Name "alpha")
-     Gathered tau ann ex c <- extendEnv x t $ gather e
-     let arrow = var alpha :-->: tau
-     return $ Gathered arrow (Term_AbsAnn (bind (translate x) ann) t arrow)
-                       (ex ++ [Constraint_Equal (var alpha) t]) c
-gather higher (Term_App e1 e2 _) =
-  do Gathered tau1 ann1 ex1 c1 <- gather e1
-     Gathered tau2 ann2 ex2 c2 <- gather e2
-     alpha <- var <$> fresh (string2Name "alpha")
-     return $ Gathered alpha (Term_App ann1 ann2 alpha)
-                       (ex1 ++ ex2)
-                       (Asym (Singleton (Constraint_Unify tau1 (tau2 :-->: alpha)))
-                             (Merge [c1,c2] "Mismatch in types")
-                             "The first argument is not an application")
-gather higher (Term_Let b _) =
-  do ((x, unembed -> e1),e2) <- unbind b
-     Gathered tau1 ann1 ex1 c1 <- gather e1
-     Gathered tau2 ann2 ex2 c2 <- extendEnv x (PolyType_Mono [] tau1) $ gather e2
-     return $ Gathered tau2 (Term_Let (bind (translate x, embed ann1) ann2) tau2)
-                       (ex1 ++ ex2)
-                       (Merge [c1,c2] "Mismatch in types")
-gather (Term_LetAnn b PolyType_Bottom a) = -- Case bottom
-  gather (Term_Let b a)
-gather (Term_LetAnn b mt@(PolyType_Mono [] m) _) = -- Case monotype
-  do ((x, unembed -> e1),e2) <- unbind b
-     Gathered tau1 ann1 ex1 c1 <- gather e1
-     Gathered tau2 ann2 ex2 c2 <- extendEnv x mt $ gather e2
-     return $ Gathered tau2 (Term_Let (bind (translate x, embed ann1) ann2) tau2)
-                       (ex1 ++ ex2)
-                       (Asym (Singleton (Constraint_Unify tau1 m) "Body is not of the specified type")
-                             (Merge [c1,c2] "Mismatch in types")
-                             "")
-gather higher (Term_LetAnn b t _) = -- Case polytype
-  do ((x, unembed -> e1),e2) <- unbind b
-     (q1,t1,_) <- split t
-     Gathered tau1 ann1 ex1 c1 <- gather e1
-     Gathered tau2 ann2 ex2 c2 <- extendEnv x t $ gather e2
-     env <- asks (^. fnE)
-     let vars = fv tau1 `union` fv c1 \\ fv env
-         extra = Constraint_Exists $ bind vars (q1 ++ ex1, Constraint_Unify t1 tau1 : c1)
-     return $ Gathered tau2 (Term_LetAnn (bind (translate x, embed ann1) ann2) t tau2) ex2
-              (Asym (Exists vars (q1 ++ ex1)
-                            (Asym (Singleton (Constraint_Unify t1 tau1) "")
-                                   c1 "Mismatch in body"))
-                    c2 "")
-gather (Term_Match e dname bs _) =
-  do Gathered tau ann ex c <- gather higher e
-     -- Work on alternatives
-     tyvars <- mapM fresh =<< lookupFail dataE dname
-     resultvar <- fresh $ string2Name "beta"
-     alternatives <- mapM (gatherAlternative dname tyvars resultvar) bs
-     let allExtras = concatMap (givenC  . snd) alternatives
-         allCs     = concatMap (wantedC . snd) alternatives
-         bindings  = map (\((con,vars),g) -> (con, bind vars (annTerm g))) alternatives
-         extra     = Constraint_Unify (MonoType_Con dname (map var tyvars)) tau
-     return $ Gathered (var resultvar) (Term_Match ann dname bindings (var resultvar))
-                       (ex ++ allExtras) (extra : c ++ allCs)
+mainTypeRules :: [TypeRule]
+mainTypeRules = [intLiteralRule, varRule, absRule, appRule]
 
-gatherAlternative :: String -> [TyVar] -> TyVar -> (RawTermVar, Bind [RawTermVar] RawTerm)
-                  -> GMonad ((TyTermVar, [TyTermVar]), Gathered)
-gatherAlternative dname tyvars resultvar (con, b) =
-  do -- Get information about constructor
-     sigma <- lookupFail fnE con
-     (q,arr -> (argsT,resultT),_) <- split sigma
-     case resultT of
-       MonoType_Con dname2 convars | dname == dname2 -> do
-         (args,e) <- unbind b
-         let (rest,unifs) = generateExtraUnifications tyvars convars
-             argsT' = map (PolyType_Mono [] . substs unifs) argsT
-         Gathered taui anni exi ci <- extendsEnv (zip args argsT') $ gather e
-         let extraVars  = unions (map fv argsT') \\ tyvars
-             extraQs    = q ++ rest
-             trivial    = all isTrivialConstraint extraQs
-             withResult = Constraint_Unify taui (var resultvar) : ci
-         if trivial && null extraVars
-            then return $ ( (translate con, map translate args)
-                          , Gathered taui anni exi withResult )
-            else do env <- asks (^. fnE)
-                    let deltai = (fv taui `union` fv ci) \\ (fv env `union` tyvars)
-                        extrai = map (substs unifs) (filter (not . isTrivialConstraint) extraQs) ++ exi
-                    return $ ( (translate con, map translate args)
-                             , Gathered taui anni [] [Constraint_Exists (bind deltai (extrai,withResult))] )
-       _ -> throwError $ "Match alternative " ++ show con ++ " does not correspond to data " ++ dname
+intLiteralRule :: TypeRule
+intLiteralRule = rule $
+  shallow (UTerm_IntLiteral_ __ __) ->>> \(UTerm_IntLiteral _ (p,thisTy)) -> do
+    this.syn._Right.givenC  .= []
+    this.syn._Right.wantedC .= Singleton (Constraint_Unify (var thisTy) MonoType_Int)
+                                 (Just p, "Numeric literal must be of type Int")
+    this.syn._Right.ty      .= [thisTy]
 
-generateExtraUnifications :: [TyVar] -> [MonoType] -> ([Constraint],[(TyVar,MonoType)])
-generateExtraUnifications vars ms =
-  let initial = zip vars ms
-      (unifs, rest) = partition (\(_, m) -> case m of
-                                   MonoType_Var v -> length (filter (\(_,m2) -> case m2 of
-                                                                        MonoType_Var v2 -> v2 == v
-                                                                        _               -> False) initial) == 1
-                                   _              -> False) initial
-   in (map (\(v,m) -> Constraint_Unify (var v) m) rest,
-       map (\(v,MonoType_Var v2) -> (v2, var v)) unifs)
+varRule :: TypeRule
+varRule = rule $
+  shallow (UTerm_Var_ __ __) ->>> \(UTerm_Var v (p,thisTy)) -> do
+    env <- use (this.inh.fnE)
+    case lookup (translate v) env of
+      Nothing    -> this.syn .= Left ["Cannot find " ++ show v]
+      Just sigma -> do this.syn._Right.givenC  .= []
+                       this.syn._Right.wantedC .= Singleton (Constraint_Inst (var thisTy) sigma)
+                                                    (Just p, show v ++ " has type " ++ show sigma ++ " from the environment")
+                       this.syn._Right.ty      .= [thisTy]
 
-isTrivialConstraint :: Constraint -> Bool
-isTrivialConstraint (Constraint_Inst _ PolyType_Bottom) = True
-isTrivialConstraint (Constraint_Unify t1 t2) | t1 == t2 = True
-isTrivialConstraint (Constraint_Equal t1 (PolyType_Mono [] t2)) | t1 == t2 = True
-isTrivialConstraint (Constraint_Inst  t1 (PolyType_Mono [] t2)) | t1 == t2 = True
-isTrivialConstraint _ = False
+absRule :: TypeRule
+absRule = rule $ \inner ->
+  shallow (UTerm_Abs_ __ __ (inner <<- any_) __) ->>> \(UTerm_Abs v (_,vty) _ (p,thisTy)) -> do
+    at inner . inh . fnE %= ((translate v, var vty) : ) -- Add to environment
+    innerSyn <- use (at inner . syn)
+    case innerSyn of
+     Right (Gathered g w [ity]) -> do
+       this.syn._Right.givenC  .= g
+       let msg = "Function must have an arrow type"
+       this.syn._Right.wantedC .= Asym (Singleton (Constraint_Unify (var thisTy) (var vty :-->: var ity))
+                                                  (Just p, msg))
+                                       w (Just p, msg)
+       this.syn._Right.ty .= [thisTy]
+     _ -> this.syn .= innerSyn
 
-unions :: Eq a => [[a]] -> [a]
-unions = nub . concat
+appRule :: TypeRule
+appRule = rule $ \e1 e2 ->
+  shallow (UTerm_App_ (e1 <<- any_) (e2 <<- any_) __) ->>> \(UTerm_App _ _ (p,thisTy)) -> do
+    e1Syn <- use (at e1 . syn)
+    e2Syn <- use (at e2 . syn)
+    case (e1Syn, e2Syn) of
+      (Right (Gathered g1 w1 [ity1]), Right (Gathered g2 w2 [ity2])) -> do
+        this.syn._Right.givenC  .= g1 ++ g2
+        let msg = "Application must have correct domain and codomain"
+        this.syn._Right.wantedC .= Asym (Singleton (Constraint_Unify (var ity1) (var ity2 :-->: var thisTy))
+                                                   (Just p, msg))
+                                        (Merge [w1,w2] (Just p, "Expressions must be compatible"))
+                                        (Just p, msg)
+        this.syn._Right.ty .= [thisTy]
+      _ -> this.syn .= mappend e1Syn e2Syn
