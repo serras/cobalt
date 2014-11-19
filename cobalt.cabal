@@ -17,6 +17,7 @@ library
                      Cobalt.OutsideIn.Solver,
                      Cobalt.Script.Syntax,
                      Cobalt.Script.Script,
+                     Cobalt.Script.Rules,
                      Cobalt.Script.Gather,
                      Cobalt.Script.Top
   other-modules:     Cobalt.OutsideIn.Solver.Step,

@@ -34,6 +34,12 @@ module Cobalt.Language.Syntax (
   -- * Definitions
 , RawDefn
 , TyDefn
+  -- * Rules
+, Rule(..)
+, RuleRegexVar(..)
+, RuleRegex(..)
+, RuleScript(..)
+, RuleScriptList(..)
 ) where
 
 import Control.Lens hiding ((.=), from, to)
