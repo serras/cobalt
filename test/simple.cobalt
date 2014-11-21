@@ -1,5 +1,8 @@
 rule int 3 script #this ~ 'Int "3 is a number";
+rule   app (var "example") #thing
+script asym (#thing ~ 'Int "argument must be an Int")
+            #thing "";
 
-f x y = x y 3;
+f x y = x y (example 3);
 
 g = z w;

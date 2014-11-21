@@ -146,9 +146,11 @@ syntaxConstraintToScript Constraint_Inconsistent _ _ _ =
   return Constraint_Inconsistent
 
 syntaxMonoTypeToScript :: MonoType -> TyVar -> CaptureVarList -> Map Integer Gathered -> [MonoType]
+syntaxMonoTypeToScript f@(MonoType_Fam _ []) _ _ _ = return f
 syntaxMonoTypeToScript (MonoType_Fam f ms) this capVars captures = do
   ss <- map (\m -> syntaxMonoTypeToScript m this capVars captures) ms
   return $ MonoType_Fam f ss
+syntaxMonoTypeToScript f@(MonoType_Con _ []) _ _ _ = return f
 syntaxMonoTypeToScript (MonoType_Con f ms) this capVars captures = do
   ss <- map (\m -> syntaxMonoTypeToScript m this capVars captures) ms
   return $ MonoType_Con f ss
