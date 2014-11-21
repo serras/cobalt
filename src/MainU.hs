@@ -48,9 +48,14 @@ showGathered (((n,_,_),_), Left errors) = do
   setSGR [Reset]
   mapM_ putStrLn errors
   putStrLn ""
-showGathered (((n,_,_),_), Right (Gathered _ w _)) = do
+showGathered (((n,_,_),_), Right (Gathered _ [w] _)) = do
   setSGR [SetColor Foreground Vivid Blue]
   putStrLn (name2String n)
   setSGR [Reset]
   putStrLn (show w)
+  putStrLn ""
+showGathered _ = do
+  setSGR [SetColor Foreground Vivid Blue]
+  putStrLn "ERROR: the grammar returned more than one result"
+  setSGR [Reset]
   putStrLn ""

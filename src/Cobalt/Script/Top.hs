@@ -14,7 +14,7 @@ gDefn env (_name,term,_declaredType) = do
   tyv     <- tyvared unbound
   case eval mainTypeRules env tyv of
     Left err -> return $ Left err
-    Right (Gathered g w v) -> return $ Right (Gathered g (simplifyScript w) v)
+    Right (Gathered g w v) -> return $ Right (Gathered g (map simplifyScript w) v)
 
 gDefns :: Env -> [(RawDefn,Bool)] -> [Either [String] Gathered]
 gDefns env terms = runFreshM $ mapM (\(term,_fail) -> gDefn env term) terms

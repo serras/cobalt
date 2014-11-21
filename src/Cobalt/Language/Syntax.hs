@@ -36,7 +36,7 @@ module Cobalt.Language.Syntax (
 , TyDefn
   -- * Rules
 , Rule(..)
-, RuleRegexVar(..)
+, RuleRegexVar
 , RuleRegex(..)
 , RuleScript(..)
 , RuleScriptList(..)
@@ -128,23 +128,26 @@ initialDataEnv = [("Int",     [])
 
 data Rule = Rule RuleRegex RuleScript
 
-data RuleRegexVar = Name RuleRegex
+type RuleRegexVar = Name RuleRegex
 data RuleRegex = RuleRegex_Square RuleRegexVar
                | RuleRegex_Iter (Bind RuleRegexVar RuleRegex)
                | RuleRegex_Any
                | RuleRegex_Choice RuleRegex RuleRegex
                | RuleRegex_App RuleRegex RuleRegex
                | RuleRegex_Var String
+               | RuleRegex_Int Integer
                | RuleRegex_Capture String
-               | RuleRegex_CaptureList String
+               deriving Show
 
 data RuleScript = RuleScript_Merge RuleScriptList String
                 | RuleScript_Asym RuleScript RuleScript String
                 | RuleScript_Singleton Constraint String
                 | RuleScript_Ref String
+                deriving Show
 data RuleScriptList = RuleScriptList_List [RuleScript]
-                    | RuleScriptList_PerItem Constraint
+                    | RuleScriptList_PerItem Constraint String
                     | RuleScriptList_Ref String
+                    deriving Show
 
 -- Hand-written `RepLib` instance for `unbound`
 instance Rep t => Rep (Term t) where
@@ -295,6 +298,9 @@ rSourcePos = Emb { to = \(fn :*: i :*: f :*: Nil) -> newPos fn i f
                  }
           
 instance Alpha SourcePos
+
+$(derive [''RuleRegex])
+instance Alpha RuleRegex
   
 -- Show instances
 

@@ -165,15 +165,15 @@ parseMonoAtom = MonoType_List <$> brackets parseMonoType
                              <*> many (    (\x -> MonoType_Con x []) <$> parseDataName
                                        <|> (\x -> MonoType_Fam x []) <$> parseFamName
                                        <|> MonoType_List <$> brackets parseMonoType
-                                       <|> MonoType_Var . string2Name <$> identifier
+                                       <|> MonoType_Var . string2Name <$> parseVarName
                                        <|> parens parseMonoType)
             <|> MonoType_Fam <$> parseFamName
                              <*> many (    (\x -> MonoType_Con x []) <$> parseDataName
                                        <|> (\x -> MonoType_Fam x []) <$> parseFamName
                                        <|> MonoType_List <$> brackets parseMonoType
-                                       <|> MonoType_Var . string2Name <$> identifier
+                                       <|> MonoType_Var . string2Name <$> parseVarName
                                        <|> parens parseMonoType)
-            <|> MonoType_Var . string2Name <$> identifier
+            <|> MonoType_Var . string2Name <$> parseVarName
 
 parseDataName :: Parsec String s String
 parseDataName = id <$ char '\'' <*> identifier
@@ -183,6 +183,10 @@ parseFamName = id <$ char '^' <*> identifier
 
 parseClsName :: Parsec String s String
 parseClsName = id <$ char '$' <*> identifier
+
+parseVarName :: Parsec String s String
+parseVarName =     (:) <$> char '#' <*> identifier
+               <|> identifier
 
 parseSig :: Parsec String s (RawTermVar, PolyType)
 parseSig = (,) <$  reserved "import"
