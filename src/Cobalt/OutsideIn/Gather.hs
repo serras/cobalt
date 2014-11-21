@@ -33,10 +33,10 @@ lookupFail p v = do place <- asks (^. p)
                       Just t  -> return t
 
 extendEnv :: RawTermVar -> PolyType -> GMonad a -> GMonad a
-extendEnv v s = local $ \(Env f d x) -> Env ((v,s):f) d x
+extendEnv v s = local $ \(Env f d x r) -> Env ((v,s):f) d x r
 
 extendsEnv :: [(RawTermVar, PolyType)] -> GMonad a -> GMonad a
-extendsEnv v = local $ \(Env f d x) -> Env (v ++ f) d x
+extendsEnv v = local $ \(Env f d x r) -> Env (v ++ f) d x r
 
 -- Phase 1: constraint gathering
 

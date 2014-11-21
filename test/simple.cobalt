@@ -1,3 +1,5 @@
-f x y = x y;
+rule int 3 script #this ~ 'Int "3 is a number";
+
+f x y = x y 3;
 
 g = z w;

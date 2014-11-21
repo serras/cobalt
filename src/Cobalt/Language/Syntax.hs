@@ -21,25 +21,27 @@ module Cobalt.Language.Syntax (
 , Term(..)
 , atAnn
 , getAnn
-  -- * Whole program structure
-  -- ** Environment
-, FnEnv
-, DataEnv
-, initialDataEnv
-, AxiomEnv
-, Env(Env)
-, fnE
-, dataE
-, axiomE
-  -- * Definitions
-, RawDefn
-, TyDefn
   -- * Rules
 , Rule(..)
 , RuleRegexVar
 , RuleRegex(..)
 , RuleScript(..)
 , RuleScriptList(..)
+  -- * Whole program structure
+  -- ** Environment
+, FnEnv
+, DataEnv
+, initialDataEnv
+, AxiomEnv
+, RuleEnv
+, Env(Env)
+, fnE
+, dataE
+, axiomE
+, ruleE
+  -- ** Definitions
+, RawDefn
+, TyDefn
 ) where
 
 import Control.Lens hiding ((.=), from, to)
@@ -109,24 +111,7 @@ getAnn (Term_Let _ t)        = t
 getAnn (Term_LetAnn _ _ t)   = t
 getAnn (Term_Match _ _ _ t)  = t
 
-type FnEnv    = [(RawTermVar, PolyType)]
-type DataEnv  = [(String, [TyVar])]
-type AxiomEnv = [Axiom]
-data Env      = Env { _fnE    :: FnEnv
-                    , _dataE  :: DataEnv
-                    , _axiomE :: AxiomEnv }
-
-$(makeLenses ''Env)
-
-type RawDefn = (RawTermVar, RawTerm, Maybe PolyType)
-type TyDefn  = (TyTermVar,  TyTerm,  PolyType)
-
-initialDataEnv :: DataEnv
-initialDataEnv = [("Int",     [])
-                 ,("List",    [string2Name "a"])
-                 ,("Tuple2",  [string2Name "a", string2Name "b"])]
-
-data Rule = Rule RuleRegex RuleScript
+data Rule = Rule RuleRegex RuleScript deriving Show
 
 type RuleRegexVar = Name RuleRegex
 data RuleRegex = RuleRegex_Square RuleRegexVar
@@ -148,6 +133,25 @@ data RuleScriptList = RuleScriptList_List [RuleScript]
                     | RuleScriptList_PerItem Constraint String
                     | RuleScriptList_Ref String
                     deriving Show
+
+type FnEnv    = [(RawTermVar, PolyType)]
+type DataEnv  = [(String, [TyVar])]
+type AxiomEnv = [Axiom]
+type RuleEnv  = [Rule]
+data Env      = Env { _fnE    :: FnEnv
+                    , _dataE  :: DataEnv
+                    , _axiomE :: AxiomEnv
+                    , _ruleE  :: RuleEnv }
+
+$(makeLenses ''Env)
+
+type RawDefn = (RawTermVar, RawTerm, Maybe PolyType)
+type TyDefn  = (TyTermVar,  TyTerm,  PolyType)
+
+initialDataEnv :: DataEnv
+initialDataEnv = [("Int",     [])
+                 ,("List",    [string2Name "a"])
+                 ,("Tuple2",  [string2Name "a", string2Name "b"])]
 
 -- Hand-written `RepLib` instance for `unbound`
 instance Rep t => Rep (Term t) where

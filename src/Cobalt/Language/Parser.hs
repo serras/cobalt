@@ -247,24 +247,79 @@ parseExpected = try (id <$ reservedOp "=>" <*> (    const True  <$> reservedOp "
                                                 <|> const False <$> reservedOp "fail"))
             <|> pure True
 
+parseRule :: Parsec String s Rule
+parseRule = Rule <$  reserved "rule"
+                 <*> parseRuleRegex
+                 <*  reserved "script"
+                 <*> parseRuleScript
+                 <*  reservedOp ";"
+
+parseRuleRegex :: Parsec String s RuleRegex
+parseRuleRegex = parseRuleRegexAtom `chainl1` (RuleRegex_Choice <$ reservedOp "|")
+
+parseRuleRegexAtom :: Parsec String s RuleRegex
+parseRuleRegexAtom = -- Parenthesized expression
+                     parens parseRuleRegex
+                 <|> createRegexIter <$> brackets (parseRuleRegex)
+                                     <*  reservedOp "*"
+                                     <*> identifier
+                 <|> RuleRegex_Any <$ reserved "any"
+                 <|> RuleRegex_App <$  reserved "app"
+                                   <*> parseRuleRegex
+                                   <*> parseRuleRegex
+                 <|> RuleRegex_Var <$  reserved "var"
+                                   <*> stringLiteral
+                 <|> RuleRegex_Int <$  reserved "int"
+                                   <*> integer
+                 <|> RuleRegex_Square . s2n <$ char '&' <*> identifier
+                 <|> RuleRegex_Capture <$ char '#' <*> identifier
+
+createRegexIter :: RuleRegex -> String -> RuleRegex
+createRegexIter rx v = RuleRegex_Iter $ bind (string2Name v) rx
+
+parseRuleScript :: Parsec String s RuleScript
+parseRuleScript = -- Parenthesized expression
+                  parens parseRuleScript
+              <|> RuleScript_Merge <$  reserved "merge"
+                                   <*> parseRuleScriptList
+                                   <*> stringLiteral
+              <|> RuleScript_Asym  <$  reserved "asym"
+                                   <*> parseRuleScript
+                                   <*> parseRuleScript
+                                   <*> stringLiteral
+              <|> try (RuleScript_Singleton <$> parseConstraint
+                                            <*> stringLiteral)
+              <|> RuleScript_Ref <$ char '#' <*> identifier
+
+parseRuleScriptList :: Parsec String s RuleScriptList
+parseRuleScriptList = -- Parenthesized expression
+                      parens parseRuleScriptList
+                  <|> RuleScriptList_List <$> brackets (commaSep1 parseRuleScript) 
+                  <|> try (RuleScriptList_PerItem <$> parseConstraint
+                                                  <*> stringLiteral)
+                  <|> RuleScriptList_Ref <$ char '#' <*> identifier
+
 data DeclType = AData   (String, [TyVar])
               | AnAxiom Axiom
               | ASig    (RawTermVar, PolyType)
               | ADefn   (RawDefn, Bool)
+              | ARule   Rule
 
 parseDecl :: Parsec String s DeclType
 parseDecl = AData   <$> parseData
         <|> AnAxiom <$> parseAxiom
         <|> ASig    <$> parseSig
         <|> ADefn   <$> parseDefn
+        <|> ARule   <$> parseRule
 
 buildProgram :: [DeclType] -> (Env, [(RawDefn,Bool)])
-buildProgram = foldr (\decl (Env s d a, df) -> case decl of
-                        AData i   -> (Env s (i:d) a, df)
-                        AnAxiom i -> (Env s d (i:a), df)
-                        ASig i    -> (Env (i:s) d a, df)
-                        ADefn i   -> (Env s d a, (i:df)))
-                     (Env [] [] [], [])
+buildProgram = foldr (\decl (Env s d a r, df) -> case decl of
+                        AData i   -> (Env s (i:d) a r, df)
+                        AnAxiom i -> (Env s d (i:a) r, df)
+                        ASig i    -> (Env (i:s) d a r, df)
+                        ADefn i   -> (Env s d a r, (i:df))
+                        ARule i   -> (Env s d a (i:r),df))
+                     (Env [] [] [] [], [])
 
 parseFile :: Parsec String s (Env,[(RawDefn,Bool)])
 parseFile = buildProgram <$> many parseDecl
@@ -273,7 +328,8 @@ parseFile = buildProgram <$> many parseDecl
 
 lexer :: T.TokenParser t
 lexer = T.makeTokenParser $ haskellDef { T.reservedNames = "rule" : "check" : "script"
-                                                           : "peritem" : "any" : "app" : "var"
+                                                           : "merge" : "asym"
+                                                           : "any" : "app" : "var" : "int"
                                                            : "with" : T.reservedNames haskellDef }
 
 parens :: Parsec String s a -> Parsec String s a
@@ -288,6 +344,9 @@ brackets = T.brackets lexer
 comma :: Parsec String s String
 comma = T.comma lexer
 
+commaSep1 :: Parsec String s a -> Parsec String s [a]
+commaSep1 = T.commaSep1 lexer
+
 identifier :: Parsec String s String
 identifier = T.identifier lexer
 
@@ -299,3 +358,6 @@ reservedOp = T.reservedOp lexer
 
 integer :: Parsec String s Integer
 integer = T.integer lexer
+
+stringLiteral :: Parsec String s String
+stringLiteral = T.stringLiteral lexer
