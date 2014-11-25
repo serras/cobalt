@@ -124,13 +124,13 @@ data RuleRegex = RuleRegex_Square RuleRegexVar
                | RuleRegex_Capture String
                deriving Show
 
-data RuleScript = RuleScript_Merge RuleScriptList String
-                | RuleScript_Asym RuleScript RuleScript String
-                | RuleScript_Singleton Constraint String
+data RuleScript = RuleScript_Merge RuleScriptList (Maybe String)
+                | RuleScript_Asym RuleScript RuleScript (Maybe String)
+                | RuleScript_Singleton Constraint (Maybe String)
                 | RuleScript_Ref String
                 deriving Show
 data RuleScriptList = RuleScriptList_List [RuleScript]
-                    | RuleScriptList_PerItem Constraint String
+                    | RuleScriptList_PerItem Constraint (Maybe String)
                     | RuleScriptList_Ref String
                     deriving Show
 

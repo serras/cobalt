@@ -5,6 +5,7 @@ module Cobalt.OutsideIn.Solver (
 , Solution(..)
 , solve
 , toSolution
+, simpl
 ) where
 
 import Control.Applicative ((<$>))
@@ -35,7 +36,8 @@ solve a g w t = runWriterT (runExceptT (runReaderT (evalStateT (solve' g w) t) a
 solve' :: [Constraint] -> [Constraint] -> SMonad Solution
 solve' g w = myTrace ("Solve " ++ show g ++ " ||- " ++ show w) $ do
   let (implic, simple) = partition (is _Constraint_Exists) w
-  s@(Solution _ rs theta _) <- simpl g simple
+  (g',w',s') <- simpl g simple
+  let s@(Solution _ rs theta _) = toSolution g' w' s'
   solveImpl (g ++ rs) (substs theta implic)
   return $ s
 
@@ -83,7 +85,7 @@ isTouchable x = gets (x `elem`)
 
 -- Phase 2a: simplifier
 
-simpl :: [Constraint] -> [Constraint] -> SMonad Solution
+simpl :: [Constraint] -> [Constraint] -> SMonad ([Constraint], [Constraint], [TyVar])
 simpl given wanted =
   do axioms <- ask
      (g,_) <- whileApplicable (\ccTop -> do
@@ -109,8 +111,9 @@ simpl given wanted =
                   return (simplified, apI || apS)) ccTop
                 (reactedW, apRW) <- stepOverAxioms "topReact" (\ax _ -> topReact True ax) axioms g simplified2
                 return (reactedW, apS2 || apRW)) wanted
+     -- Output information
      v <- get
-     myTrace ("touchables: " ++ show v) $ return $ toSolution g s v
+     myTrace ("touchables: " ++ show v) $ return (g,s,v)
 
 canon :: Bool -> [Constraint] -> Constraint -> SMonad SolutionStep
 -- Basic unification

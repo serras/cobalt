@@ -28,7 +28,7 @@ intLiteralRule = rule $
   inj (UTerm_IntLiteral_ __ __) ->>> \(UTerm_IntLiteral _ (p,thisTy)) -> do
     this.syn._Right.givenC  .= []
     this.syn._Right.wantedC .= [Singleton (Constraint_Unify (var thisTy) MonoType_Int)
-                                  (Just p, "Numeric literal must be of type Int")]
+                                  (Just p, Just "Numeric literal must be of type Int")]
     this.syn._Right.ty      .= [thisTy]
 
 varRule :: TypeRule
@@ -39,7 +39,7 @@ varRule = rule $
       Nothing    -> this.syn .= Left ["Cannot find " ++ show v]
       Just sigma -> do this.syn._Right.givenC  .= []
                        this.syn._Right.wantedC .= [Singleton (Constraint_Inst (var thisTy) sigma)
-                                                     (Just p, show v ++ " has type " ++ show sigma ++ " from the environment")]
+                                                     (Just p, Just $ show v ++ " has type " ++ show sigma ++ " from the environment")]
                        this.syn._Right.ty      .= [thisTy]
 
 absRule :: TypeRule
@@ -51,7 +51,7 @@ absRule = rule $ \inner ->
     this.syn._Right.givenC  .= case innerSyn of
       Right (Gathered g _ _) -> g
       _                      -> thisIsNotOk
-    let msg = "Function must have an arrow type"
+    let msg = Just "Function must have an arrow type"
     this.syn._Right.wantedC .= case innerSyn of
       Right (Gathered _ [w] [ity]) -> [Asym (Singleton (Constraint_Unify (var thisTy) (var vty :-->: var ity))
                                                        (Just p, msg))
@@ -68,12 +68,12 @@ appRule = rule $ \e1 e2 ->
     this.syn._Right.givenC  .= case (e1Syn, e2Syn) of
       (Right (Gathered g1 _ _), Right (Gathered g2 _ _)) -> g1 ++ g2
       _ -> thisIsNotOk
-    let msg = "Application must have correct domain and codomain"
+    let msg = Just "Application must have correct domain and codomain"
     this.syn._Right.wantedC .= case (e1Syn, e2Syn) of
       (Right (Gathered _ [w1] [ity1]), Right (Gathered _ [w2] [ity2])) ->
         [Asym (Singleton (Constraint_Unify (var ity1) (var ity2 :-->: var thisTy))
                          (Just p, msg))
-              (Merge [w1,w2] (Just p, "Expressions must be compatible"))
+              (Merge [w1,w2] (Just p, Just "Expressions must be compatible"))
               (Just p, msg)]
       _ -> thisIsNotOk
     this.syn._Right.ty .= [thisTy]

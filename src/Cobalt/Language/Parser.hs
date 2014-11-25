@@ -282,13 +282,13 @@ parseRuleScript = -- Parenthesized expression
                   parens parseRuleScript
               <|> RuleScript_Merge <$  reserved "merge"
                                    <*> parseRuleScriptList
-                                   <*> stringLiteral
+                                   <*> (optionMaybe stringLiteral)
               <|> RuleScript_Asym  <$  reserved "asym"
                                    <*> parseRuleScript
                                    <*> parseRuleScript
-                                   <*> stringLiteral
+                                   <*> (optionMaybe stringLiteral)
               <|> try (RuleScript_Singleton <$> parseConstraint
-                                            <*> stringLiteral)
+                                            <*> (optionMaybe stringLiteral))
               <|> RuleScript_Ref <$ char '#' <*> identifier
 
 parseRuleScriptList :: Parsec String s RuleScriptList
@@ -296,7 +296,7 @@ parseRuleScriptList = -- Parenthesized expression
                       parens parseRuleScriptList
                   <|> RuleScriptList_List <$> brackets (commaSep1 parseRuleScript) 
                   <|> try (RuleScriptList_PerItem <$> parseConstraint
-                                                  <*> stringLiteral)
+                                                  <*> (optionMaybe stringLiteral))
                   <|> RuleScriptList_Ref <$ char '#' <*> identifier
 
 data DeclType = AData   (String, [TyVar])

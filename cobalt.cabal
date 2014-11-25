@@ -19,6 +19,7 @@ library
                      Cobalt.Script.Script,
                      Cobalt.Script.Rules,
                      Cobalt.Script.Gather,
+                     Cobalt.Script.Solver,
                      Cobalt.Script.Top
   other-modules:     Cobalt.OutsideIn.Solver.Step,
                      Cobalt.Util,

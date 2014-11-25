@@ -6,3 +6,5 @@ script asym (#thing ~ 'Int "argument must be an Int")
 f x y = x y (example 3);
 
 g = z w;
+
+h x = 3 x;
