@@ -14,7 +14,7 @@ import Cobalt.Script.Syntax
 import Cobalt.Types
 
 gDefn :: Env -> RawDefn -> FreshM (Either [String] Gathered, AnnUTerm TyVar)
-gDefn env@(Env _ _ _ rules) (_name,term,_declaredType) = do
+gDefn env@(Env _ _ _ rules) (name,term,_declaredType) = do
   unbound <- unbindTerm term
   tyv     <- tyvared unbound
   case eval (map syntaxRuleToScriptRule rules ++ mainTypeRules) env tyv of

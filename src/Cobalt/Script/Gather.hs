@@ -21,7 +21,7 @@ import Cobalt.Types
 import Cobalt.Util ()
 
 mainTypeRules :: [TypeRule]
-mainTypeRules = [intLiteralRule, varRule, absRule, appRule]
+mainTypeRules = [intLiteralRule, varRule, absRule, absAnnRule, appRule]
 
 intLiteralRule :: TypeRule
 intLiteralRule = rule $
@@ -39,7 +39,7 @@ varRule = rule $
       Nothing    -> this.syn .= Left ["Cannot find " ++ show v]
       Just sigma -> do this.syn._Right.givenC  .= []
                        this.syn._Right.wantedC .= [Singleton (Constraint_Inst (var thisTy) sigma)
-                                                     (Just p, Just $ show v ++ " has type " ++ show sigma ++ " from the environment")]
+                                                     (Just p, Just $ show v ++ " is typed from the environment")]
                        this.syn._Right.ty      .= [thisTy]
 
 absRule :: TypeRule
@@ -57,6 +57,26 @@ absRule = rule $ \inner ->
                                                        (Just p, msg))
                                             w (Just p, msg)]
       _                          -> thisIsNotOk
+    this.syn._Right.ty .= [thisTy]
+
+absAnnRule :: TypeRule
+absAnnRule = rule $ \inner ->
+  inj (UTerm_AbsAnn_ __ __ (inner <<- any_) __ __) ->>> \(UTerm_AbsAnn v (vpos,vty) _ tyAnn (p,thisTy)) -> do
+    at inner . inh . fnE %= ((translate v, tyAnn) : ) -- Add to environment
+    innerSyn <- use (at inner . syn)
+    this.syn .= innerSyn
+    this.syn._Right.givenC  .= case innerSyn of
+      Right (Gathered g _ _) -> g
+      _                      -> thisIsNotOk
+    let msg = Just "Function must have an arrow type"
+    this.syn._Right.wantedC .= case innerSyn of
+      Right (Gathered _ [w] [ity]) -> case tyAnn of
+        PolyType_Mono [] m -> [Asym (Singleton (Constraint_Unify (var thisTy) (m :-->: var ity)) (Just p, msg))
+                                    w (Just p, msg)]
+        _ -> [Asym (Merge [ Singleton (Constraint_Unify (var thisTy) (var vty :-->: var ity)) (Just p, msg)
+                          , Singleton (Constraint_Equal (var vty) tyAnn) (Just vpos, msg) ] (Just p, msg))
+                   w (Just p, msg)]
+      _ -> thisIsNotOk
     this.syn._Right.ty .= [thisTy]
 
 appRule :: TypeRule

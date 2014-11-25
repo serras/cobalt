@@ -149,17 +149,23 @@ jsonScript (((n,_,_),_), (Right (Gathered g w _), term)) =
                                , "nodes" .= map showJsonScript w ] ] ]
 
 jsonTypechecked :: ((RawDefn,Bool), (ScriptSolution, [(TyVar, MonoType)], AnnUTerm MonoType)) -> Value
-jsonTypechecked (((n,_,_),_), (((_,rs,_), errs, _graph), _, term)) =
-  object [ "text" .= name2String n
-         -- , "tags" .= [showWithGreek t]
-         , "color" .= ("white" :: String)
-         , "backColor" .= ("#95D6E9" :: String) -- blue
-         , "nodes" .= [ object [ "text"  .= ("errors" :: String)
-                               , "nodes" .= map justText errs ]
-                      , object [ "text"  .= ("annotated ast" :: String)
-                               , "nodes" .= showAnnTermJson term ]
-                      , object [ "text"  .= ("residual" :: String)
-                               , "nodes" .= map (justText . textJsonConstraint) rs ] ] ]
+jsonTypechecked (((n,_,_),ok), (((_,rs,_), errs, _graph), _, term)) =
+  let errNodes = if null errs
+                    then []
+                    else [ object [ "text"  .= ("errors" :: String)
+                                  , "nodes" .= map justText errs ] ]
+      resNodes = if null rs
+                    then []
+                    else [ object [ "text"  .= ("residual" :: String)
+                                  , "nodes" .= map (justText . textJsonConstraint) rs ] ]
+      color = if null errs
+                 then if ok then "#85C99E" else "#F58471"
+                 else if ok then "#F58471" else "#F1B75B"
+   in object [ "text" .= name2String n
+             -- , "tags" .= [showWithGreek t]
+             , "color" .= ("white" :: String)
+             , "backColor" .= (color :: String)
+             , "nodes" .= (errNodes ++ showAnnTermJson term ++ resNodes) ]
 
 showJsonScript :: TyScript -> Value
 showJsonScript Empty =
