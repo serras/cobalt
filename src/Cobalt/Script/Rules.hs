@@ -54,7 +54,7 @@ instance Monoid Syn where
 
 
 type UTermWithPos = UTerm_ ((SourcePos,SourcePos),TyVar)
-type TypeRule  = Rx.Rule Integer UTermWithPos Inh Syn
+type TypeRule     = Rx.Rule Integer UTermWithPos Inh Syn
 
 syntaxRuleToScriptRule :: Sy.Rule -> TypeRule
 syntaxRuleToScriptRule (Rule rx script) = 

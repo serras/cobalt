@@ -19,6 +19,7 @@ module Cobalt.Script.Syntax (
 , UTerm_(..)
 , UTerm
 , UTermVar
+, AnnUTerm
 , pattern UTerm_IntLiteral
 , pattern UTerm_Var
 , pattern UTerm_Abs
@@ -30,6 +31,7 @@ module Cobalt.Script.Syntax (
 , unbindTerm
 , tyvared
 , ann
+, atUAnn
 ) where
 
 import Control.Applicative (Applicative, (<$>), (<*>), pure)
@@ -58,6 +60,8 @@ data UCaseAlternative t f = UCaseAlternative (UTermVar t) [UTermVar t] f t
 
 type UTerm t    = Fix (UTerm_ t)
 type UTermVar t = Name (UTerm t)
+
+type AnnUTerm t = Fix (UTerm_ ((SourcePos,SourcePos),t))
 
 pattern UTerm_IntLiteral n   a = Fix (UTerm_IntLiteral_ n a)
 pattern UTerm_Var v          a = Fix (UTerm_Var_ v a)
@@ -130,6 +134,19 @@ ann (UTerm_Let _ _ _ a)      = a
 ann (UTerm_LetAnn _ _ _ _ a) = a
 ann (UTerm_Match _ _ _ a)    = a
 ann _ = error "You should never get here"
+
+atUAnn :: Rep b => (a -> b) -> UTerm a -> UTerm b
+atUAnn f (UTerm_IntLiteral n a)     = UTerm_IntLiteral n (f a)
+atUAnn f (UTerm_Var v a)            = UTerm_Var (translate v) (f a)
+atUAnn f (UTerm_Abs x xa e a)       = UTerm_Abs (translate x) (f xa) (atUAnn f e) (f a)
+atUAnn f (UTerm_AbsAnn x xa e p a)  = UTerm_AbsAnn (translate x) (f xa) (atUAnn f e) p (f a)
+atUAnn f (UTerm_App e1 e2 a)        = UTerm_App (atUAnn f e1) (atUAnn f e2) (f a)
+atUAnn f (UTerm_Let x e1 e2 a)      = UTerm_Let (translate x) (atUAnn f e1) (atUAnn f e2) (f a)
+atUAnn f (UTerm_LetAnn x e1 e2 p a) = UTerm_LetAnn (translate x) (atUAnn f e1) (atUAnn f e2) p (f a)
+atUAnn f (UTerm_Match e k us a)     = UTerm_Match (atUAnn f e) k (map atAnnAlternative us) (f a)
+  where atAnnAlternative (UCaseAlternative v vs i b) =
+          UCaseAlternative (translate v) (map translate vs) (atUAnn f i) (f b)
+atUAnn _ _ = error "You should never get here"
 
 
 -- INSTANCES FOR GENERICS LIBRARIES
