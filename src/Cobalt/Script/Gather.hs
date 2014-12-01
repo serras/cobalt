@@ -29,10 +29,6 @@ mainTypeRules = [ intLiteralRule
                 , letAnnRule
                 ]
 
-given  = _1
-wanted = _2
-ty     = _3
-
 intLiteralRule :: TypeRule
 intLiteralRule = rule0 $
   inj (UTerm_IntLiteral_ __ __) ->>> \(UTerm_IntLiteral _ (p,thisTy)) -> do
