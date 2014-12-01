@@ -17,6 +17,7 @@
 {-# LANGUAGE GADTs #-}
 module Cobalt.Script.Syntax (
   Ix(..)
+, UnboundPolyType
 , UTerm_(..)
 , UTerm
 , UTermVar
@@ -47,6 +48,7 @@ import Cobalt.Language.Syntax
 import Cobalt.Types
 
 data Ix = IsATerm | IsACaseAlternative
+type UnboundPolyType = ([Constraint], MonoType, [TyVar])
 
 data UTerm_ t (f :: Ix -> *) (ix :: Ix) where
   UTerm_IntLiteral_ :: Integer -> t -> UTerm_ t f IsATerm
@@ -57,7 +59,7 @@ data UTerm_ t (f :: Ix -> *) (ix :: Ix) where
   UTerm_Let_        :: UTermVar t -> f IsATerm -> f IsATerm -> t -> UTerm_ t f IsATerm
   UTerm_LetAnn_     :: UTermVar t -> f IsATerm -> f IsATerm -> PolyType -> t -> UTerm_ t f IsATerm
   UTerm_Match_      :: f IsATerm -> String -> [f IsACaseAlternative] -> t -> UTerm_ t f IsATerm
-  UCaseAlternative_ :: UTermVar t -> [UTermVar t] -> f IsATerm -> t -> UTerm_ t f IsACaseAlternative
+  UCaseAlternative_ :: UTermVar t -> [UTermVar t] -> Maybe UnboundPolyType -> f IsATerm -> t -> UTerm_ t f IsACaseAlternative
 
 type UTerm t = Fix (UTerm_ t) IsATerm
 type UTermVar t = Name (UTerm t)
@@ -89,51 +91,55 @@ showL (UTerm_Match e k cs a) =
 showL _ = error "You should never get here"
 
 showU :: Show t => UCaseAlternative t -> [String]
-showU (UCaseAlternative k vs e a) =
+showU (UCaseAlternative k vs _ e a) =
   ("| " ++ intercalate " " (map show (k:vs)) ++ " => " ++ show a) : map ("  " ++) (showL e)
 showU _ = error "You should never get here"
 
 type AnnUTerm t = Fix (UTerm_ ((SourcePos,SourcePos),t)) IsATerm
 
-pattern UTerm_IntLiteral n      a = Fix (UTerm_IntLiteral_ n a)
-pattern UTerm_Var v             a = Fix (UTerm_Var_ v a)
-pattern UTerm_Abs v i e         a = Fix (UTerm_Abs_ v i e a)
-pattern UTerm_AbsAnn v i p e    a = Fix (UTerm_AbsAnn_ v i p e a)
-pattern UTerm_App e1 e2         a = Fix (UTerm_App_ e1 e2 a)
-pattern UTerm_Let v b e         a = Fix (UTerm_Let_ v b e a)
-pattern UTerm_LetAnn v b e p    a = Fix (UTerm_LetAnn_ v b e p a)
-pattern UTerm_Match e k cs      a = Fix (UTerm_Match_ e k cs a)
-pattern UCaseAlternative k vs e a = Fix (UCaseAlternative_ k vs e a)
+pattern UTerm_IntLiteral n        a = Fix (UTerm_IntLiteral_ n a)
+pattern UTerm_Var v               a = Fix (UTerm_Var_ v a)
+pattern UTerm_Abs v i e           a = Fix (UTerm_Abs_ v i e a)
+pattern UTerm_AbsAnn v i p e      a = Fix (UTerm_AbsAnn_ v i p e a)
+pattern UTerm_App e1 e2           a = Fix (UTerm_App_ e1 e2 a)
+pattern UTerm_Let v b e           a = Fix (UTerm_Let_ v b e a)
+pattern UTerm_LetAnn v b e p      a = Fix (UTerm_LetAnn_ v b e p a)
+pattern UTerm_Match e k cs        a = Fix (UTerm_Match_ e k cs a)
+pattern UCaseAlternative k vs p e a = Fix (UCaseAlternative_ k vs p e a)
 
-unbindTerm :: Alpha t => Term t -> FreshM (UTerm t)
-unbindTerm (Term_IntLiteral n a) = return $ UTerm_IntLiteral n a
-unbindTerm (Term_Var v a)        = return $ UTerm_Var (translate v) a
-unbindTerm (Term_Abs b i a)      = do (v,e) <- unbind b
-                                      e_ <- unbindTerm e
-                                      return $ UTerm_Abs (translate v) i e_ a
-unbindTerm (Term_AbsAnn b i p a) = do (v,e) <- unbind b
-                                      e_ <- unbindTerm e
-                                      return $ UTerm_AbsAnn (translate v) i e_ p a
-unbindTerm (Term_App e1 e2 a)    = UTerm_App <$> unbindTerm e1
-                                             <*> unbindTerm e2
-                                             <*> pure a
-unbindTerm (Term_Let b a)        = do ((v, unembed -> e1),e2) <- unbind b
-                                      e1_ <- unbindTerm e1
-                                      e2_ <- unbindTerm e2
-                                      return $ UTerm_Let (translate v) e1_ e2_ a
-unbindTerm (Term_LetAnn b p a)   = do ((v, unembed -> e1),e2) <- unbind b
-                                      e1_ <- unbindTerm e1
-                                      e2_ <- unbindTerm e2
-                                      return $ UTerm_LetAnn (translate v) e1_ e2_ p a
-unbindTerm (Term_Match e k cs a) = do us <- mapM (\(v,b,t) -> do
-                                                    (vs,inner) <- unbind b
-                                                    inner_ <- unbindTerm inner
-                                                    return $ UCaseAlternative (translate v)
-                                                                              (map translate vs)
-                                                                              inner_ t) cs
-                                      e_ <- unbindTerm e
-                                      return $ UTerm_Match e_ k us a
+-- Note: we need the FnEnv to be able to find the type in constructors.
+unbindTerm :: Alpha t => Term t -> FnEnv -> FreshM (UTerm t)
+unbindTerm (Term_IntLiteral n a) _  = return $ UTerm_IntLiteral n a
+unbindTerm (Term_Var v a)        _  = return $ UTerm_Var (translate v) a
+unbindTerm (Term_Abs b i a)      nv = do (v,e) <- unbind b
+                                         e_ <- unbindTerm e nv
+                                         return $ UTerm_Abs (translate v) i e_ a
+unbindTerm (Term_AbsAnn b i p a) nv = do (v,e) <- unbind b
+                                         e_ <- unbindTerm e nv
+                                         return $ UTerm_AbsAnn (translate v) i e_ p a
+unbindTerm (Term_App e1 e2 a)    nv = UTerm_App <$> unbindTerm e1 nv
+                                                <*> unbindTerm e2 nv
+                                                <*> pure a
+unbindTerm (Term_Let b a)        nv = do ((v, unembed -> e1),e2) <- unbind b
+                                         e1_ <- unbindTerm e1 nv
+                                         e2_ <- unbindTerm e2 nv
+                                         return $ UTerm_Let (translate v) e1_ e2_ a
+unbindTerm (Term_LetAnn b p a)   nv = do ((v, unembed -> e1),e2) <- unbind b
+                                         e1_ <- unbindTerm e1 nv
+                                         e2_ <- unbindTerm e2 nv
+                                         return $ UTerm_LetAnn (translate v) e1_ e2_ p a
+unbindTerm (Term_Match e k cs a) nv = do us <- mapM (\x -> unbindCase x nv) cs
+                                         e_ <- unbindTerm e nv
+                                         return $ UTerm_Match e_ k us a
 -- unbindTerm _ = error "You should never get here"
+
+unbindCase :: Alpha t => (TermVar t, Bind [TermVar t] (Term t), t) -> FnEnv -> FreshM (UCaseAlternative t)
+unbindCase (v,b,a) nv = do (vs, inner) <- unbind b
+                           inner_ <- unbindTerm inner nv
+                           p_ <- case lookup (translate v) nv of
+                                   Nothing -> return Nothing
+                                   Just p  -> Just <$> split p
+                           return $ UCaseAlternative (translate v) (map translate vs) p_ inner_ a
 
 tyvared :: (Applicative m, Fresh m, Rep t) => UTerm t -> m (UTerm (t,TyVar))
 tyvared (UTerm_IntLiteral n a)     = UTerm_IntLiteral <$> pure n <*> upgrade a
@@ -149,10 +155,11 @@ tyvared (UTerm_LetAnn v e1 e2 p a) = UTerm_LetAnn <$> pure (translate v) <*> tyv
                                                   <*> tyvared e2 <*> pure p <*> upgrade a
 tyvared (UTerm_Match e k us a)     = UTerm_Match <$> tyvared e <*> pure k
                                                  <*> traverse caseTyvared us <*> upgrade a
-  where caseTyvared (UCaseAlternative v vs inner t) = UCaseAlternative <$> pure (translate v)
-                                                                       <*> pure (map translate vs)
-                                                                       <*> tyvared inner
-                                                                       <*> upgrade t
+  where caseTyvared (UCaseAlternative v vs p inner t) = UCaseAlternative <$> pure (translate v)
+                                                                         <*> pure (map translate vs)
+                                                                         <*> pure p
+                                                                         <*> tyvared inner
+                                                                         <*> upgrade t
         caseTyvared _ = error "You should never get here"
 tyvared _ = error "You should never get here"
 
@@ -179,8 +186,8 @@ atUAnn f (UTerm_App e1 e2 a)        = UTerm_App (atUAnn f e1) (atUAnn f e2) (f a
 atUAnn f (UTerm_Let x e1 e2 a)      = UTerm_Let (translate x) (atUAnn f e1) (atUAnn f e2) (f a)
 atUAnn f (UTerm_LetAnn x e1 e2 p a) = UTerm_LetAnn (translate x) (atUAnn f e1) (atUAnn f e2) p (f a)
 atUAnn f (UTerm_Match e k us a)     = UTerm_Match (atUAnn f e) k (map atAnnAlternative us) (f a)
-  where atAnnAlternative (UCaseAlternative v vs i b) =
-          UCaseAlternative (translate v) (map translate vs) (atUAnn f i) (f b)
+  where atAnnAlternative (UCaseAlternative v vs p i b) =
+          UCaseAlternative (translate v) (map translate vs) p (atUAnn f i) (f b)
         atAnnAlternative _ = error "You should never get here"
 atUAnn _ _ = error "You should never get here"
 
@@ -200,17 +207,17 @@ instance Generic1m (UTerm_ t) where
     :++: Tag1m (K1m () (UTermVar t) :**: Par1m IsATerm :**: Par1m IsATerm :**: K1m () t) IsATerm
     :++: Tag1m (K1m () (UTermVar t) :**: Par1m IsATerm :**: Par1m IsATerm :**: K1m () PolyType :**: K1m () t) IsATerm
     :++: Tag1m (Par1m IsATerm :**: K1m () String :**: Rec1m [] IsACaseAlternative :**: K1m () t) IsATerm
-    :++: Tag1m (K1m () (UTermVar t) :**: K1m () [UTermVar t] :**: Par1m IsATerm :**: K1m () t) IsACaseAlternative
+    :++: Tag1m (K1m () (UTermVar t) :**: K1m () [UTermVar t] :**: K1m () (Maybe UnboundPolyType) :**: Par1m IsATerm :**: K1m () t) IsACaseAlternative
 
-  from1k (UTerm_IntLiteral_ n      a) = L1m $ Tag1m (K1m n :**: K1m a)
-  from1k (UTerm_Var_ v             a) = R1m $ L1m $ Tag1m (K1m v :**: K1m a)
-  from1k (UTerm_Abs_ x va e        a) = R1m $ R1m $ L1m $ Tag1m (K1m x :**: K1m va :**: Par1m e :**: K1m a)
-  from1k (UTerm_AbsAnn_ x va e p   a) = R1m $ R1m $ R1m $ L1m $ Tag1m (K1m x :**: K1m va :**: Par1m e :**: K1m p :**: K1m a)
-  from1k (UTerm_App_ e1 e2         a) = R1m $ R1m $ R1m $ R1m $ L1m $ Tag1m (Par1m e1 :**: Par1m e2 :**: K1m a)
-  from1k (UTerm_Let_ x e1 e2       a) = R1m $ R1m $ R1m $ R1m $ R1m $ L1m $ Tag1m (K1m x :**: Par1m e1 :**: Par1m e2 :**: K1m a)
-  from1k (UTerm_LetAnn_ x e1 e2 p  a) = R1m $ R1m $ R1m $ R1m $ R1m $ R1m $ L1m $ Tag1m (K1m x :**: Par1m e1 :**: Par1m e2 :**: K1m p :**: K1m a)
-  from1k (UTerm_Match_ e k cs      a) = R1m $ R1m $ R1m $ R1m $ R1m $ R1m $ R1m $ L1m $ Tag1m (Par1m e :**: K1m k :**: Rec1m cs :**: K1m a)
-  from1k (UCaseAlternative_ v vs e a) = R1m $ R1m $ R1m $ R1m $ R1m $ R1m $ R1m $ R1m $ Tag1m (K1m v :**: K1m vs :**: Par1m e :**: K1m a)
+  from1k (UTerm_IntLiteral_ n        a) = L1m $ Tag1m (K1m n :**: K1m a)
+  from1k (UTerm_Var_ v               a) = R1m $ L1m $ Tag1m (K1m v :**: K1m a)
+  from1k (UTerm_Abs_ x va e          a) = R1m $ R1m $ L1m $ Tag1m (K1m x :**: K1m va :**: Par1m e :**: K1m a)
+  from1k (UTerm_AbsAnn_ x va e p     a) = R1m $ R1m $ R1m $ L1m $ Tag1m (K1m x :**: K1m va :**: Par1m e :**: K1m p :**: K1m a)
+  from1k (UTerm_App_ e1 e2           a) = R1m $ R1m $ R1m $ R1m $ L1m $ Tag1m (Par1m e1 :**: Par1m e2 :**: K1m a)
+  from1k (UTerm_Let_ x e1 e2         a) = R1m $ R1m $ R1m $ R1m $ R1m $ L1m $ Tag1m (K1m x :**: Par1m e1 :**: Par1m e2 :**: K1m a)
+  from1k (UTerm_LetAnn_ x e1 e2 p    a) = R1m $ R1m $ R1m $ R1m $ R1m $ R1m $ L1m $ Tag1m (K1m x :**: Par1m e1 :**: Par1m e2 :**: K1m p :**: K1m a)
+  from1k (UTerm_Match_ e k cs        a) = R1m $ R1m $ R1m $ R1m $ R1m $ R1m $ R1m $ L1m $ Tag1m (Par1m e :**: K1m k :**: Rec1m cs :**: K1m a)
+  from1k (UCaseAlternative_ v vs p e a) = R1m $ R1m $ R1m $ R1m $ R1m $ R1m $ R1m $ R1m $ Tag1m (K1m v :**: K1m vs :**: K1m p :**: Par1m e :**: K1m a)
 
   to1k (L1m (Tag1m (K1m n :**: K1m a))) = UTerm_IntLiteral_ n a
   to1k (R1m (L1m (Tag1m (K1m v :**: K1m a)))) = UTerm_Var_ v a
@@ -220,7 +227,7 @@ instance Generic1m (UTerm_ t) where
   to1k (R1m (R1m (R1m (R1m (R1m (L1m (Tag1m (K1m x :**: Par1m e1 :**: Par1m e2 :**: K1m a)))))))) = UTerm_Let_ x e1 e2 a
   to1k (R1m (R1m (R1m (R1m (R1m (R1m (L1m (Tag1m (K1m x :**: Par1m e1 :**: Par1m e2 :**: K1m p :**: K1m a))))))))) = UTerm_LetAnn_ x e1 e2 p a
   to1k (R1m (R1m (R1m (R1m (R1m (R1m (R1m (L1m (Tag1m (Par1m e :**: K1m k :**: Rec1m cs :**: K1m a)))))))))) = UTerm_Match_ e k cs a
-  to1k (R1m (R1m (R1m (R1m (R1m (R1m (R1m (R1m (Tag1m (K1m v :**: K1m vs :**: Par1m e :**: K1m a)))))))))) = UCaseAlternative_ v vs e a
+  to1k (R1m (R1m (R1m (R1m (R1m (R1m (R1m (R1m (Tag1m (K1m v :**: K1m vs :**: K1m p :**: Par1m e :**: K1m a)))))))))) = UCaseAlternative_ v vs p e a
 
 -- Hand-written `RepLib` instance for `unbound`
 instance Rep t => Rep (UTerm t) where
@@ -228,7 +235,8 @@ instance Rep t => Rep (UTerm t) where
              [ Con rIntLiteral ((rep :: R Integer) :+: (rep :: R t) :+: MNil)
              , Con rTermVar    ((rep :: R (UTermVar t)) :+: (rep :: R t) :+: MNil)
              , Con rTermAbs    ((rep :: R (UTermVar t)) :+: (rep :: R t) :+: (rep :: R (UTerm t)) :+: (rep :: R t) :+: MNil)
-             , Con rTermAbsAnn ((rep :: R (UTermVar t)) :+: (rep :: R t) :+: (rep :: R (UTerm t)) :+: (rep :: R PolyType) :+: (rep :: R t) :+: MNil)
+             , Con rTermAbsAnn ((rep :: R (UTermVar t)) :+: (rep :: R t) :+: (rep :: R (UTerm t))
+                                :+: (rep :: R PolyType) :+: (rep :: R t) :+: MNil)
              , Con rTermApp    ((rep :: R (UTerm t)) :+: (rep :: R (UTerm t)) :+: (rep :: R t) :+: MNil)
              , Con rTermLet    ((rep :: R (UTermVar t)) :+: (rep :: R (UTerm t)) :+: (rep :: R (UTerm t)) :+: (rep :: R t) :+: MNil)
              , Con rTermLetAnn ((rep :: R (UTermVar t)) :+: (rep :: R (UTerm t)) :+: (rep :: R (UTerm t))
@@ -239,7 +247,8 @@ instance Rep t => Rep (UTerm t) where
 
 instance (Rep t) => Rep (UCaseAlternative t) where
   rep = Data (DT "UCaseAlternative" ((rep :: R t) :+: MNil))
-             [ Con rCaseAlternative ((rep :: R (UTermVar t)) :+: (rep :: R [UTermVar t]) :+: (rep :: R (UTerm t)) :+: (rep :: R t) :+: MNil) ]
+             [ Con rCaseAlternative ((rep :: R (UTermVar t)) :+: (rep :: R [UTermVar t])
+                                     :+: (rep :: R (Maybe UnboundPolyType)) :+: (rep :: R (UTerm t)) :+: (rep :: R t) :+: MNil) ]
 
 instance ( Rep t, Sat (ctx t), Sat (ctx (UTerm t)), Sat (ctx (UTermVar t))
          , Sat (ctx Integer), Sat (ctx String), Sat (ctx PolyType)
@@ -263,16 +272,18 @@ rAnnTerm1 ct ctt ctv ci cs cp cbl =
         ]
 
 instance ( Rep t, Sat (ctx t)
-         , Sat (ctx (UTerm t)), Sat (ctx (UTermVar t)), Sat (ctx [UTermVar t]) )
+         , Sat (ctx (UTerm t)), Sat (ctx (UTermVar t)), Sat (ctx [UTermVar t])
+         , Sat (ctx (Maybe UnboundPolyType)))
          => Rep1 ctx (UCaseAlternative t) where
-  rep1 = rCaseAlt1 dict dict dict dict
+  rep1 = rCaseAlt1 dict dict dict dict dict
 
 rCaseAlt1 :: forall t ctx. Rep t
           => ctx t -> ctx (UTerm t) -> ctx (UTermVar t) -> ctx [UTermVar t]
+          -> ctx (Maybe UnboundPolyType)
           -> R1 ctx (UCaseAlternative t)
-rCaseAlt1 ct ctt cv cvv =
+rCaseAlt1 ct ctt cv cvv cup =
   Data1 (DT "UCaseAlternative" ((rep :: R t) :+: MNil))
-        [ Con rCaseAlternative (cv :+: cvv :+: ctt :+: ct :+: MNil) ]
+        [ Con rCaseAlternative (cv :+: cvv :+: cup :+: ctt :+: ct :+: MNil) ]
 
 rIntLiteral :: Emb (Integer :*: t :*: Nil) (UTerm t)
 rIntLiteral = Emb { to = \(n :*: t :*: Nil) -> UTerm_IntLiteral n t
@@ -354,9 +365,9 @@ rTermMatch = Emb { to = \(e :*: c :*: alts :*: t :*: Nil) -> UTerm_Match e c alt
                  , fixity = Nonfix
                  }
 
-rCaseAlternative :: Emb (UTermVar t :*: [UTermVar t] :*: UTerm t :*: t :*: Nil) (UCaseAlternative t)
-rCaseAlternative = Emb { to = \(v :*: vs :*: e :*: t :*: Nil) -> UCaseAlternative v vs e t
-                       , from = \(UCaseAlternative v vs e t) -> Just (v :*: vs :*: e :*: t :*: Nil)
+rCaseAlternative :: Emb (UTermVar t :*: [UTermVar t] :*: Maybe UnboundPolyType :*: UTerm t :*: t :*: Nil) (UCaseAlternative t)
+rCaseAlternative = Emb { to = \(v :*: vs :*: p :*: e :*: t :*: Nil) -> UCaseAlternative v vs p e t
+                       , from = \(UCaseAlternative v vs p e t) -> Just (v :*: vs :*: p :*: e :*: t :*: Nil)
                        , labels = Nothing
                        , name = "UCaseAlternative"
                        , fixity = Nonfix
@@ -368,8 +379,8 @@ instance ( Alpha t, Subst (UTerm t) t, Subst (UTerm t) (UCaseAlternative t)
          , Subst t Constraint, Subst t MonoType, Subst t PolyType ) => Subst (UTerm t) (UTerm t) where
   isvar (UTerm_Var v _) = Just (SubstName v)
   isvar _               = Nothing
-instance (Alpha t, Subst t t, Subst t PolyType) => Subst t (UTerm t)
-instance (Alpha t, Subst t t, Subst t PolyType) => Subst t (UCaseAlternative t)
+instance (Alpha t, Subst t t, Subst t Constraint, Subst t MonoType, Subst t PolyType) => Subst t (UTerm t)
+instance (Alpha t, Subst t t, Subst t Constraint, Subst t MonoType, Subst t PolyType) => Subst t (UCaseAlternative t)
 
 instance (Subst t PolyType, Subst t Constraint, Subst t MonoType) => Subst (UTerm t) PolyType
 instance (Subst t MonoType) => Subst (UTerm t) MonoType

@@ -158,5 +158,23 @@ matchRule = rule $ \e branches ->
      \(UTerm_Match _ k alternatives (p,ty)) -> do
 -}
 
+{-
+caseRule :: TypeRule
+caseRule = rule $ \e ->
+  inj (UCaseAlternative_ __ __ (e <<- any_) __) ->>> \(UCaseAlternative con vs _ (p,thisTy) -> do
+    copy [e]
+    env <- use (this.inh_.fnE)
+    -- Work in case alternative
+    eSyn <- use (at e . syn)
+    this . syn .= case eSyn of
+      Error err -> Error err
+      GatherTerm g [w] [eTy] ->
+        case lookup con env of -- Lookup constructor in environment
+          Nothing    -> Error ["Cannot find " ++ show con]
+          Just sigma -> 
+-}
+
+--   GatherCase :: [Constraint] -> [(MonoType, TyScript)] -> Syn IsACaseAlternative
+    
 thisIsNotOk :: a
 thisIsNotOk = error "This should never happen"
