@@ -45,9 +45,10 @@ module Cobalt.Language.Syntax (
 ) where
 
 import Control.Lens hiding ((.=), from, to)
-import Data.List (intercalate)
+import Data.List (intercalate, union)
+import Data.Monoid
 import Text.Parsec.Pos
-import Unbound.LocallyNameless hiding (close)
+import Unbound.LocallyNameless hiding (close, union)
 
 import Cobalt.Types
 
@@ -144,6 +145,11 @@ data Env      = Env { _fnE    :: FnEnv
                     , _ruleE  :: RuleEnv }
 
 $(makeLenses ''Env)
+
+instance Monoid Env where
+  mempty = Env [] [] [] []
+  (Env f1 d1 a1 r1) `mappend` (Env f2 d2 a2 r2) =
+    Env (union f1 f2) (union d1 d2) (a1 ++ a2) (r1 ++ r2)
 
 type RawDefn = (RawTermVar, RawTerm, Maybe PolyType)
 type TyDefn  = (TyTermVar,  TyTerm,  PolyType)
