@@ -1,8 +1,9 @@
 {-# LANGUAGE GADTs #-}
 module Cobalt.Script.Top where
 
+import Data.List (union)
 import Data.Regex.MultiRules
-import Unbound.LocallyNameless hiding (name)
+import Unbound.LocallyNameless hiding (name, union)
 
 import Cobalt.Graph as G
 import Cobalt.Language.Syntax (Env(..), RawDefn)
@@ -20,7 +21,9 @@ gDefn env@(Env fn _ _ rules) (_name,term,_declaredType) = do
   tyv     <- tyvared unbound
   case eval (map syntaxRuleToScriptRule rules ++ mainTypeRules) (IndexIndependent env) tyv of
     err@(Error _) -> return $ (err, tyv)
-    GatherTerm g w v -> return (GatherTerm g (map simplifyScript w) v, tyv)
+    GatherTerm g [w] v -> case removeExistsScript w of
+      (w2, newG, _) -> return (GatherTerm (union g newG) [simplifyScript w2] v, tyv)
+    _ -> error "This should never happen"
 
 gDefns :: Env -> [(RawDefn,Bool)] -> [(Gathered, AnnUTerm TyVar)]
 gDefns env terms = runFreshM $ mapM (\(term,_fail) -> gDefn env term) terms

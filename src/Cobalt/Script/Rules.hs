@@ -42,7 +42,7 @@ type Errors = [String]
 data Syn (ix :: Ix) where
   Error      :: Errors -> Syn ix
   GatherTerm :: [Constraint] -> [TyScript] -> [TyVar]  -> Syn IsATerm
-  GatherCase :: [Constraint] -> [(MonoType, TyScript)] -> Syn IsACaseAlternative
+  GatherCase :: [([Constraint], [Constraint], MonoType, TyScript)] -> Syn IsACaseAlternative
 
 type Gathered = Syn IsATerm
 
@@ -69,11 +69,11 @@ ty :: Functor f => ([TyVar] -> f [TyVar])
    -> ([Constraint],[TyScript],[TyVar]) -> f ([Constraint],[TyScript],[TyVar])
 ty     = _3
 
-_Case :: Prism' (Syn IsACaseAlternative) ([Constraint], [(MonoType, TyScript)])
-_Case = prism (\(g,w) -> GatherCase g w)
+_Case :: Prism' (Syn IsACaseAlternative) [([Constraint], [Constraint], MonoType, TyScript)]
+_Case = prism (\g -> GatherCase g)
               (\x -> case x of
-                       GatherCase g w -> Right (g,w)
-                       _              -> Left x)
+                       GatherCase g -> Right g
+                       _            -> Left x)
 
 -- Internal accessors
 termWanted :: Gathered -> [TyScript]
@@ -92,11 +92,11 @@ instance Monoid (Syn IsATerm) where
   (GatherTerm g1 w1 v1) `mappend` (GatherTerm g2 w2 v2) = GatherTerm (g1 ++ g2) (w1 ++ w2) (v1 ++ v2)
 
 instance Monoid (Syn IsACaseAlternative) where
-  mempty = GatherCase [] []
+  mempty = GatherCase []
   (Error e1) `mappend` (Error e2) = Error (union e1 e2)
   e@(Error _) `mappend` _ = e
   _ `mappend` e@(Error _) = e
-  (GatherCase g1 w1) `mappend` (GatherCase g2 w2) = GatherCase (g1 ++ g2) (w1 ++ w2)
+  (GatherCase i1) `mappend` (GatherCase i2) = GatherCase (i1 ++ i2)
 
 type Inh = Rx.IndexIndependent Env
 

@@ -182,8 +182,12 @@ showJsonScript (Asym e1 e2 (_,t)) =
   object [ "text"  .= ("asym" :: String)
          , "tags"  .= toList t
          , "nodes" .= map showJsonScript [e1, e2] ]
-showJsonScript (Exists _ _ _) =
-  error "Not yet implemented"
+showJsonScript (Exists v q w) =
+  object [ "text"  .= ("∃" ++ showWithGreek v :: String)
+         , "nodes" .= [ object [ "text"  .= ("assume" :: String)
+                               , "nodes" .= map (justText . textJsonConstraint) q ]
+                      , object [ "text"  .= ("implies" :: String)
+                               , "nodes" .= [ showJsonScript w ] ] ] ]
 
 justText :: String -> Value
 justText s = object [ "text" .= s ]

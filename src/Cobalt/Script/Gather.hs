@@ -1,5 +1,6 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ViewPatterns #-}
 module Cobalt.Script.Gather (
   Syn(..)
 , Gathered
@@ -7,6 +8,7 @@ module Cobalt.Script.Gather (
 ) where
 
 import Control.Lens hiding (at)
+import Data.List (insert, (\\))
 import Data.Monoid
 import Data.Regex.MultiGenerics hiding (var)
 import Data.Regex.MultiRules
@@ -27,6 +29,8 @@ mainTypeRules = [ intLiteralRule
                 , appRule
                 , letRule
                 , letAnnRule
+                -- , matchRule
+                -- , caseRule
                 ]
 
 intLiteralRule :: TypeRule
@@ -68,7 +72,7 @@ absRule = rule $ \inner ->
 
 absAnnRule :: TypeRule
 absAnnRule = rule $ \inner ->
-  inj (UTerm_AbsAnn_ __ __ (inner <<- any_) __ __) ->>> \(UTerm_AbsAnn v (vpos,vty) _ tyAnn (p,thisTy)) -> do
+  inj (UTerm_AbsAnn_ __ __ (inner <<- any_) __ __) ->>> \(UTerm_AbsAnn v (vpos,vty) _ (tyAnn,_) (p,thisTy)) -> do
     copy [inner]
     at inner . inh_ . fnE %= ((translate v, tyAnn) : ) -- Add to environment
     innerSyn <- use (at inner . syn)
@@ -130,51 +134,79 @@ letRule = rule $ \(e1, e2) ->
 
 letAnnRule :: TypeRule
 letAnnRule = rule $ \(e1, e2) ->
-  inj (UTerm_LetAnn_ __ (e1 <<- any_) (e2 <<- any_) __ __) ->>> \(UTerm_LetAnn x _ _ tyAnn (p,thisTy)) -> do
-    copy [e1, e2]
-    e1Syn <- use (at e1 . syn)
-    -- Change second part environment, now we have the type!
-    at e2 . inh_ . fnE %= ((translate x, tyAnn) : )
-    e2Syn <- use (at e2 . syn)
-    this.syn .= mappend e1Syn e2Syn
-    this.syn._Term.given .= case (e1Syn, e2Syn) of
-      (GatherTerm g1 _ _, GatherTerm g2 _ _) -> g1 ++ g2
-      _ -> thisIsNotOk
-    this.syn._Term.wanted .= case (e1Syn, e2Syn) of
-      (GatherTerm _ [w1] [ity1], GatherTerm _ [w2] [ity2]) -> case tyAnn of
-        PolyType_Mono [] m ->
-          [ Merge [ w1, w2
-                  , Singleton (Constraint_Unify (var thisTy) (var ity2)) (Just p, Nothing)
-                  , Singleton (Constraint_Unify (var ity1) m) (Just p, Nothing) ]
-                  (Just p, Nothing) ]
-        _ -> error "Not yet implemented for polytypes"
-      _ -> thisIsNotOk
-    this.syn._Term.ty .= [thisTy]
+  inj (UTerm_LetAnn_ __ (e1 <<- any_) (e2 <<- any_) __ __) ->>>
+    \(UTerm_LetAnn x _ _ (tyAnn,(q1,t1,_)) (p,thisTy)) -> do
+      let isMono = case tyAnn of
+                     PolyType_Mono [] m -> Just m
+                     _                  -> Nothing
+      -- Work on environment
+      copy [e1, e2]
+      env <- use (this.inh_.fnE)
+      -- Change second part environment, now we have the type!
+      at e2 . inh_ . fnE %= ((translate x, tyAnn) : )
+      -- Create the output script
+      e1Syn <- use (at e1 . syn)
+      e2Syn <- use (at e2 . syn)
+      this.syn .= mappend e1Syn e2Syn
+      this.syn._Term.given .= case (isMono, e1Syn, e2Syn) of
+        (Just _,  GatherTerm g1 _ _, GatherTerm g2 _ _) -> g1 ++ g2
+        (Nothing, _                , GatherTerm g2 _ _) -> g2
+        _ -> thisIsNotOk
+      this.syn._Term.wanted .= case (isMono, e1Syn, e2Syn) of
+        (Just m, GatherTerm _ [w1] [ity1], GatherTerm _ [w2] [ity2]) -> 
+            [ Merge [ w1, Singleton (Constraint_Unify (var ity1) m) (Just p, Nothing)
+                    , w2, Singleton (Constraint_Unify (var thisTy) (var ity2)) (Just p, Nothing)
+                    ] (Just p, Nothing) ]
+        (Nothing, GatherTerm g1 [w1] [ity1], GatherTerm _ [w2] [ity2]) -> 
+            let vars = insert ity1 (fvScript w1) \\ fv env
+             in [ Merge [ Exists vars (q1 ++ g1) (Merge [ Singleton (Constraint_Unify (var ity1) t1) (Just p, Nothing)
+                                                        , w1 ] (Just p, Nothing))
+                        , w2, Singleton (Constraint_Unify (var thisTy) (var ity2)) (Just p, Nothing)
+                        ] (Just p, Nothing) ]
+        _ -> thisIsNotOk
+      this.syn._Term.ty .= [thisTy]
 
 {-
 matchRule :: TypeRule
-matchRule = rule $ \e branches ->
-  inj (UTerm_Match_ (e <<- any_) __ [UCaseAlternative __ __ (branches <<- any_)] __) ->>
-     \(UTerm_Match _ k alternatives (p,ty)) -> do
--}
+matchRule = rule $ \(e, branches) ->
+  inj (UTerm_Match_ (e <<- any_) __ [branches <<- any_] __) ->>> \(UTerm_Match _ k _ (p,ty)) -> do
+        copy [e]
+        copy [branches]
+        einfo <- use (at e . syn)
+        binfo <- use (at branches . syn)
+        this.syn .= case (einfo, binfo) of
+          (Error eerr, Error berr) -> Error (eerr ++ berr)
+          (Error eerr, _) -> Error eerr
+          (_, Error berr) -> Error berr
+          _ -> mempty
+        this.syn._Term .= createMatches binfo
+
+createMatches :: -}
 
 {-
 caseRule :: TypeRule
 caseRule = rule $ \e ->
-  inj (UCaseAlternative_ __ __ (e <<- any_) __) ->>> \(UCaseAlternative con vs _ (p,thisTy) -> do
+  inj (UCaseAlternative_ __ __ __ (e <<- any_) __) ->>> \(UCaseAlternative con vs caseTy _ (p,thisTy)) -> do
+    let caseTy' = case caseTy of
+                    Just (q, arr -> (argsT, MonoType_Con dname convars), _) -> Just (q, argsT, dname, convars)
+                    _ -> Nothing
+    -- Work on new environment
     copy [e]
-    env <- use (this.inh_.fnE)
+    at e . inh_ . fnE %= case caseTy' of
+      Nothing -> id
+      Just (_,argsT,_,_) -> ((zip (map translate vs) (map (PolyType_Mono []) argsT)) ++) -- Add to environment info from matching
     -- Work in case alternative
     eSyn <- use (at e . syn)
-    this . syn .= case eSyn of
-      Error err -> Error err
-      GatherTerm g [w] [eTy] ->
-        case lookup con env of -- Lookup constructor in environment
-          Nothing    -> Error ["Cannot find " ++ show con]
-          Just sigma -> 
--}
-
---   GatherCase :: [Constraint] -> [(MonoType, TyScript)] -> Syn IsACaseAlternative
+    this.syn .= case caseTy' of
+      Nothing -> case eSyn of
+        Error err -> Error $ ("Cannot find " ++ show con) : err
+        _ -> Error ["Cannot find " ++ show con]
+      Just (q,_,dname,convars) -> case eSyn of
+        Error err -> Error err
+        GatherTerm g [w] [eTy] ->
+          let resultC = Singleton (Constraint_Unify (var thisTy) (var eTy)) (Just p, Nothing)
+           in GatherCase [(g, q, MonoType_Con dname convars, Asym resultC w (Just p, Nothing))]
+        _ -> thisIsNotOk -}
     
 thisIsNotOk :: a
 thisIsNotOk = error "This should never happen"
