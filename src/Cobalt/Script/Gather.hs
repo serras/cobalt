@@ -30,7 +30,7 @@ mainTypeRules = [ intLiteralRule
                 , letRule
                 , letAnnRule
                 -- , matchRule
-                -- , caseRule
+                , caseRule
                 ]
 
 intLiteralRule :: TypeRule
@@ -180,15 +180,13 @@ matchRule = rule $ \(e, branches) ->
           (_, Error berr) -> Error berr
           _ -> mempty
         this.syn._Term .= createMatches binfo
+-}
 
-createMatches :: -}
-
-{-
 caseRule :: TypeRule
 caseRule = rule $ \e ->
   inj (UCaseAlternative_ __ __ __ (e <<- any_) __) ->>> \(UCaseAlternative con vs caseTy _ (p,thisTy)) -> do
     let caseTy' = case caseTy of
-                    Just (q, arr -> (argsT, MonoType_Con dname convars), _) -> Just (q, argsT, dname, convars)
+                    Just (_,(q, arr -> (argsT, MonoType_Con dname convars), _)) -> Just (q, argsT, dname, convars)
                     _ -> Nothing
     -- Work on new environment
     copy [e]
@@ -206,7 +204,7 @@ caseRule = rule $ \e ->
         GatherTerm g [w] [eTy] ->
           let resultC = Singleton (Constraint_Unify (var thisTy) (var eTy)) (Just p, Nothing)
            in GatherCase [(g, q, MonoType_Con dname convars, Asym resultC w (Just p, Nothing))]
-        _ -> thisIsNotOk -}
+        _ -> thisIsNotOk
     
 thisIsNotOk :: a
 thisIsNotOk = error "This should never happen"

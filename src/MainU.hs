@@ -232,12 +232,15 @@ showAnnTermJson (UTerm_LetAnn x e1 e2 p (_,t)) =
   , object [ "text"  .= ("in" :: String)
            , "tags"  .= [showWithGreek t]
            , "nodes" .= showAnnTermJson e2 ] ]
-showAnnTermJson (UTerm_Match e c bs (_,t)) =
+showAnnTermJson (UTerm_Match e c k bs (_,t)) =
   let bs' = map (\(UCaseAlternative d xs _ es _) ->
                     object [ "text"  .= ("| " ++ intercalate " " (map show (d:xs)) ++ " →")
                            , "nodes" .= showAnnTermJson es]) bs
    in [ object [ "text"  .= ("match" :: String)
-               , "nodes" .= showAnnTermJson e ]
+               , "tags"  .= case k of
+                              Nothing -> ["?" :: String]
+                              Just ty -> [showWithGreek ty]
+               , "nodes" .= showAnnTermJson e]
       , object [ "text"  .= ("with '" ++ c)
                , "tags"  .= [showWithGreek t]
                , "nodes" .= bs' ] ]
