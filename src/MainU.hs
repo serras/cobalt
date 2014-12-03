@@ -233,8 +233,13 @@ showAnnTermJson (UTerm_LetAnn x e1 e2 p (_,t)) =
            , "tags"  .= [showWithGreek t]
            , "nodes" .= showAnnTermJson e2 ] ]
 showAnnTermJson (UTerm_Match e c k bs (_,t)) =
-  let bs' = map (\(UCaseAlternative d xs _ es _) ->
+  let bs' = map (\(UCaseAlternative d xs casep es _) ->
                     object [ "text"  .= ("| " ++ intercalate " " (map show (d:xs)) ++ " →")
+                           , "tags"  .= case casep of
+                                          Nothing -> ["?" :: String]
+                                          Just (_,(cpq,cpw,cpv)) -> [showWithGreek cpv ++ " "
+                                                                     ++ showWithGreek cpq ++ " "
+                                                                     ++ showWithGreek cpw]
                            , "nodes" .= showAnnTermJson es]) bs
    in [ object [ "text"  .= ("match" :: String)
                , "tags"  .= case k of

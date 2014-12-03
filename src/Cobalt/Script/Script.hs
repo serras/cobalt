@@ -6,6 +6,7 @@ module Cobalt.Script.Script (
   Script(..), TyScript
 , toConstraintList
 , fvScript
+, substScript
 , simplifyScript
 , removeExistsScript
 ) where

@@ -21,8 +21,11 @@ gDefn env@(Env fn dat _ rules) (_name,term,_declaredType) = do
   tyv     <- tyvared unbound
   case eval (map syntaxRuleToScriptRule rules ++ mainTypeRules) (IndexIndependent env) tyv of
     err@(Error _) -> return $ (err, tyv)
-    GatherTerm g [w] v -> case removeExistsScript w of
-      (w2, newG, _) -> return (GatherTerm (union g newG) [simplifyScript w2] v, tyv)
+    GatherTerm g [w] v ->
+      -- Chose whether to apply exists removal or not
+      return (GatherTerm g [simplifyScript w] v, tyv)
+      -- case removeExistsScript w of
+      --  (w2, newG, _) -> return (GatherTerm (union g newG) [simplifyScript w2] v, tyv)
     _ -> error "This should never happen"
 
 gDefns :: Env -> [(RawDefn,Bool)] -> [(Gathered, AnnUTerm TyVar)]

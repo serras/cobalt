@@ -19,6 +19,7 @@ module Cobalt.Types (
 , pattern (:-->:)
 , isFamilyFree
 , arr
+, unarr
 , var
   -- ** From poly to mono
 , split
@@ -138,6 +139,10 @@ isFamilyFree (MonoType_Arrow a1 a2) = isFamilyFree a1 && isFamilyFree a2
 arr :: MonoType -> ([MonoType],MonoType)
 arr (s :-->: r) = let (s',r') = arr r in (s:s', r')
 arr m = ([], m)
+
+unarr :: [MonoType] -> MonoType -> MonoType
+unarr []     m = m
+unarr (a:as) m = a :-->: (unarr as m)
 
 class VariableInjection v where
   var :: TyVar -> v

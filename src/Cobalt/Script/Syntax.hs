@@ -111,6 +111,23 @@ pattern UCaseAlternative k vs p e a = Fix (UCaseAlternative_ k vs p e a)
 splitPlus :: PolyType -> FreshM UnboundPolyType
 splitPlus p = (p,) <$> split p
 
+splitNormaal :: PolyType -> FreshM UnboundPolyType
+splitNormaal p = do
+  (q,arr -> (args,result),v) <- split p
+  (newResult, newQs, newVars) <- normaalResult result
+  return (p, (q ++ newQs, unarr args newResult, v ++ newVars))
+
+normaalResult :: MonoType -> FreshM (MonoType, [Constraint], [TyVar])
+normaalResult (MonoType_Con k vs) = do (vs2, q, tyv) <- normaalResultVars vs
+                                       return (MonoType_Con k vs2, q, tyv)
+  where normaalResultVars [] = return ([], [], [])
+        normaalResultVars (v@(MonoType_Var _) : r) = do (r2, q, tyv) <- normaalResultVars r
+                                                        return (v : r2, q, tyv)
+        normaalResultVars (m : r) = do (r2, q, tyv) <- normaalResultVars r
+                                       x <- fresh (s2n "a")
+                                       return (var x : r2, Constraint_Unify (var x) m : q, x : tyv)
+normaalResult other = return (other, [], [])
+
 -- Note: we need the FnEnv to be able to find the type in constructors.
 unbindTerm :: Alpha t => Term t -> FnEnv -> DataEnv -> FreshM (UTerm t)
 unbindTerm (Term_IntLiteral n a) _  _  = return $ UTerm_IntLiteral n a
@@ -147,7 +164,7 @@ unbindCase (v,b,a) nv dv = do (vs, inner) <- unbind b
                               inner_ <- unbindTerm inner nv dv
                               p_ <- case lookup (translate v) nv of
                                       Nothing -> return Nothing
-                                      Just p  -> Just <$> splitPlus p
+                                      Just p  -> Just <$> splitNormaal p
                               return $ UCaseAlternative (translate v) (map translate vs) p_ inner_ a
 
 tyvared :: (Applicative m, Fresh m, Rep t) => UTerm t -> m (UTerm (t,TyVar))

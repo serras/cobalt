@@ -11,6 +11,7 @@ module Cobalt.Script.Rules (
 , Inh
 , Syn(..)
 , Gathered
+, GatherCaseInfo(..)
 , _Error
 , _Term
 , given
@@ -42,7 +43,15 @@ type Errors = [String]
 data Syn (ix :: Ix) where
   Error      :: Errors -> Syn ix
   GatherTerm :: [Constraint] -> [TyScript] -> [TyVar]  -> Syn IsATerm
-  GatherCase :: [([Constraint], [Constraint], MonoType, TyScript)] -> Syn IsACaseAlternative
+  GatherCase :: [GatherCaseInfo] -> Syn IsACaseAlternative
+
+data GatherCaseInfo = GatherCaseInfo { _extraConstraints :: [Constraint]
+                                     , _hiddenVars :: [TyVar]
+                                     , _konQ :: [Constraint]
+                                     , _konT :: MonoType
+                                     , _script :: TyScript
+                                     , _thisVar :: TyVar
+                                     }
 
 type Gathered = Syn IsATerm
 
@@ -69,7 +78,7 @@ ty :: Functor f => ([TyVar] -> f [TyVar])
    -> ([Constraint],[TyScript],[TyVar]) -> f ([Constraint],[TyScript],[TyVar])
 ty     = _3
 
-_Case :: Prism' (Syn IsACaseAlternative) [([Constraint], [Constraint], MonoType, TyScript)]
+_Case :: Prism' (Syn IsACaseAlternative) [GatherCaseInfo]
 _Case = prism (\g -> GatherCase g)
               (\x -> case x of
                        GatherCase g -> Right g
