@@ -215,7 +215,7 @@ showAnnTermJson (UTerm_Abs x _ e (_,t)) =
   [ object [ "text"  .= ("λ " ++ show x ++ " →")
            , "tags"  .= [showWithGreek t]
            , "nodes" .= showAnnTermJson e ] ]
-showAnnTermJson (UTerm_AbsAnn x _ e p (_,t)) =
+showAnnTermJson (UTerm_AbsAnn x _ e (p,_) (_,t)) =
   [ object [ "text"  .= ("λ (" ++ show x ++ " :: " ++ showWithGreek p ++ ") →")
            , "tags"  .= [showWithGreek t]
            , "nodes" .= showAnnTermJson e ] ]
@@ -229,25 +229,25 @@ showAnnTermJson (UTerm_Let x e1 e2 (_,t)) =
   , object [ "text"  .= ("in" :: String)
            , "tags"  .= [showWithGreek t]
            , "nodes" .= showAnnTermJson e2 ] ]
-showAnnTermJson (UTerm_LetAnn x e1 e2 p (_,t)) =
+showAnnTermJson (UTerm_LetAnn x e1 e2 (p,_) (_,t)) =
   [ object [ "text"  .= ("let " ++ show x ++ " :: " ++ showWithGreek p ++ " =")
            , "nodes" .= showAnnTermJson e1 ]
   , object [ "text"  .= ("in" :: String)
            , "tags"  .= [showWithGreek t]
            , "nodes" .= showAnnTermJson e2 ] ]
-showAnnTermJson (UTerm_Match e c k bs (_,t)) =
-  let bs' = map (\(UCaseAlternative d xs casep es _) ->
+showAnnTermJson (UTerm_Match e c _k bs (_,t)) =
+  let bs' = map (\(UCaseAlternative d xs _casep es _) ->
                     object [ "text"  .= ("| " ++ intercalate " " (map show (d:xs)) ++ " →")
-                           , "tags"  .= case casep of
-                                          Nothing -> ["?" :: String]
-                                          Just (_,(cpq,cpw,cpv)) -> [showWithGreek cpv ++ " "
-                                                                     ++ showWithGreek cpq ++ " "
-                                                                     ++ showWithGreek cpw]
+                           -- , "tags"  .= case casep of
+                           --                Nothing -> ["?" :: String]
+                           --                Just (_,(cpq,cpw,cpv)) -> [showWithGreek cpv ++ " "
+                           --                                           ++ showWithGreek cpq ++ " "
+                           --                                           ++ showWithGreek cpw]
                            , "nodes" .= showAnnTermJson es]) bs
    in [ object [ "text"  .= ("match" :: String)
-               , "tags"  .= case k of
-                              Nothing -> ["?" :: String]
-                              Just ty -> [showWithGreek ty]
+               -- , "tags"  .= case k of
+               --                Nothing -> ["?" :: String]
+               --                Just ty -> [showWithGreek ty]
                , "nodes" .= showAnnTermJson e]
       , object [ "text"  .= ("with '" ++ c)
                , "tags"  .= [showWithGreek t]
