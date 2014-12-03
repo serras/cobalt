@@ -35,12 +35,18 @@ mainTypeRules = [ intLiteralRule
                 , caseRule
                 ]
 
+pattern SingletonC c p     = Singleton c (Just p, Nothing)
+pattern SingUnifyC m1 m2 p = SingletonC (Constraint_Unify m1 m2) p
+pattern SingInstC  m  s  p = SingletonC (Constraint_Inst  m  s ) p
+pattern SingEqualC m  s  p = SingletonC (Constraint_Equal m  s ) p
+pattern AsymC      c1 c2 p = Asym c1 c2 (Just p, Nothing)
+pattern MergeC     cs    p = Merge cs (Just p, Nothing)
+
 intLiteralRule :: TypeRule
 intLiteralRule = rule0 $
   inj (UTerm_IntLiteral_ __ __) ->>> \(UTerm_IntLiteral _ (p,thisTy)) -> do
     this.syn._Term.given  .= []
-    this.syn._Term.wanted .= [Singleton (Constraint_Unify (var thisTy) MonoType_Int)
-                                        (Just p, Just "Numeric literal must be of type Int")]
+    this.syn._Term.wanted .= [SingUnifyC (var thisTy) MonoType_Int p]
     this.syn._Term.ty     .= [thisTy]
 
 varRule :: TypeRule
@@ -50,8 +56,7 @@ varRule = rule0 $
     case lookup (translate v) env of
       Nothing    -> this.syn .= Error ["Cannot find " ++ show v]
       Just sigma -> do this.syn._Term.given  .= []
-                       this.syn._Term.wanted .= [Singleton (Constraint_Inst (var thisTy) sigma)
-                                                           (Just p, Just $ show v ++ " is typed from the environment")]
+                       this.syn._Term.wanted .= [SingInstC (var thisTy) sigma p]
                        this.syn._Term.ty     .= [thisTy]
 
 absRule :: TypeRule
@@ -64,11 +69,8 @@ absRule = rule $ \inner ->
     this.syn._Term.given .= case innerSyn of
       GatherTerm g _ _ -> g
       _                -> thisIsNotOk
-    let msg = Just "Function must have an arrow type"
     this.syn._Term.wanted .= case innerSyn of
-      GatherTerm _ [w] [ity] -> [Asym (Singleton (Constraint_Unify (var thisTy) (var vty :-->: var ity))
-                                                 (Just p, msg))
-                                      w (Just p, msg)]
+      GatherTerm _ [w] [ity] -> [AsymC (SingUnifyC (var thisTy) (var vty :-->: var ity) p) w p]
       _                      -> thisIsNotOk
     this.syn._Term.ty .= [thisTy]
 
@@ -82,14 +84,11 @@ absAnnRule = rule $ \inner ->
     this.syn._Term.given .= case innerSyn of
       GatherTerm g _ _ -> g
       _                -> thisIsNotOk
-    let msg = Just "Function must have an arrow type"
     this.syn._Term.wanted .= case innerSyn of
       GatherTerm _ [w] [ity] -> case tyAnn of
-        PolyType_Mono [] m -> [Asym (Singleton (Constraint_Unify (var thisTy) (m :-->: var ity)) (Just p, msg))
-                                    w (Just p, msg)]
-        _ -> [Asym (Merge [ Singleton (Constraint_Unify (var thisTy) (var vty :-->: var ity)) (Just p, msg)
-                          , Singleton (Constraint_Equal (var vty) tyAnn) (Just vpos, msg) ] (Just p, msg))
-                   w (Just p, msg)]
+        PolyType_Mono [] m -> [AsymC (SingUnifyC (var thisTy) (m :-->: var ity) p) w p]
+        _ -> [AsymC (MergeC [ SingUnifyC (var thisTy) (var vty :-->: var ity) p
+                            , SingEqualC (var vty) tyAnn vpos ] p) w p]
       _ -> thisIsNotOk
     this.syn._Term.ty .= [thisTy]
 
@@ -103,13 +102,9 @@ appRule = rule $ \(e1, e2) ->
     this.syn._Term.given  .= case (e1Syn, e2Syn) of
       (GatherTerm g1 _ _, GatherTerm g2 _ _) -> g1 ++ g2
       _ -> thisIsNotOk
-    let msg = Just "Application must have correct domain and codomain"
     this.syn._Term.wanted .= case (e1Syn, e2Syn) of
       (GatherTerm _ [w1] [ity1], GatherTerm _ [w2] [ity2]) ->
-        [Asym (Singleton (Constraint_Unify (var ity1) (var ity2 :-->: var thisTy))
-                         (Just p, msg))
-              (Merge [w1,w2] (Just p, Just "Expressions must be compatible"))
-              (Just p, msg)]
+        [AsymC (SingUnifyC (var ity1) (var ity2 :-->: var thisTy) p) (MergeC [w1,w2] p) p]
       _ -> thisIsNotOk
     this.syn._Term.ty .= [thisTy]
 
@@ -129,8 +124,7 @@ letRule = rule $ \(e1, e2) ->
       _ -> thisIsNotOk
     this.syn._Term.wanted .= case (e1Syn, e2Syn) of
       (GatherTerm _ [w1] _, GatherTerm _ [w2] [ity2]) ->
-        [ Merge [w1, w2, Singleton (Constraint_Unify (var thisTy) (var ity2)) (Just p, Nothing)]
-                (Just p, Nothing) ]
+        [MergeC [w1, w2, SingUnifyC (var thisTy) (var ity2) p] p]
       _ -> thisIsNotOk
     this.syn._Term.ty .= [thisTy]
 
@@ -156,15 +150,11 @@ letAnnRule = rule $ \(e1, e2) ->
         _ -> thisIsNotOk
       this.syn._Term.wanted .= case (isMono, e1Syn, e2Syn) of
         (Just m, GatherTerm _ [w1] [ity1], GatherTerm _ [w2] [ity2]) -> 
-            [ Merge [ w1, Singleton (Constraint_Unify (var ity1) m) (Just p, Nothing)
-                    , w2, Singleton (Constraint_Unify (var thisTy) (var ity2)) (Just p, Nothing)
-                    ] (Just p, Nothing) ]
+            [MergeC [ w1, SingUnifyC (var ity1) m p, w2, SingUnifyC (var thisTy) (var ity2) p ] p]
         (Nothing, GatherTerm g1 [w1] [ity1], GatherTerm _ [w2] [ity2]) -> 
             let vars = insert ity1 (fvScript w1) \\ nub (fv env)
-             in [ Merge [ Exists vars (q1 ++ g1) (Merge [ Singleton (Constraint_Unify (var ity1) t1) (Just p, Nothing)
-                                                        , w1 ] (Just p, Nothing))
-                        , w2, Singleton (Constraint_Unify (var thisTy) (var ity2)) (Just p, Nothing)
-                        ] (Just p, Nothing) ]
+             in [ MergeC [ Exists vars (q1 ++ g1) (MergeC [ w1, SingUnifyC (var ity1) t1 p ] p)
+                         , w2, SingUnifyC (var thisTy) (var ity2) p ] p ]
         _ -> thisIsNotOk
       this.syn._Term.ty .= [thisTy]
 
@@ -198,9 +188,8 @@ matchRule = rule $ \(e, branches) ->
           (GatherTerm _ [we] [te], GatherCase cases, Just mko) ->
              let caseInfos = map (generateCase (nub (fv env)) thisTy p mko) cases in
              case filter (is _Nothing) caseInfos of
-               [] -> [ Asym (Singleton (Constraint_Unify (var te) mko) (Just p, Just "Expression in match must be of the specified type"))
-                            (Merge (we : map (fst . fromJust) caseInfos) (Just p, Nothing))
-                            (Just p, Nothing) ]
+               [] -> [ AsymC (SingUnifyC (var te) mko p)
+                             (MergeC (we : map (fst . fromJust) caseInfos) p) p ]
                _ -> thisIsNotOk
           _ -> thisIsNotOk
         this.syn._Term.ty .= [thisTy]
@@ -209,16 +198,14 @@ generateCase :: [TyVar] -> TyVar -> (SourcePos,SourcePos) -> MonoType -> GatherC
              -> Maybe (TyScript, [Constraint])
 generateCase envVars thisTy p (MonoType_Con k vars) (GatherCaseInfo g betaVars q (MonoType_Con kc varsc) s caseTy)
   | k == kc, [] <- betaVars, [] <- q =
-     Just ( Asym (Singleton (Constraint_Unify (var thisTy) (var caseTy)) (Just p, Nothing))
-                 (foldr (\(MonoType_Var v1, v2) curS -> substScript v1 v2 curS) s (zip varsc vars))
-                 (Just p, Nothing)
+     Just ( AsymC (SingUnifyC (var thisTy) (var caseTy) p)
+                  (foldr (\(MonoType_Var v1, v2) curS -> substScript v1 v2 curS) s (zip varsc vars)) p
           , g )
   | k == kc =  -- Existential case
      let evars = nub (union (fv varsc) (fvScript s)) \\ union envVars (fv vars)
       in Just ( Exists evars (g ++ q ++ zipWith Constraint_Unify vars varsc)
-                       (Asym (Singleton (Constraint_Unify (var thisTy) (var caseTy)) (Just p, Nothing))
-                             (foldr (\(MonoType_Var v1, v2) curS -> substScript v1 v2 curS) s (zip varsc vars))
-                             (Just p, Nothing))
+                       (AsymC (SingUnifyC (var thisTy) (var caseTy) p)
+                              (foldr (\(MonoType_Var v1, v2) curS -> substScript v1 v2 curS) s (zip varsc vars)) p)
               , [] )
   | otherwise = Nothing
 generateCase _ _ _ _ _ = thisIsNotOk

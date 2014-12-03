@@ -16,6 +16,7 @@ import Web.Scotty
 
 import Cobalt.Language.Parser (parseFile)
 import Cobalt.Language.Syntax
+import Cobalt.OutsideIn.Solver (Solution(..))
 import Cobalt.Script.Gather
 import Cobalt.Script.Script
 import Cobalt.Script.Solver
@@ -96,8 +97,8 @@ solveDefns env defns = do
   let sols = tcDefns env defns
   mapM_ showSolved (zip defns sols)
 
-showGathered :: ((RawDefn,Bool), (Gathered, AnnUTerm TyVar)) -> IO ()
-showGathered (((n,_,_),_), (Error errors, _)) = do
+showGathered :: ((RawDefn,Bool), (Gathered, AnnUTerm TyVar, [TyVar])) -> IO ()
+showGathered (((n,_,_),_), (Error errors, _, _)) = do
   setSGR [SetColor Foreground Vivid Blue]
   putStr (name2String n)
   setSGR [Reset]
@@ -107,7 +108,7 @@ showGathered (((n,_,_),_), (Error errors, _)) = do
   setSGR [Reset]
   mapM_ putStrLn errors
   putStrLn ""
-showGathered (((n,_,_),_), (GatherTerm _ [w] _, _)) = do
+showGathered (((n,_,_),_), (GatherTerm _ [w] _, _, _)) = do
   setSGR [SetColor Foreground Vivid Blue]
   putStrLn (name2String n)
   setSGR [Reset]
@@ -130,14 +131,14 @@ showSolved (((n,_,_),_), sol) = do
   putStrLn ""
 
 -- JSON PART
-jsonScript :: ((RawDefn,Bool), (Gathered, AnnUTerm TyVar)) -> Value
-jsonScript (((n,_,_),_), (Error e, _)) = 
+jsonScript :: ((RawDefn,Bool), (Gathered, AnnUTerm TyVar, [TyVar])) -> Value
+jsonScript (((n,_,_),_), (Error e, _, _)) = 
   object [ "text" .= name2String n
          -- , "tags" .= [withGreek e]
          , "nodes" .= map justText e
          , "color" .= ("white" :: String)
          , "backColor" .= ("#F58471" :: String) ] -- red
-jsonScript (((n,_,_),_), (GatherTerm g w _, term)) =
+jsonScript (((n,_,_),_), (GatherTerm g w _, term, _)) =
   object [ "text" .= name2String n
          -- , "tags" .= [showWithGreek t]
          , "color" .= ("white" :: String)
@@ -149,8 +150,8 @@ jsonScript (((n,_,_),_), (GatherTerm g w _, term)) =
                       , object [ "text"  .= ("wanted" :: String)
                                , "nodes" .= map showJsonScript w ] ] ]
 
-jsonTypechecked :: ((RawDefn,Bool), (ScriptSolution, [(TyVar, MonoType)], AnnUTerm MonoType)) -> Value
-jsonTypechecked (((n,_,_),ok), (((_,rs,_), errs, _graph), _, term)) =
+jsonTypechecked :: ((RawDefn,Bool), (FinalSolution, AnnUTerm MonoType, Maybe PolyType)) -> Value
+jsonTypechecked (((n,_,_),ok), ((Solution _ rs _ _, errs, _graph), term, p)) =
   let errNodes = if null errs
                     then []
                     else [ object [ "text"  .= ("errors" :: String)
@@ -163,7 +164,9 @@ jsonTypechecked (((n,_,_),ok), (((_,rs,_), errs, _graph), _, term)) =
                  then if ok then "#85C99E" else "#F58471"
                  else if ok then "#F58471" else "#F1B75B"
    in object [ "text" .= name2String n
-             -- , "tags" .= [showWithGreek t]
+             , "tags" .= case p of
+                           Just t -> [showWithGreek t]
+                           Nothing -> []
              , "color" .= ("white" :: String)
              , "backColor" .= (color :: String)
              , "nodes" .= (errNodes ++ showAnnTermJson term ++ resNodes) ]

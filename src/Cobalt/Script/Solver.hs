@@ -1,3 +1,4 @@
+{-# LANGUAGE TupleSections #-}
 module Cobalt.Script.Solver where
 
 import Control.Applicative ((<$>))
@@ -15,24 +16,47 @@ import Cobalt.Types
 
 type TyError = String
 type OInState = ([Constraint],[Constraint],[TyVar])
-type ScriptSolution = (OInState, [TyError], Graph)
-
 -- First is a consistent solution
 -- Second, the list of errors found
 -- Third, the graph of constraints
+type ScriptSolution = (OInState, [TyError], Graph)
+type FinalSolution  = (OIn.Solution, [TyError], Graph)
+
+solve :: [Axiom] -> [Constraint] -> [TyVar] -> TyScript
+      -> FreshM FinalSolution
+solve ax g tch w = do
+  (((simplG,rs,vars),err,graph), extraExists) <- simpl ax g tch w
+  let s@(OIn.Solution _simplG' rs' subst' _vars') = OIn.toSolution simplG rs vars
+  solveImpl ax (g ++ rs') (map (substsScript subst') extraExists) (s,err,graph)
+
+solveImpl :: [Axiom] -> [Constraint] -> [TyScript]
+          -> FinalSolution -> FreshM FinalSolution
+solveImpl _ _ [] sol = return sol
+solveImpl ax g (Exists vars q c : rest) (curSol, currErr, currGraph) = do
+  (thisSol, thisErr, thisGraph) <- solve ax (g ++ q) vars c
+  let newGraph = mappend thisGraph currGraph -- : map (\x -> singletonNode _ x "exists") (q ++ c)
+  case (thisSol, thisErr) of
+    (OIn.Solution _ [] _ _, []) -> solveImpl ax g rest (curSol, currErr, newGraph)
+    _ -> solveImpl ax g rest (curSol, ("Could not discharge: " ++ show c) : (currErr ++ thisErr), newGraph)
+solveImpl _ _ _ _ = error "This should never happen"
+      
+-- Solve one layer of constraints
+-- and return the list of extra Exists.
 simpl :: [Axiom] -> [Constraint] -> [TyVar] -> TyScript
-      -> FreshM ScriptSolution
+      -> FreshM (ScriptSolution, [TyScript])
 simpl _ g tch Empty =
-  return (emptySolution g tch, [], G.empty)
+  return ((emptySolution g tch, [], G.empty), [])
+simpl _ g tch me@(Exists _ _ _) =
+  return ((emptySolution g tch, [], G.empty), [me])
 simpl ax g tch (Singleton c _) =
-  solutionUp g tch <$> simpl' ax g [c] tch G.empty
+  (,[]) <$> (solutionUp g tch <$> simpl' ax g [c] tch G.empty)
 simpl ax g tch (Merge lst _) = do
-  results <- mapM (simpl ax g tch) lst
+  simpls <- mapM (simpl ax g tch) lst
+  let (results, exs) = unzip simpls
   (newSol, newErr, newGraph) <- solutionUp g tch <$> simplMany' ax results
   let errs = map (\(_,e,_) -> e) results
-  return (newSol, newErr ++ concat errs, newGraph)
+  return ((newSol, newErr ++ concat errs, newGraph), concat exs)
 simpl ax g tch (Asym s1 s2 info) = simpl ax g tch (Merge [s1,s2] info)
-simpl _  _ _   (Exists _ _ _)    = error "Not yet implemented"
 
 makeSATSolution :: TyError -> [Constraint] -> [TyVar] -> Graph -> ScriptSolution
 makeSATSolution err g tch _ = (emptySolution g tch, [err], G.empty)

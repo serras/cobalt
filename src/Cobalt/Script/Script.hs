@@ -7,12 +7,13 @@ module Cobalt.Script.Script (
 , toConstraintList
 , fvScript
 , substScript
+, substsScript
 , simplifyScript
 , removeExistsScript
 ) where
 
 import Data.List (intercalate, union, (\\))
-import Unbound.LocallyNameless (fv, subst)
+import Unbound.LocallyNameless (fv, subst, substs)
 
 import Cobalt.Language.Syntax (SourcePos)
 import Cobalt.Types
@@ -48,6 +49,13 @@ substScript v m (Singleton c i) = Singleton (subst v m c) i
 substScript v m (Merge ss i)    = Merge (map (substScript v m) ss) i
 substScript v m (Asym c1 c2 i)  = Asym (substScript v m c1) (substScript v m c2) i
 substScript v m (Exists vs q w) = Exists vs (map (subst v m) q) (substScript v m w)
+
+substsScript :: [(TyVar, MonoType)] -> TyScript -> TyScript
+substsScript _ Empty = Empty
+substsScript v (Singleton c i) = Singleton (substs v c) i
+substsScript v (Merge ss i)    = Merge (map (substsScript v) ss) i
+substsScript v (Asym c1 c2 i)  = Asym (substsScript v c1) (substsScript v c2) i
+substsScript v (Exists vs q w) = Exists vs (map (substs v) q) (substsScript v w)
 
 
 instance Show TyScript where
