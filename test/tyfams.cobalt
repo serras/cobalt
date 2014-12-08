@@ -23,3 +23,17 @@ ex5 = let listOfThree = cons 3 nil in ex1 listOfThree;
 cls1 = eq (cons 3 nil);
 cls2 x = eq (cons x nil);
 cls3 x :: {a} $Eq a => a -> [a] -> 'Bool = eq (cons x nil);
+
+
+axiom injective ^H;
+
+import makeH :: {a} a -> ^H a;
+import tuple :: {a} a -> a -> 'Tuple a a;
+import true :: 'Bool;
+
+f = tuple (makeH 3) (makeH true) => fail;
+t x y = tuple (makeH x) (makeH y);
+
+import blu :: {a} {b} ^H a ~ ^H b => a -> b -> 'Bool;
+
+g = blu 3 true => fail;

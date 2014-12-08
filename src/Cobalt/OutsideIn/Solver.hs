@@ -70,7 +70,8 @@ solveApartWithAxioms given wanted vars = do
 
 solveApartWithoutAxioms :: [Constraint] -> [Constraint] -> [TyVar] -> SMonad Solution
 solveApartWithoutAxioms given wanted vars = do
-  (result, _) <- lift $ lift $ lift $ lift $ solve [] given wanted vars
+  axioms <- ask
+  (result, _) <- lift $ lift $ lift $ lift $ solve (filter isTresspasable axioms) given wanted vars
   case result of
     Left  e -> throwError e
     Right s -> return s
@@ -88,11 +89,12 @@ isTouchable x = gets (x `elem`)
 simpl :: [Constraint] -> [Constraint] -> SMonad ([Constraint], [Constraint], [TyVar])
 simpl given wanted =
   do axioms <- ask
+     let injP = isInjectiveFamily axioms
      (g,_) <- whileApplicable (\ccTop -> do
                 (interactedG2,apIG2) <- whileApplicable (\c -> do
                   (interactedGU,apGIU) <- whileApplicable (\cc -> do
-                    (canonicalG,apGC)   <- whileApplicable (stepOverList "canong" (canon True) []) cc
-                    (interactedGU,apGU) <- stepOverProductList "unifyg" unifyInteract [] canonicalG
+                    (canonicalG,apGC)   <- whileApplicable (stepOverList "canong" (canon True injP) []) cc
+                    (interactedGU,apGU) <- stepOverProductList "unifyg" (unifyInteract injP) [] canonicalG
                     return (interactedGU, apGC || apGU)) c
                   (interactedG,apGI) <- stepOverProductListDeleteBoth "interg" interact_ [] interactedGU
                   return (interactedG, apGIU || apGI)) ccTop
@@ -102,12 +104,12 @@ simpl given wanted =
                 (simplified2,apS2) <- whileApplicable (\c -> do
                   (interacted,apI) <- whileApplicable (\cc -> do
                     (interactedU,apU) <- whileApplicable (\ccc -> do
-                      (canonical2,apC2)  <- whileApplicable (stepOverList "canonw" (canon False) g) ccc
-                      (interacted2,apI2) <- stepOverProductList "unifyw" unifyInteract g canonical2
+                      (canonical2,apC2)  <- whileApplicable (stepOverList "canonw" (canon False injP) g) ccc
+                      (interacted2,apI2) <- stepOverProductList "unifyw" (unifyInteract injP) g canonical2
                       return (interacted2, apC2 || apI2)) cc
                     (interacted2,apI2) <- stepOverProductListDeleteBoth "interw" interact_ g interactedU
                     return (interacted2, apU || apI2)) c
-                  (simplified,apS) <- stepOverTwoLists "simplw" simplifies g interacted
+                  (simplified,apS) <- stepOverTwoLists "simplw" (simplifies injP) g interacted
                   return (simplified, apI || apS)) ccTop
                 (reactedW, apRW) <- stepOverAxioms "topReact" (\ax _ -> topReact True ax) axioms g simplified2
                 return (reactedW, apS2 || apRW)) wanted
@@ -115,9 +117,16 @@ simpl given wanted =
      v <- get
      myTrace ("touchables: " ++ show v) $ return (g,s,v)
 
-canon :: Bool -> [Constraint] -> Constraint -> SMonad SolutionStep
+isInjectiveFamily :: [Axiom] -> String -> Bool
+isInjectiveFamily [] _ = False
+isInjectiveFamily (Axiom_Injective f1 : _) f2
+  | f1 == f2  = True
+isInjectiveFamily (_ : rest) f2 = isInjectiveFamily rest f2
+
+canon :: Bool -> (String -> Bool) -> [Constraint] -> Constraint -> SMonad SolutionStep
 -- Basic unification
-canon isGiven rest (Constraint_Unify t1 t2) = case (t1,t2) of
+canon isGiven injectiveP rest (Constraint_Unify t1 t2) = case (t1,t2) of
+  -- Variables
   (MonoType_Var v1, MonoType_Var v2)
     | v1 == v2  -> return $ Applied []  -- Refl
     | otherwise -> do touch1 <- isTouchable v1
@@ -165,6 +174,9 @@ canon isGiven rest (Constraint_Unify t1 t2) = case (t1,t2) of
                      _ | t1 > t2   -> return $ Applied [Constraint_Unify t2 t1]  -- Orient
                        | otherwise -> return NotApplicable
   -- Type families
+  (MonoType_Fam f1 ts1, MonoType_Fam f2 ts2) -- Injective type families
+    | f1 == f2, injectiveP f1, length ts1 == length ts2 -> return $ Applied $ zipWith Constraint_Unify ts1 ts2
+    | f1 == f2, injectiveP f1, length ts1 /= length ts2 -> throwError $ "Different number of arguments: " ++ show t1 ++ " ~ " ++ show t2
   (MonoType_Fam f ts, _) | any (not . isFamilyFree) ts -> -- ts has type families we can get out
                    do (ts2, cons, vars) <- unfamilys ts
                       when (not isGiven) (mapM_ makeTouchable vars)
@@ -175,43 +187,43 @@ canon isGiven rest (Constraint_Unify t1 t2) = case (t1,t2) of
   (_ :-->: _, MonoType_Con _ _) -> throwError $ "Different constructor heads: " ++ show t1 ++ " ~ " ++ show t2
   (MonoType_Con _ _, _ :-->: _) -> throwError $ "Different constructor heads: " ++ show t1 ++ " ~ " ++ show t2
   (MonoType_Con c1 a1, MonoType_Con c2 a2)
-    | c1 == c2 && length a1 == length a2 -> return $ Applied $ zipWith Constraint_Unify a1 a2
+    | c1 == c2, length a1 == length a2 -> return $ Applied $ zipWith Constraint_Unify a1 a2
     | c1 /= c2 -> throwError $ "Different constructor heads: " ++ show t1 ++ " ~ " ++ show t2
     | length a1 /= length a2 -> throwError $ "Different number of arguments: " ++ show t1 ++ " ~ " ++ show t2
   -- Orient
   (_, _) | t1 > t2   -> return $ Applied [Constraint_Unify t2 t1]
          | otherwise -> return NotApplicable
 -- Convert from monotype > or = into monotype ~
-canon _ _ (Constraint_Inst  t (PolyType_Mono [] m)) = return $ Applied [Constraint_Unify t m]
-canon _ _ (Constraint_Equal t (PolyType_Mono [] m)) = return $ Applied [Constraint_Unify t m]
+canon _ _ _ (Constraint_Inst  t (PolyType_Mono [] m)) = return $ Applied [Constraint_Unify t m]
+canon _ _ _ (Constraint_Equal t (PolyType_Mono [] m)) = return $ Applied [Constraint_Unify t m]
 -- This is not needed
-canon _ _ (Constraint_Inst _ PolyType_Bottom)   = return $ Applied []
+canon _ _ _ (Constraint_Inst _ PolyType_Bottom)   = return $ Applied []
 -- Constructors and <= and ==
-canon _ _ (Constraint_Inst (MonoType_Var v) p)  =
+canon _ _ _ (Constraint_Inst (MonoType_Var v) p)  =
   let nfP = nf p
    in if nfP `aeq` p then return NotApplicable
                      else return $ Applied [Constraint_Inst (MonoType_Var v) nfP]
-canon _ _ (Constraint_Inst x p) = do
+canon _ _ _ (Constraint_Inst x p) = do
   (c,t) <- instantiate p True  -- Perform instantiation
   return $ Applied $ (Constraint_Unify x t) : c
-canon _ _ (Constraint_Equal (MonoType_Var v) p)  =
+canon _ _ _ (Constraint_Equal (MonoType_Var v) p)  =
   let nfP = nf p
    in if nfP `aeq` p then return NotApplicable
                      else return $ Applied [Constraint_Equal (MonoType_Var v) nfP]
 -- We need to instantiate, but keep record
 -- of those variables which are not touchable
-canon _ _ (Constraint_Equal x p) = do
+canon _ _ _ (Constraint_Equal x p) = do
   (c,t) <- instantiate p False  -- Perform instantiation
   return $ Applied $ (Constraint_Unify x t) : c
 -- Type classes
-canon isGiven _ (Constraint_Class c ts)
+canon isGiven _ _ (Constraint_Class c ts)
   | any (not . isFamilyFree) ts = do (ts2, cons, vars) <- unfamilys ts
                                      when (not isGiven) (mapM_ makeTouchable vars)
                                      return $ Applied $ Constraint_Class c ts2 : cons
   | otherwise = return NotApplicable
 -- Rest
-canon _ _ (Constraint_Exists _) = return NotApplicable
-canon _ _ Constraint_Inconsistent = throwError "Inconsistent constraint found"
+canon _ _ _ (Constraint_Exists _) = return NotApplicable
+canon _ _ _ Constraint_Inconsistent = throwError "Inconsistent constraint found"
 
 instantiate :: PolyType -> Bool -> SMonad ([Constraint], MonoType)
 instantiate (PolyType_Bind b) tch = do
@@ -239,13 +251,13 @@ unfamily (s :-->: t)         = do (s',c1,v1) <- unfamily s
                                   return (s' :-->: t', c1 ++ c2, v1 ++ v2)
 unfamily t                   = return (t, [], [])
 
-unifyInteract :: [Constraint] -> [Constraint] -> Constraint -> Constraint -> SMonad SolutionStep
-unifyInteract _ _ = unifyInteract'
+unifyInteract :: (String -> Bool) -> [Constraint] -> [Constraint] -> Constraint -> Constraint -> SMonad SolutionStep
+unifyInteract injectiveP _ _ = unifyInteract' injectiveP
 
 -- Perform common part of interact_ and simplifies
 -- dealing with unifications in canonical form
-unifyInteract' :: Constraint -> Constraint -> SMonad SolutionStep
-unifyInteract' (Constraint_Unify t1 s1) (Constraint_Unify t2 s2) = case (t1,t2) of
+unifyInteract' :: (String -> Bool) -> Constraint -> Constraint -> SMonad SolutionStep
+unifyInteract' injectiveP (Constraint_Unify t1 s1) (Constraint_Unify t2 s2) = case (t1,t2) of
   (MonoType_Var v1, MonoType_Var v2)
     | v1 == v2, isFamilyFree s1, isFamilyFree s2 -> return $ Applied [Constraint_Unify s1 s2]
     | v1 `elem` fv s2, isFamilyFree s1, isFamilyFree s2 -> return $ Applied [Constraint_Unify t2 (subst v1 s1 s2)]
@@ -256,31 +268,32 @@ unifyInteract' (Constraint_Unify t1 s1) (Constraint_Unify t2 s2) = case (t1,t2) 
     | otherwise -> return NotApplicable
   (MonoType_Fam f1 a1, MonoType_Fam f2 a2)
     | f1 == f2, a1 == a2, isFamilyFree s1, isFamilyFree s2 -> return $ Applied [Constraint_Unify s1 s2]
+    | f1 == f2, injectiveP f1, s1 == s2 -> return $ Applied [Constraint_Unify t1 t2]
     | otherwise -> return NotApplicable
   _ -> return NotApplicable
 -- Replace something over another constraint
-unifyInteract' (Constraint_Unify (MonoType_Var v1) s1) (Constraint_Inst t2 s2)
+unifyInteract' _ (Constraint_Unify (MonoType_Var v1) s1) (Constraint_Inst t2 s2)
   | v1 `elem` fv t2 || v1 `elem` fv s2, isFamilyFree s1
   = return $ Applied [Constraint_Inst (subst v1 s1 t2) (subst v1 s1 s2)]
-unifyInteract' (Constraint_Unify (MonoType_Var v1) s1) (Constraint_Equal t2 s2)
+unifyInteract' _ (Constraint_Unify (MonoType_Var v1) s1) (Constraint_Equal t2 s2)
   | v1 `elem` fv t2 || v1 `elem` fv s2, isFamilyFree s1
   = return $ Applied [Constraint_Equal (subst v1 s1 t2) (subst v1 s1 s2)]
-unifyInteract' (Constraint_Unify (MonoType_Var v1) s1) (Constraint_Class c ss2)
+unifyInteract' _ (Constraint_Unify (MonoType_Var v1) s1) (Constraint_Class c ss2)
   | v1 `elem` fv ss2, all isFamilyFree ss2
   = return $ Applied [Constraint_Class c (subst v1 s1 ss2)]
 -- Special case for instantiating a variable appearing in a type family
-unifyInteract' (Constraint_Unify (MonoType_Fam _ vs) _) (Constraint_Inst v@(MonoType_Var _) p)
+unifyInteract' _ (Constraint_Unify (MonoType_Fam _ vs) _) (Constraint_Inst v@(MonoType_Var _) p)
   | v `elem` vs
   = do (c,t) <- instantiate p True  -- Perform instantiation
        return $ Applied $ (Constraint_Unify v t) : c
-unifyInteract' (Constraint_Class _ vs) (Constraint_Inst v@(MonoType_Var _) p)
+unifyInteract' _ (Constraint_Class _ vs) (Constraint_Inst v@(MonoType_Var _) p)
   | v `elem` vs
   = do (c,t) <- instantiate p True  -- Perform instantiation
        return $ Applied $ (Constraint_Unify v t) : c
 -- Constructors are not canonical
-unifyInteract' (Constraint_Unify _ _) _ = return NotApplicable
-unifyInteract' _ (Constraint_Unify _ _) = return NotApplicable -- treated sym
-unifyInteract' _ _ = return NotApplicable
+unifyInteract' _ (Constraint_Unify _ _) _ = return NotApplicable
+unifyInteract' _ _ (Constraint_Unify _ _) = return NotApplicable -- treated sym
+unifyInteract' _ _ _ = return NotApplicable
 
 -- Makes two constraints interact and removes both of them
 interact_ :: [Constraint] -> [Constraint] -> Constraint -> Constraint -> SMonad SolutionStep
@@ -311,41 +324,41 @@ interact_ _ _ _ (Constraint_Exists _) = return NotApplicable
 interact_ _ _ _ _ = return NotApplicable
 
 -- Very similar to interact_, but taking care of symmetric cases
-simplifies :: [Constraint] -> [Constraint]
+simplifies :: (String -> Bool) -> [Constraint] -> [Constraint]
            -> Constraint -> Constraint -> SMonad SolutionStep
 -- Cases for unification on the given constraint
-simplifies _ _ c1@(Constraint_Unify _ _) c2 = unifyInteract' c1 c2
+simplifies injP _ _ c1@(Constraint_Unify _ _) c2 = unifyInteract' injP c1 c2
 -- Case for = in the given constraint
-simplifies given ctx (Constraint_Equal t1 p1) (Constraint_Equal t2 p2)
+simplifies _ given ctx (Constraint_Equal t1 p1) (Constraint_Equal t2 p2)
   | t1 == t2  = checkEquivalence (given ++ ctx) p1 p2
   | otherwise = return NotApplicable
-simplifies given ctx (Constraint_Equal t1 p1) (Constraint_Inst t2 p2)
+simplifies _ given ctx (Constraint_Equal t1 p1) (Constraint_Inst t2 p2)
   | t1 == t2  = checkSubsumption (given ++ ctx) p2 p1
   | otherwise = return NotApplicable
-simplifies _given _ctx (Constraint_Equal t1 p1) (Constraint_Unify t2 p2)
+simplifies _ _given _ctx (Constraint_Equal t1 p1) (Constraint_Unify t2 p2)
   | t1 == t2  = return $ Applied [Constraint_Equal p2 p1]
   | otherwise = return NotApplicable
 -- Case for > in the given constraint
-simplifies given ctx (Constraint_Inst t1 p1) (Constraint_Inst t2 p2)
+simplifies _ given ctx (Constraint_Inst t1 p1) (Constraint_Inst t2 p2)
   | t1 == t2  = do equiv <- areEquivalent (given ++ ctx) p1 p2
                    if equiv then checkEquivalence ctx p1 p2
                    else do (Applied q,p) <- findLub ctx p1 p2
                            return $ Applied (Constraint_Inst t1 p : q)
   | otherwise = return NotApplicable
-simplifies given ctx (Constraint_Inst t1 p1) (Constraint_Equal t2 p2)
+simplifies _ given ctx (Constraint_Inst t1 p1) (Constraint_Equal t2 p2)
   | t1 == t2  = checkSubsumption (given ++ ctx) p1 p2
   | otherwise = return NotApplicable
-simplifies _given _ctx (Constraint_Inst t1 p1) (Constraint_Unify t2 p2)
+simplifies _ _given _ctx (Constraint_Inst t1 p1) (Constraint_Unify t2 p2)
   | t1 == t2  = return $ Applied [Constraint_Inst p2 p1]
   | otherwise = return NotApplicable
 -- Remove duplicated class constraint
-simplifies _ _ (Constraint_Class c1 a1) (Constraint_Class c2 a2)
+simplifies _ _ _ (Constraint_Class c1 a1) (Constraint_Class c2 a2)
   | c1 == c2, a1 == a2 = return $ Applied []
 -- Existentials do not interact
-simplifies _ _ (Constraint_Exists _) _ = return NotApplicable
-simplifies _ _ _ (Constraint_Exists _) = return NotApplicable
+simplifies _ _ _ (Constraint_Exists _) _ = return NotApplicable
+simplifies _ _ _ _ (Constraint_Exists _) = return NotApplicable
 -- Rest of things
-simplifies _ _ _ _ = return NotApplicable
+simplifies _ _ _ _ _ = return NotApplicable
 
 findLub :: [Constraint] -> PolyType -> PolyType -> SMonad (SolutionStep, PolyType)
 findLub ctx p1 p2 = do

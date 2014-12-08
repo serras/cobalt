@@ -203,7 +203,11 @@ parseData = (,) <$  reserved "data"
 
 parseAxiom :: Parsec String s Axiom
 parseAxiom = id <$ reserved "axiom"
-                <*> (    try (createAxiomUnify <$> many (braces identifier)
+                <*> (    Axiom_Injective <$  reserved "injective"
+                                         <*> parseFamName
+                     <|> Axiom_Defer     <$  reserved "defer"
+                                         <*> parseFamName
+                     <|> try (createAxiomUnify <$> many (braces identifier)
                                                <*> parseMonoType
                                                <*  reservedOp "~"
                                                <*> parseMonoType)
@@ -330,6 +334,7 @@ lexer :: T.TokenParser t
 lexer = T.makeTokenParser $ haskellDef { T.reservedNames = "rule" : "check" : "script"
                                                            : "merge" : "asym"
                                                            : "any" : "app" : "var" : "int"
+                                                           : "injective" : "defer"
                                                            : "with" : T.reservedNames haskellDef }
 
 parens :: Parsec String s a -> Parsec String s a

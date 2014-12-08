@@ -34,6 +34,7 @@ module Cobalt.Types (
 , _Constraint_Exists
 , showConstraintList
 , Axiom(..)
+, isTresspasable
 ) where
 
 import Control.Applicative ((<$>))
@@ -210,6 +211,13 @@ instance Eq Constraint where
 
 data Axiom = Axiom_Unify (Bind [TyVar] (MonoType, MonoType))
            | Axiom_Class (Bind [TyVar] ([Constraint], String, [MonoType]))
+           | Axiom_Injective String  -- Injective type families
+           | Axiom_Defer     String  -- Deferred type families
+
+isTresspasable :: Axiom -> Bool
+isTresspasable (Axiom_Injective _) = True
+isTresspasable (Axiom_Defer     _) = True
+isTresspasable _                   = False
 
 -- Derive `unbound` instances
 $(derive [''PolyType, ''MonoType, ''Constraint, ''Axiom])
@@ -289,3 +297,5 @@ showAxiom (Axiom_Class b) = do (xs, (ctx,c,ms)) <- unbind b
                                let ps = map (doParens . show) ms
                                return $ "∀" ++ show xs ++ " " ++ show ctx ++
                                         " => $" ++ c ++ " " ++ intercalate " " ps
+showAxiom (Axiom_Injective f) = return $ "injective ^" ++ f
+showAxiom (Axiom_Defer f) = return $ "defer ^" ++ f
