@@ -90,6 +90,7 @@ simpl :: [Constraint] -> [Constraint] -> SMonad ([Constraint], [Constraint], [Ty
 simpl given wanted =
   do axioms <- ask
      let injP = isInjectiveFamily axioms
+         defP = shouldDeferFamily axioms
      (g,_) <- whileApplicable (\ccTop -> do
                 (interactedG2,apIG2) <- whileApplicable (\c -> do
                   (interactedGU,apGIU) <- whileApplicable (\cc -> do
@@ -98,7 +99,7 @@ simpl given wanted =
                     return (interactedGU, apGC || apGU)) c
                   (interactedG,apGI) <- stepOverProductListDeleteBoth "interg" interact_ [] interactedGU
                   return (interactedG, apGIU || apGI)) ccTop
-                (reactedG, apRG) <- stepOverAxioms "topReact" (\ax _ -> topReact True ax) axioms [] interactedG2
+                (reactedG, apRG) <- stepOverAxioms "topReact" (\ax _ -> topReact True defP ax) axioms [] interactedG2
                 return (reactedG, apIG2 || apRG)) given
      (s,_) <- whileApplicable (\ccTop -> do
                 (simplified2,apS2) <- whileApplicable (\c -> do
@@ -111,7 +112,7 @@ simpl given wanted =
                     return (interacted2, apU || apI2)) c
                   (simplified,apS) <- stepOverTwoLists "simplw" (simplifies injP) g interacted
                   return (simplified, apI || apS)) ccTop
-                (reactedW, apRW) <- stepOverAxioms "topReact" (\ax _ -> topReact True ax) axioms g simplified2
+                (reactedW, apRW) <- stepOverAxioms "topReact" (\ax _ -> topReact True defP ax) axioms g simplified2
                 return (reactedW, apS2 || apRW)) wanted
      -- Output information
      v <- get
@@ -122,6 +123,12 @@ isInjectiveFamily [] _ = False
 isInjectiveFamily (Axiom_Injective f1 : _) f2
   | f1 == f2  = True
 isInjectiveFamily (_ : rest) f2 = isInjectiveFamily rest f2
+
+shouldDeferFamily :: [Axiom] -> String -> Bool
+shouldDeferFamily [] _ = False
+shouldDeferFamily (Axiom_Defer f1 : _) f2
+  | f1 == f2  = True
+shouldDeferFamily (_ : rest) f2 = shouldDeferFamily rest f2
 
 canon :: Bool -> (String -> Bool) -> [Constraint] -> Constraint -> SMonad SolutionStep
 -- Basic unification
@@ -417,8 +424,10 @@ checkEquivalence ctx p1 p2 = do
     (_, NotApplicable) -> throwError $ "Equivalence check failed: " ++ show p1 ++ " = " ++ show p2
     (Applied a1, Applied a2) -> return $ Applied (a1 ++ a2)
 
-topReact :: Bool -> Axiom -> Constraint -> SMonad SolutionStep
-topReact _ ax@(Axiom_Unify b) (Constraint_Unify (MonoType_Fam f ms) t)
+topReact :: Bool -> (String -> Bool) -> Axiom -> Constraint -> SMonad SolutionStep
+topReact _ deferP (Axiom_Unify _) (Constraint_Unify (MonoType_Fam f ms) (MonoType_Var v))
+  | deferP f, not (v `elem` fv ms) = return NotApplicable  -- deferred type family
+topReact _ _ ax@(Axiom_Unify b) (Constraint_Unify (MonoType_Fam f ms) t)
   | all isFamilyFree ms, isFamilyFree t = do
       (aes, (lhs, rhs)) <- unbind b
       case lhs of
@@ -430,7 +439,7 @@ topReact _ ax@(Axiom_Unify b) (Constraint_Unify (MonoType_Fam f ms) t)
             _  -> return NotApplicable  -- Could not match terms
           `catchError` (\_ -> return NotApplicable)
         _ -> return NotApplicable
-topReact _ ax@(Axiom_Class b) (Constraint_Class c ms)
+topReact _ _ ax@(Axiom_Class b) (Constraint_Class c ms)
   | all isFamilyFree ms = do
       (aes, (ctx, cls, args)) <- unbind b
       if cls == c
@@ -441,7 +450,7 @@ topReact _ ax@(Axiom_Class b) (Constraint_Class c ms)
                    _  -> return NotApplicable -- Could not match terms
                  `catchError` (\_ -> return NotApplicable)
          else return NotApplicable -- Not same class
-topReact _ _ _ = return NotApplicable
+topReact _ _ _ _ = return NotApplicable
 
 -- Phase 2b: convert to solution
 

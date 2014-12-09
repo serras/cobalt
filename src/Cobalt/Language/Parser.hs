@@ -201,17 +201,24 @@ parseData = (,) <$  reserved "data"
                 <*> many (string2Name <$> identifier)
                 <*  reservedOp ";"
 
-parseAxiom :: Parsec String s Axiom
+parseAxiom :: Parsec String s [Axiom]
 parseAxiom = id <$ reserved "axiom"
-                <*> (    Axiom_Injective <$  reserved "injective"
+                <*> (    (\x -> [x]) . Axiom_Injective
+                                         <$  reserved "injective"
                                          <*> parseFamName
-                     <|> Axiom_Defer     <$  reserved "defer"
+                     <|> (\x -> [x]) . Axiom_Defer
+                                         <$  reserved "defer"
                                          <*> parseFamName
+                     <|> try (do reserved "synonym"
+                                 idents <- many (braces identifier)
+                                 m1 <- parseMonoType
+                                 reservedOp "~"
+                                 m2 <- parseMonoType
+                                 createAxiomSynonym idents m1 m2)
                      <|> try (createAxiomUnify <$> many (braces identifier)
                                                <*> parseMonoType
                                                <*  reservedOp "~"
                                                <*> parseMonoType)
-                     
                      <|> try (createAxiomClass <$> many (braces identifier)
                                                <*> many parseConstraint
                                                <*  reservedOp "=>"
@@ -222,11 +229,16 @@ parseAxiom = id <$ reserved "axiom"
                                                   <*> many parseMonoType )
                 <* reservedOp ";"
 
-createAxiomUnify :: [String] -> MonoType -> MonoType -> Axiom
-createAxiomUnify vs r l = Axiom_Unify (bind (map string2Name vs) (r,l))
+createAxiomSynonym :: [String] -> MonoType -> MonoType -> Parsec String s [Axiom]
+createAxiomSynonym vs r@(MonoType_Fam f _) l = return $
+  Axiom_Injective f : Axiom_Defer f : createAxiomUnify vs r l
+createAxiomSynonym _ _ _ = fail "Incorrect type synonym specification"
 
-createAxiomClass :: [String] -> [Constraint] -> String -> [MonoType] -> Axiom
-createAxiomClass vs ctx c m = Axiom_Class (bind (map string2Name vs) (ctx,c,m))
+createAxiomUnify :: [String] -> MonoType -> MonoType -> [Axiom]
+createAxiomUnify vs r l = [Axiom_Unify (bind (map string2Name vs) (r,l))]
+
+createAxiomClass :: [String] -> [Constraint] -> String -> [MonoType] -> [Axiom]
+createAxiomClass vs ctx c m = [Axiom_Class (bind (map string2Name vs) (ctx,c,m))]
 
 parseDefn :: Parsec String s (RawDefn,Bool)
 parseDefn = buildDefn
@@ -304,7 +316,7 @@ parseRuleScriptList = -- Parenthesized expression
                   <|> RuleScriptList_Ref <$ char '#' <*> identifier
 
 data DeclType = AData   (String, [TyVar])
-              | AnAxiom Axiom
+              | AnAxiom [Axiom]
               | ASig    (RawTermVar, PolyType)
               | ADefn   (RawDefn, Bool)
               | ARule   Rule
@@ -319,7 +331,7 @@ parseDecl = AData   <$> parseData
 buildProgram :: [DeclType] -> (Env, [(RawDefn,Bool)])
 buildProgram = foldr (\decl (Env s d a r, df) -> case decl of
                         AData i   -> (Env s (i:d) a r, df)
-                        AnAxiom i -> (Env s d (i:a) r, df)
+                        AnAxiom i -> (Env s d (i ++ a) r, df)
                         ASig i    -> (Env (i:s) d a r, df)
                         ADefn i   -> (Env s d a r, (i:df))
                         ARule i   -> (Env s d a (i:r),df))
@@ -334,7 +346,7 @@ lexer :: T.TokenParser t
 lexer = T.makeTokenParser $ haskellDef { T.reservedNames = "rule" : "check" : "script"
                                                            : "merge" : "asym"
                                                            : "any" : "app" : "var" : "int"
-                                                           : "injective" : "defer"
+                                                           : "injective" : "defer" : "synonym"
                                                            : "with" : T.reservedNames haskellDef }
 
 parens :: Parsec String s a -> Parsec String s a

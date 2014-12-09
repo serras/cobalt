@@ -37,3 +37,15 @@ t x y = tuple (makeH x) (makeH y);
 import blu :: {a} {b} ^H a ~ ^H b => a -> b -> 'Bool;
 
 g = blu 3 true => fail;
+
+axiom {a} ^L a ~ 'Int;
+axiom defer ^L;
+import useL :: {a} a -> ^L a;
+axiom synonym {a} ^L2 a ~ 'Int;
+import useL2 :: {a} a -> ^L2 a;
+axiom {a} ^M a ~ 'Int;
+import useM :: {a} a -> ^M a;
+
+usingL  = useL  3;
+usingL2 = useL2 3;
+usingM  = useM  3;
