@@ -6,6 +6,17 @@ Cobalt
   * [A more traditional one](https://github.com/serras/cobalt/blob/master/src/Cobalt/OutsideIn/Gather.hs), which merely traverses the tree, and which implementes the original algorithm found in the [OutsideIn paper](http://research.microsoft.com/en-us/um/people/simonpj/papers/constraints/jfp-outsidein.pdf).
   * [An extensible implementation](https://github.com/serras/cobalt/blob/master/src/Cobalt/Script/Gather.hs) based on the [`t-regex`](https://github.com/serras/t-regex) package, which is expressed as an attribute grammar, and which supports specialized type rules.
 
+## Running
+
+Cobalt comes with a *web interface* which you can use to typecheck a program, but also to inspect the gathered constraints and the solving process. The easiest way to get the interface is by running
+
+```
+cabal run c -- serve p
+```
+
+where `c` can be either `cobalt` (for using traditional gathering) or `cobalt-u` (for using the extensible implementation). On the other hand `p` must be a number, which is the port in which the web interface will listed. Then, just point your browser to `http://localhost:p` :)
+
+You might also load some predefined examples via the corresponding buttons. Most of them highlight either parts of the syntax or some of the Cobalt specific features, such as specialized type rules or higher-ranked types.
 
 ## Syntax
 
@@ -44,7 +55,7 @@ program := (data | axiom | import | defn)*
 A **definition** is the specification of a value or function, and follows the syntax:
 
 ```
-defn    := termvar termvar* ("::" polytype)? "=" expr ("=>" okfail)? ";"
+defn := termvar termvar* ("::" polytype)? "=" expr ("=>" okfail)? ";"
 
 expr := intliteral
       | termvar
@@ -56,7 +67,7 @@ expr := intliteral
 	  | "match" expr "with" dataname alt*
 alt  := "|" termvar termvar* "->" expr
 
-okfail  := "ok" | "fail"
+okfail := "ok" | "fail"
 ```
 
 The main changes from Haskell syntax are:
@@ -69,13 +80,13 @@ The main changes from Haskell syntax are:
 When you want to give an environment to the type checker without actual expressions, you can **import** functions, which can later be used freely. Doing so is very easy, you just need to write `import`, the name and the type:
 
 ```
-import  := "import" termvar "::" polytype ";"
+import := "import" termvar "::" polytype ";"
 ```
 
 **Data types** in Cobalt are modelled in a special way. Instead of using an ADT-style declaration like in Haskell, their definition is split in two parts:
 
 ```
-data    := "data" dataname tyvar* ";"
+data := "data" dataname tyvar* ";"
 ```
 
   * A `data` declaration brings the new type into scope and gives the number and name of type parameters. For example, `data 'Maybe a;`.
@@ -98,10 +109,11 @@ There are four main kinds of axioms in Cobalt:
   * *Injectivity axioms* declare that for a given type family `^F`, we can derive equality of components from equality of the type family. That is, if `^F` has two parameters, from `^F a b ~ ^F c d` we can derive `a ~ c` and `b ~ d`.
   * *Deferral axioms* also apply to type families, and makes the solver wait as much as possible before rewriting the type family. This is very useful to model type synonyms, where we want the original type to remain as far as possible.
 
-From those basic block, we can describe two derived forms of axioms:
+From those basic blocks, we can describe two derived forms of axioms:
 
-  * Cobalt does not include support for general type application: you always need to head everything by a data type name or a type family name. However, you can model general application `x y` via a type `'App` and use merely `'App x y` instead. For example, here is the type of the monad bind function:
-  ```
-  import bind :: {m} {r} r > {a} {b} 'App m a -> (a -> 'App m b) -> 'App m b => 'Monad m -> r;
-  ```
-  * Type 
+  * Cobalt does not include support for general type application: you always need to head everything by a data type name or a type family name. However, you can model general application `x y` via a type `'App` and use merely `'App x y` instead. For example, here is the type of the monad bind function: `bind :: {m} {r} r > {a} {b} 'App m a -> (a -> 'App m b) -> 'App m b => 'Monad m -> r`.
+  * Type synonyms are modelled as injective and deferred type families. However, you can summarize the three needed declarations in a single `axiom synonym` one.
+
+## Specialized type rules
+
+TODO
