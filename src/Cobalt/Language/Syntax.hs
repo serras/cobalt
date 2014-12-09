@@ -112,7 +112,7 @@ getAnn (Term_Let _ t)        = t
 getAnn (Term_LetAnn _ _ t)   = t
 getAnn (Term_Match _ _ _ t)  = t
 
-data Rule = Rule RuleRegex RuleScript deriving Show
+data Rule = Rule RuleRegex RuleCheck RuleScript deriving Show
 
 type RuleRegexVar = Name RuleRegex
 data RuleRegex = RuleRegex_Square RuleRegexVar
@@ -122,8 +122,10 @@ data RuleRegex = RuleRegex_Square RuleRegexVar
                | RuleRegex_App RuleRegex RuleRegex
                | RuleRegex_Var String
                | RuleRegex_Int Integer
-               | RuleRegex_Capture String
+               | RuleRegex_Capture String (Maybe RuleRegex)
                deriving Show
+
+type RuleCheck = [Constraint]
 
 data RuleScript = RuleScript_Merge RuleScriptList (Maybe String)
                 | RuleScript_Asym RuleScript RuleScript (Maybe String)

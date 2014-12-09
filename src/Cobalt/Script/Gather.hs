@@ -52,7 +52,7 @@ intLiteralRule = rule0 $
 varRule :: TypeRule
 varRule = rule0 $
   inj (UTerm_Var_ __ __) ->>> \(UTerm_Var v (p,thisTy)) -> do
-    env <- use (this.inh_.fnE)
+    env <- use (this.inh_.theEnv.fnE)
     case lookup (translate v) env of
       Nothing    -> this.syn .= Error ["Cannot find " ++ show v]
       Just sigma -> do this.syn._Term.given  .= []
@@ -63,7 +63,7 @@ absRule :: TypeRule
 absRule = rule $ \inner ->
   inj (UTerm_Abs_ __ __ (inner <<- any_) __) ->>> \(UTerm_Abs v (_,vty) _ (p,thisTy)) -> do
     copy [inner]
-    at inner . inh_ . fnE %= ((translate v, var vty) : ) -- Add to environment
+    at inner . inh_ . theEnv . fnE %= ((translate v, var vty) : ) -- Add to environment
     innerSyn <- use (at inner . syn)
     this.syn .= innerSyn
     this.syn._Term.given .= case innerSyn of
@@ -78,7 +78,7 @@ absAnnRule :: TypeRule
 absAnnRule = rule $ \inner ->
   inj (UTerm_AbsAnn_ __ __ (inner <<- any_) __ __) ->>> \(UTerm_AbsAnn v (vpos,vty) _ (tyAnn,_) (p,thisTy)) -> do
     copy [inner]
-    at inner . inh_ . fnE %= ((translate v, tyAnn) : ) -- Add to environment
+    at inner . inh_ . theEnv . fnE %= ((translate v, tyAnn) : ) -- Add to environment
     innerSyn <- use (at inner . syn)
     this.syn .= innerSyn
     this.syn._Term.given .= case innerSyn of
@@ -114,7 +114,7 @@ letRule = rule $ \(e1, e2) ->
     copy [e1, e2]
     e1Syn <- use (at e1 . syn)
     -- Change second part environment
-    at e2 . inh_ . fnE %= case e1Syn of
+    at e2 . inh_ . theEnv . fnE %= case e1Syn of
       GatherTerm _ _ [ity1] -> ((translate x, var ity1) : )
       _                     -> id
     e2Syn <- use (at e2 . syn)
@@ -137,9 +137,9 @@ letAnnRule = rule $ \(e1, e2) ->
                      _                  -> Nothing
       -- Work on environment
       copy [e1, e2]
-      env <- use (this.inh_.fnE)
+      env <- use (this.inh_.theEnv.fnE)
       -- Change second part environment, now we have the type!
-      at e2 . inh_ . fnE %= ((translate x, tyAnn) : )
+      at e2 . inh_ . theEnv . fnE %= ((translate x, tyAnn) : )
       -- Create the output script
       e1Syn <- use (at e1 . syn)
       e2Syn <- use (at e2 . syn)
@@ -163,7 +163,7 @@ matchRule = rule $ \(e, branches) ->
   inj (UTerm_Match_ (e <<- any_) __ __ [branches <<- any_] __) ->>> \(UTerm_Match _ k mk _ (p,thisTy)) -> do
         copy [e]
         copy [branches]
-        env <- use (this.inh_.fnE)
+        env <- use (this.inh_.theEnv.fnE)
         einfo <- use (at e . syn)
         binfo <- use (at branches . syn)
         -- Handle errors
@@ -218,7 +218,7 @@ caseRule = rule $ \e ->
                     _ -> Nothing
     -- Work on new environment
     copy [e]
-    at e . inh_ . fnE %= case caseTy' of
+    at e . inh_ . theEnv . fnE %= case caseTy' of
       Nothing -> id
       Just (_,argsT,_,_,_) -> ((zip (map translate vs) (map (PolyType_Mono []) argsT)) ++) -- Add to environment info from matching
     -- Work in case alternative

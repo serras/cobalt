@@ -4,6 +4,7 @@ module Cobalt.OutsideIn.Solver (
   SMonad
 , Solution(..)
 , solve
+, entails
 , toSolution
 , simpl
 ) where
@@ -32,6 +33,11 @@ data Solution = Solution { smallGiven   :: [Constraint]
 
 solve :: [Axiom] -> [Constraint] -> [Constraint] -> [TyVar] -> FreshM (Either String Solution, Graph)
 solve a g w t = runWriterT (runExceptT (runReaderT (evalStateT (solve' g w) t) a))
+
+entails :: [Axiom] -> [Constraint] -> [Constraint] -> [TyVar] -> Bool
+entails a g w t = case runFreshM $ solve a g w t of
+  (Left _, _) -> False
+  (Right (Solution _ rs _ _), _) -> null rs  -- No residual constraints
 
 solve' :: [Constraint] -> [Constraint] -> SMonad Solution
 solve' g w = myTrace ("Solve " ++ show g ++ " ||- " ++ show w) $ do

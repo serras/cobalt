@@ -1,4 +1,5 @@
 rule int 3 script #this ~ 'Int "3 is a number";
+
 rule   app (var "example") #thing
 script asym (#thing ~ 'Int "argument must be an Int")
             #thing "";
@@ -8,3 +9,19 @@ f x y = x y (example 3);
 g = z w => fail;
 
 h x = 3 x => fail;
+
+
+import singleton :: {a} a -> [a];
+
+rule   app #singl@(var "singleton") #thing
+check  $Eq #thing
+script merge [ #this ~ [#thing] "singleton on Eq"
+             , #thing
+             , #singl
+             ];
+
+axiom $Eq 'Int;
+
+u = singleton 3;
+v :: {a} $Eq a => a -> [a] = \x -> singleton x;
+w = singleton 3 4;

@@ -266,6 +266,9 @@ parseExpected = try (id <$ reservedOp "=>" <*> (    const True  <$> reservedOp "
 parseRule :: Parsec String s Rule
 parseRule = Rule <$  reserved "rule"
                  <*> parseRuleRegex
+                 <*> (   id <$  reserved "check"
+                            <*> commaSep1 parseConstraint
+                     <|> pure [])
                  <*  reserved "script"
                  <*> parseRuleScript
                  <*  reservedOp ";"
@@ -288,7 +291,9 @@ parseRuleRegexAtom = -- Parenthesized expression
                  <|> RuleRegex_Int <$  reserved "int"
                                    <*> integer
                  <|> RuleRegex_Square . s2n <$ char '&' <*> identifier
-                 <|> RuleRegex_Capture <$ char '#' <*> identifier
+                 <|> try (RuleRegex_Capture <$ char '#' <*> identifier <* char '@'
+                                            <*> (Just <$> parens parseRuleRegex) )
+                 <|> RuleRegex_Capture <$ char '#' <*> identifier <*> pure Nothing
 
 createRegexIter :: RuleRegex -> String -> RuleRegex
 createRegexIter rx v = RuleRegex_Iter $ bind (string2Name v) rx

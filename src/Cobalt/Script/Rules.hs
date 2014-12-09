@@ -9,6 +9,8 @@
 module Cobalt.Script.Rules (
   Errors
 , Inh
+, theEnv
+, theSat
 , Syn(..)
 , Gathered
 , GatherCaseInfo(..)
@@ -25,7 +27,7 @@ module Cobalt.Script.Rules (
 import Control.Lens hiding (at)
 import Control.Lens.Extras
 import Data.Foldable (fold)
-import Data.List (elemIndex, union)
+import Data.List (elemIndex, union, insert)
 import Data.Maybe (fromJust)
 import Data.Monoid
 import Data.Regex.MultiGenerics hiding (var)
@@ -33,6 +35,7 @@ import qualified Data.Regex.MultiRules as Rx
 import Unbound.LocallyNameless hiding (union)
 
 import Cobalt.Language.Syntax as Sy
+import Cobalt.OutsideIn.Solver (entails)
 import Cobalt.Script.Script
 import Cobalt.Script.Syntax
 import Cobalt.Types
@@ -107,25 +110,34 @@ instance Monoid (Syn IsACaseAlternative) where
   _ `mappend` e@(Error _) = e
   (GatherCase i1) `mappend` (GatherCase i2) = GatherCase (i1 ++ i2)
 
-type Inh = Rx.IndexIndependent Env
+type Inh = Rx.IndexIndependent (Env, [Constraint])
+
+theEnv :: Functor f => (Env -> f Env)
+       -> (Env, [Constraint]) -> f (Env, [Constraint])
+theEnv = _1
+
+theSat :: Functor f => ([Constraint] -> f [Constraint])
+       -> (Env, [Constraint]) -> f (Env, [Constraint])
+theSat = _2
 
 type WI           = Wrap Integer
 type UTermWithPos = UTerm_ ((SourcePos,SourcePos),TyVar)
 type TypeRule     = Rx.Rule WI UTermWithPos Inh Syn
 
-syntaxRuleToScriptRule :: Sy.Rule -> TypeRule
-syntaxRuleToScriptRule (Rule rx script) = 
+syntaxRuleToScriptRule :: [Axiom] -> Sy.Rule -> TypeRule
+syntaxRuleToScriptRule ax (Rule rx check script) = 
   let vars = getCaptureVars rx
    in Rx.Rule
         (Regex $ syntaxRegexToScriptRegex rx [] vars)
-        (\term env synChildren ->
+        (\term envAndSat@(Rx.IndexIndependent (_,sat)) synChildren ->
           let (p,thisTy)  = ann term
               childrenMap = syntaxSynToMap synChildren
               initialSyn  = foldr mappend mempty $ map snd childrenMap
               rightSyns   = filter (is _Term . snd) childrenMap
+              checkW      = syntaxConstraintListToScript check thisTy vars rightSyns
               wanteds     = syntaxScriptToScript script p thisTy vars rightSyns
-           in ( True
-              , [Rx.Child (Wrap n) [env] | n <- [0 .. (toEnum $ length vars)]]
+           in ( null check || entails ax sat (checkW) []
+              , [Rx.Child (Wrap n) [envAndSat] | n <- [0 .. (toEnum $ length vars)]]
               , case initialSyn of
                   GatherTerm g _ _ -> GatherTerm g [wanteds] [thisTy]
                   _ -> initialSyn  -- Float errors upwards
@@ -134,7 +146,8 @@ syntaxRuleToScriptRule (Rule rx script) =
 type CaptureVarList = [String]
 
 getCaptureVars :: Sy.RuleRegex -> CaptureVarList
-getCaptureVars (Sy.RuleRegex_Capture     s) = [s]
+getCaptureVars (Sy.RuleRegex_Capture s Nothing)  = [s]
+getCaptureVars (Sy.RuleRegex_Capture s (Just r)) = insert s (getCaptureVars r)
 getCaptureVars (Sy.RuleRegex_App     r1 r2) = getCaptureVars r1 `union` getCaptureVars r2
 getCaptureVars (Sy.RuleRegex_Choice  r1 r2) = getCaptureVars r1 `union` getCaptureVars r2
 getCaptureVars (Sy.RuleRegex_Iter        b) = runFreshM $ do (_,rx) <- unbind b
@@ -156,8 +169,10 @@ syntaxRegexToScriptRegex (Sy.RuleRegex_App r1 r2) varMap captureMap =
                    __
 syntaxRegexToScriptRegex (Sy.RuleRegex_Var s) _ _ = inj $ UTerm_Var_ (s2n s) __
 syntaxRegexToScriptRegex (Sy.RuleRegex_Int i) _ _ = inj $ UTerm_IntLiteral_ i __
-syntaxRegexToScriptRegex (Sy.RuleRegex_Capture n) _ captureMap =
+syntaxRegexToScriptRegex (Sy.RuleRegex_Capture n Nothing) _ captureMap =
   (Wrap $ toEnum $ fromJust $ elemIndex n captureMap) <<- any_
+syntaxRegexToScriptRegex (Sy.RuleRegex_Capture n (Just r)) varMap captureMap =
+  (Wrap $ toEnum $ fromJust $ elemIndex n captureMap) <<- syntaxRegexToScriptRegex r varMap captureMap
 
 syntaxSynToMap :: Rx.Children WI Syn -> [(Integer, Gathered)]
 syntaxSynToMap [] = []
@@ -188,6 +203,10 @@ syntaxScriptListToScript (RuleScriptList_List items) p this capVars captures =
   map (\item -> syntaxScriptToScript item p this capVars captures) items
 syntaxScriptListToScript (RuleScriptList_PerItem c info) p this capVars captures =
   map (\t -> Singleton t (Just p, info)) (syntaxConstraintToScript c this capVars captures)
+
+syntaxConstraintListToScript :: [Constraint] -> TyVar -> CaptureVarList -> [(Integer, Gathered)] -> [Constraint]
+syntaxConstraintListToScript cs this capVars captures =
+  concatMap (\c -> syntaxConstraintToScript c this capVars captures) cs
 
 syntaxConstraintToScript :: Constraint -> TyVar -> CaptureVarList -> [(Integer, Gathered)] -> [Constraint]
 syntaxConstraintToScript (Constraint_Unify m1 m2) this capVars captures = do
