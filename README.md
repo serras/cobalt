@@ -1,7 +1,11 @@
 Cobalt
 ======
 
-COnstraint-BAsed Little Typechecker
+**Cobalt** is an acronym for COnstraint-BAsed Little Typechecker. In its core, it is an implementation of [OutsideIn](http://research.microsoft.com/en-us/um/people/simonpj/papers/constraints/jfp-outsidein.pdf), the type checking and inference engine used in the [GHC](https://www.haskell.org/ghc/) Haskell compiler since version 7. Apart from the solver itself, it contains two implementations of constraint gathering:
+
+  * [A more traditional one](https://github.com/serras/cobalt/blob/master/src/Cobalt/OutsideIn/Gather.hs), which merely traverses the tree, and which implementes the original algorithm found in the [paper](http://research.microsoft.com/en-us/um/people/simonpj/papers/constraints/jfp-outsidein.pdf).
+  * [An extensible implementation](https://github.com/serras/cobalt/blob/master/src/Cobalt/Script/Gather.hs) based on the [`t-regex`](https://github.com/serras/t-regex) package, which is expressed as an attribute grammar, and which supports specialized type rules.
+
 
 ## Syntax
 
