@@ -155,7 +155,7 @@
           if (data.status == "error") {
             $("#result-panel").hide();
             $("#error-panel").show();
-            $("#error-msg").text(data.message);
+            $("#error-msg").html(data.message.replace(/\n/g,"<br />"));
           } else {
             $("#error-panel").hide();
             $("#result-panel").show();

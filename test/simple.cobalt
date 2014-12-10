@@ -1,5 +1,7 @@
 rule int 3 script #this ~ 'Int "3 is a number";
 
+import example :: 'Int -> 'Bool;
+
 rule   app (var "example") #thing
 script asym (#thing ~ 'Int "argument must be an Int")
             #thing "";

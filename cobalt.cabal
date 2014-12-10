@@ -18,6 +18,7 @@ library
                      Cobalt.Script.Syntax,
                      Cobalt.Script.Script,
                      Cobalt.Script.Rules,
+                     Cobalt.Script.RuleCheck,
                      Cobalt.Script.Gather,
                      Cobalt.Script.Solver,
                      Cobalt.Script.Top
@@ -31,7 +32,8 @@ library
                      lens,
                      split,
                      t-regex,
-                     containers
+                     containers,
+                     QuickCheck
   hs-source-dirs:    src
   default-language:  Haskell2010
   ghc-options:       -Wall -fcontext-stack=50
@@ -64,7 +66,8 @@ executable cobalt-u
                      split,
                      t-regex,
                      containers,
-                     scotty
+                     scotty,
+                     QuickCheck
   main-is:           MainU.hs
   hs-source-dirs:    src
   default-language:  Haskell2010

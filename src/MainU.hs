@@ -18,6 +18,7 @@ import Cobalt.Language.Parser (parseFile)
 import Cobalt.Language.Syntax
 import Cobalt.OutsideIn.Solver (Solution(..))
 import Cobalt.Script.Gather
+import Cobalt.Script.RuleCheck
 import Cobalt.Script.Script
 import Cobalt.Script.Solver
 import Cobalt.Script.Syntax
@@ -63,21 +64,29 @@ mainServe = do
       case parse parseFile "code" code of
        Left ep -> json $ object [ "status"  .= ("error" :: String)
                                 , "message" .= show ep ]
-       Right (env, defns) -> let env' = env & dataE %~ (++ initialDataEnv)
-                                 tcs  = tcDefns  env' defns
-                                 vals = map jsonTypechecked (zip defns tcs)
-                              in json $ object [ "status" .= ("ok" :: String)
-                                               , "values" .= vals ]
+       Right (env, defns) -> 
+         let env' = env & dataE %~ (++ initialDataEnv)
+          in case checkEnv env' of
+              Left rulesErr -> json $ object [ "status"  .= ("error" :: String)
+                                             , "message" .= intercalate "\n" rulesErr ]
+              Right _ -> let tcs  = tcDefns env' defns
+                             vals = map jsonTypechecked (zip defns tcs)
+                          in json $ object [ "status" .= ("ok" :: String)
+                                           , "values" .= vals ]
     post "/gather" $ do
       code <- param "code"
       case parse parseFile "code" code of
        Left ep -> json $ object [ "status"  .= ("error" :: String)
                                 , "message" .= show ep ]
-       Right (env, defns) -> let env' = env & dataE %~ (++ initialDataEnv)
-                                 gath = gDefns env' defns
-                                 vals = map jsonScript (zip defns gath)
-                              in json $ object [ "status" .= ("ok" :: String)
-                                               , "values" .= vals ]
+       Right (env, defns) ->
+         let env' = env & dataE %~ (++ initialDataEnv)
+          in case checkEnv env' of
+              Left rulesErr -> json $ object [ "status"  .= ("error" :: String)
+                                             , "message" .= intercalate "\n" rulesErr ]
+              Right _ -> let gath = gDefns env' defns
+                             vals = map jsonScript (zip defns gath)
+                          in json $ object [ "status" .= ("ok" :: String)
+                                           , "values" .= vals ]
     get "/example/:file" $ do
       fname <- param "file"
       file $ "test/" ++ fname

@@ -18,12 +18,14 @@
 {-# LANGUAGE TupleSections #-}
 module Cobalt.Script.Syntax (
   Ix(..)
+, Sing(..)
 , UnboundPolyType
 , UTerm_(..)
 , UTerm
 , UTermVar
 , UCaseAlternative
 , AnnUTerm
+, AnnUTermVar
 , pattern UTerm_IntLiteral
 , pattern UTerm_Var
 , pattern UTerm_Abs
@@ -49,6 +51,16 @@ import Cobalt.Language.Syntax
 import Cobalt.Types
 
 data Ix = IsATerm | IsACaseAlternative
+data instance Sing (a :: Ix) where
+  SIsATerm            :: Sing IsATerm
+  SIsACaseAlternative :: Sing IsACaseAlternative
+deriving instance Eq (Sing (a :: Ix))
+
+instance SingI IsATerm where
+  sing = SIsATerm
+instance SingI IsACaseAlternative where
+  sing = SIsACaseAlternative
+
 type UnboundPolyType = (PolyType, ([Constraint], MonoType, [TyVar]))
 
 data UTerm_ t (f :: Ix -> *) (ix :: Ix) where
@@ -67,9 +79,9 @@ type UTermVar t = Name (UTerm t)
 type UCaseAlternative t = Fix (UTerm_ t) IsACaseAlternative
 
 instance Show t => Show (UTerm t) where
-  show = concat . showL
+  show = intercalate "\n" . showL
 instance Show t => Show (UCaseAlternative t) where
-  show = concat . showU
+  show = intercalate "\n" . showU
 
 showL :: Show t => UTerm t -> [String]
 showL (UTerm_IntLiteral n a)   = [show n ++ " => " ++ show a]
@@ -97,6 +109,7 @@ showU (UCaseAlternative k vs _ e a) =
 showU _ = error "You should never get here"
 
 type AnnUTerm t = Fix (UTerm_ ((SourcePos,SourcePos),t)) IsATerm
+type AnnUTermVar t = Name (AnnUTerm t)
 
 pattern UTerm_IntLiteral n        a = Fix (UTerm_IntLiteral_ n a)
 pattern UTerm_Var v               a = Fix (UTerm_Var_ v a)

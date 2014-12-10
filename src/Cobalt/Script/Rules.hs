@@ -46,7 +46,7 @@ import Unsafe.Coerce
 type Errors = [String]
 data Syn (ix :: Ix) where
   Error      :: Errors -> Syn ix
-  GatherTerm :: [Constraint] -> [TyScript] -> [TyVar]  -> Syn IsATerm
+  GatherTerm :: [Constraint] -> [TyScript] -> [TyVar] -> Syn IsATerm
   GatherCase :: [GatherCaseInfo] -> Syn IsACaseAlternative
 
 data GatherCaseInfo = GatherCaseInfo { _extraConstraints :: [Constraint]

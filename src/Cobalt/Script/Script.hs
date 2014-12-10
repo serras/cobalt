@@ -5,6 +5,7 @@
 module Cobalt.Script.Script (
   Script(..), TyScript
 , toConstraintList
+, toConstraintList'
 , fvScript
 , substScript
 , substsScript
@@ -35,6 +36,13 @@ toConstraintList _ex (Singleton c _) = [c]
 toConstraintList ex  (Merge ss _)    = concatMap (toConstraintList ex) ss
 toConstraintList ex  (Asym s1 s2 _)  = toConstraintList ex s1 ++ toConstraintList ex s2
 toConstraintList ex  (Exists v q s)  = [ex v q (toConstraintList ex s)]
+
+toConstraintList' :: Script var constraint msg -> [constraint]
+toConstraintList' Empty           = []
+toConstraintList' (Singleton c _) = [c]
+toConstraintList' (Merge ss _)    = concatMap toConstraintList' ss
+toConstraintList' (Asym s1 s2 _)  = toConstraintList' s1 ++ toConstraintList' s2
+toConstraintList' (Exists _ _ _)  = []
 
 fvScript :: TyScript -> [TyVar]
 fvScript Empty = []
