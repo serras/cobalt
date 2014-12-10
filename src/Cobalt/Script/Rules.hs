@@ -11,6 +11,7 @@ module Cobalt.Script.Rules (
 , Inh
 , theEnv
 , theSat
+, theTouchables
 , Syn(..)
 , Gathered
 , GatherCaseInfo(..)
@@ -110,15 +111,19 @@ instance Monoid (Syn IsACaseAlternative) where
   _ `mappend` e@(Error _) = e
   (GatherCase i1) `mappend` (GatherCase i2) = GatherCase (i1 ++ i2)
 
-type Inh = Rx.IndexIndependent (Env, [Constraint])
+type Inh = Rx.IndexIndependent (Env, [Constraint], [TyVar])
 
 theEnv :: Functor f => (Env -> f Env)
-       -> (Env, [Constraint]) -> f (Env, [Constraint])
+       -> (Env, [Constraint], [TyVar]) -> f (Env, [Constraint], [TyVar])
 theEnv = _1
 
 theSat :: Functor f => ([Constraint] -> f [Constraint])
-       -> (Env, [Constraint]) -> f (Env, [Constraint])
+       -> (Env, [Constraint], [TyVar]) -> f (Env, [Constraint], [TyVar])
 theSat = _2
+
+theTouchables :: Functor f => ([TyVar] -> f [TyVar])
+              -> (Env, [Constraint], [TyVar]) -> f (Env, [Constraint], [TyVar])
+theTouchables = _3
 
 type WI           = Wrap Integer
 type UTermWithPos = UTerm_ ((SourcePos,SourcePos),TyVar)
@@ -129,14 +134,14 @@ syntaxRuleToScriptRule ax (Rule rx check script) =
   let vars = getCaptureVars rx
    in Rx.Rule
         (Regex $ syntaxRegexToScriptRegex rx [] vars)
-        (\term envAndSat@(Rx.IndexIndependent (_,sat)) synChildren ->
+        (\term envAndSat@(Rx.IndexIndependent (_,sat,tchs)) synChildren ->
           let (p,thisTy)  = ann term
               childrenMap = syntaxSynToMap synChildren
               initialSyn  = foldr mappend mempty $ map snd childrenMap
               rightSyns   = filter (is _Term . snd) childrenMap
               checkW      = syntaxConstraintListToScript check thisTy vars rightSyns
               wanteds     = syntaxScriptToScript script p thisTy vars rightSyns
-           in ( null check || entails ax sat (checkW) []
+           in ( null check || entails ax sat (checkW) tchs
               , [Rx.Child (Wrap n) [envAndSat] | n <- [0 .. (toEnum $ length vars)]]
               , case initialSyn of
                   GatherTerm g _ _ -> GatherTerm g [wanteds] [thisTy]
