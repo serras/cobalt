@@ -68,7 +68,7 @@ mainServe = do
          let env' = env & dataE %~ (++ initialDataEnv)
           in case checkEnv env' of
               Left rulesErr -> json $ object [ "status"  .= ("error" :: String)
-                                             , "message" .= intercalate "\n" rulesErr ]
+                                             , "message" .= intercalate "\n\n" rulesErr ]
               Right _ -> let tcs  = tcDefns env' defns
                              vals = map jsonTypechecked (zip defns tcs)
                           in json $ object [ "status" .= ("ok" :: String)
@@ -82,7 +82,7 @@ mainServe = do
          let env' = env & dataE %~ (++ initialDataEnv)
           in case checkEnv env' of
               Left rulesErr -> json $ object [ "status"  .= ("error" :: String)
-                                             , "message" .= intercalate "\n" rulesErr ]
+                                             , "message" .= intercalate "\n\n" rulesErr ]
               Right _ -> let gath = gDefns env' defns
                              vals = map jsonScript (zip defns gath)
                           in json $ object [ "status" .= ("ok" :: String)

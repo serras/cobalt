@@ -19,7 +19,7 @@ import qualified Data.Regex.MultiGenerics as Rx
 import qualified Data.Regex.MultiRules as Rx
 import Test.QuickCheck
 import Text.Parsec.Pos (newPos)
-import Unbound.LocallyNameless hiding (from, union, generate)
+import Unbound.LocallyNameless hiding (from, to, union, generate, name)
 
 import Cobalt.Language.Syntax as Sy
 import qualified Cobalt.OutsideIn.Solver as OIn
@@ -33,13 +33,13 @@ import Cobalt.Types
 import System.IO.Unsafe
 import Unsafe.Coerce
 
-check :: Sy.Env -> TypeRule -> Either String TypeRule
-check env rule@(Rx.Rule rx _) =
+check :: String -> RuleStrictness -> Sy.Env -> TypeRule -> Either String TypeRule
+check name strictness env rule@(Rx.Rule rx _) =
   let samples = unsafePerformIO $ replicateM 100 $
                   generate (astGenerator (unsafeCoerce rx))
    in check_ samples
       where check_ [] = Right rule
-            check_ (s : ss) = case okRule env rule s of
+            check_ (s : ss) = case okRule name strictness env rule s of
                                 Left err -> Left err
                                 Right _  -> check_ ss
 
@@ -48,16 +48,17 @@ checkEnv env@(Sy.Env _ _ ax rules) = case checkEnv_ rules (1 :: Integer) of
   Just errs -> Left errs
   Nothing   -> Right env
   where checkEnv_ [] _ = Nothing
-        checkEnv_ (r:rest) i = case (check env (syntaxRuleToScriptRule ax r), checkEnv_ rest (i+1)) of
-                                 (Left a, Just b) -> Just (("RULE " ++ show i ++ ":\n" ++ a) : b)
-                                 (Left a, _     ) -> Just ["RULE " ++ show i ++ ":\n" ++ a]
-                                 (_,      Just b) -> Just b
-                                 _                -> Nothing
+        checkEnv_ (r@(Rule s n _ _ _) : rest) i =
+          case (check n s env (syntaxRuleToScriptRule ax r), checkEnv_ rest (i+1)) of
+            (Left a, Just b) -> Just (a : b)
+            (Left a, _     ) -> Just [a]
+            (_,      Just b) -> Just b
+            _                -> Nothing
         
 
 astGenerator :: Rx.Regex (Rx.Wrap Integer) (UTerm_ ((SourcePos,SourcePos),TyVar)) IsATerm
              -> Gen (AnnUTerm TyVar)
-astGenerator rx = Rx.arbitraryFromRegexAndGen generateVar rx
+astGenerator = Rx.arbitraryFromRegexAndGen generateVar
 
 instance Arbitrary Constraint where
   arbitrary = error "Generation of constraints is not possible"
@@ -77,8 +78,8 @@ generateVar :: forall (ix :: Ix). Sing ix -> Gen (Rx.Fix (UTerm_ ((SourcePos,Sou
 generateVar SIsATerm = UTerm_Var <$> arbitrary <*> arbitrary
 generateVar SIsACaseAlternative = error "Generation of case alternatives is not possible"
 
-okRule :: Sy.Env -> TypeRule -> AnnUTerm TyVar -> Either String TypeRule
-okRule (Env fn dat ax _) rule term =
+okRule :: String -> RuleStrictness -> Sy.Env -> TypeRule -> AnnUTerm TyVar -> Either String TypeRule
+okRule name strictness (Env fn dat ax _) rule term =
   let -- 1. Add extra information for open variables
       (newVars :: [AnnUTermVar TyVar]) = nub (fv term) \\ map (translate . fst) fn
       extraFns      = [(translate newVar, var (translate newVar)) | newVar <- newVars]
@@ -86,15 +87,39 @@ okRule (Env fn dat ax _) rule term =
       -- 2. Obtain the constraints
       evalWith      = Rx.eval (rule : mainTypeRules) (Rx.IndexIndependent (newEnv,[],[])) term
       evalWithout   = Rx.eval mainTypeRules (Rx.IndexIndependent (newEnv,[],[])) term
+      printError from to rss errs = intercalate "\n" [ "term:",     show (atUAnn snd term)
+                                                     , "given:",    show from
+                                                     , "wanted:",   show to
+                                                     , "residual:", show rss
+                                                     , "errors:",   show errs ]
    in case (evalWith, evalWithout) of
-        (GatherTerm gW [wW] _tW, GatherTerm gO [wO] _tO) -> 
-           let from = gW ++ gO ++ toConstraintList' wW
-               (OIn.Solution _ rs _ _, errs, _) = runFreshM $ solve ax from (fvScript wO) wO
-            in if null rs && null errs
-                  then Right rule
-                  else Left $ intercalate "\n" ["term:",show (atUAnn (\(_,x) -> x) term)
-                                               ,"given:",show from
-                                               ,"wanted:",show wW
-                                               ,"residual:",show rs
-                                               ,"errors:",show errs]
-        _ -> Left $ "error obtaining constraints"
+        (GatherTerm gW [wW] _tW, GatherTerm gO [wO] _tO) ->
+           let -- Check soundness
+               fromSpec  = gW ++ gO ++ toConstraintList' wW
+               toNonSpec = wO
+               tchVars   = fvScript toNonSpec
+               (OIn.Solution _ rs ss _, errs, _) = runFreshM $ solve ax fromSpec tchVars toNonSpec
+               rss = rs ++ residualSubstitution (tchVars \\ map translate newVars) ss
+            in if null rss && null errs
+                  then case strictness of
+                         RuleStrictness_NonStrict -> Right rule
+                         RuleStrictness_Strict ->
+                           let -- Check completeness
+                               fromNonSpec = gW ++ gO ++ toConstraintList' wO
+                               toSpec      = wW
+                               tchVars2    = fvScript toSpec
+                               (OIn.Solution _ rs2 ss2 _, errs2, _) = runFreshM $ solve ax fromNonSpec tchVars2 toSpec
+                               rss2 = rs2 ++ residualSubstitution (tchVars2 \\ map translate newVars) ss2
+                            in if null rss2 && null errs2
+                                  then Right rule
+                                  else Left $ name ++ " is not complete:\n" ++ printError fromNonSpec toSpec rss2 errs2
+                  else Left $ name ++ " is not sound:\n" ++ printError fromSpec toNonSpec rss errs
+        _ -> Left "error obtaining constraints"
+
+residualSubstitution :: [TyVar] -> [(TyVar,MonoType)] -> [Constraint]
+residualSubstitution _ [] = []
+residualSubstitution tch ((v1, MonoType_Var v2) : rest)
+  | v1 == v2 = residualSubstitution tch rest
+residualSubstitution tch ((v1, m2) : rest)
+  | v1 `notElem` tch = residualSubstitution tch rest
+  | otherwise        = Constraint_Unify (var v1) m2 : residualSubstitution tch rest

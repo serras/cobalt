@@ -1,8 +1,11 @@
-rule int 3 script #this ~ 'Int "3 is a number";
+rule three_is_integer
+match  int 3
+script #this ~ 'Int "3 is a number";
 
 import example :: 'Int -> 'Bool;
 
-rule   app (var "example") #thing
+rule   example_rule
+match  app (var "example") #thing
 script asym (#thing ~ 'Int "argument must be an Int")
             #thing "";
 
@@ -15,12 +18,12 @@ h x = 3 x => fail;
 
 import singleton :: {a} a -> [a];
 
-rule   app #singl@(var "singleton") #thing
+rule strict singleton_on_eq
+match  app #singl@(var "singleton") #thing
 check  $Eq #thing
 script merge [ #this ~ [#thing] "singleton on Eq"
              , #thing
-             , #singl
-             ];
+             , #singl ];
 
 axiom $Eq 'Int;
 

@@ -130,7 +130,7 @@ type UTermWithPos = UTerm_ ((SourcePos,SourcePos),TyVar)
 type TypeRule     = Rx.Rule WI UTermWithPos Inh Syn
 
 syntaxRuleToScriptRule :: [Axiom] -> Sy.Rule -> TypeRule
-syntaxRuleToScriptRule ax (Rule rx check script) = 
+syntaxRuleToScriptRule ax (Rule _ _ rx check script) =
   let vars = getCaptureVars rx
    in Rx.Rule
         (Regex $ syntaxRegexToScriptRegex rx [] vars)

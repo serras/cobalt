@@ -23,6 +23,7 @@ module Cobalt.Language.Syntax (
 , getAnn
   -- * Rules
 , Rule(..)
+, RuleStrictness(..)
 , RuleRegexVar
 , RuleRegex(..)
 , RuleScript(..)
@@ -51,6 +52,7 @@ import Text.Parsec.Pos
 import Unbound.LocallyNameless hiding (close, union)
 
 import Cobalt.Types
+{-# ANN module ("HLint: ignore Use camelCase"::String) #-}
 
 type RawTermVar = TermVar (SourcePos, SourcePos)
 type RawTerm    = Term (SourcePos, SourcePos)
@@ -63,8 +65,8 @@ data Term t = Term_IntLiteral Integer t
             | Term_Abs    (Bind (TermVar t) (Term t)) t t
             | Term_AbsAnn (Bind (TermVar t) (Term t)) t PolyType t
             | Term_App    (Term t) (Term t) t
-            | Term_Let    (Bind ((TermVar t), Embed (Term t)) (Term t)) t
-            | Term_LetAnn (Bind ((TermVar t), Embed (Term t)) (Term t)) PolyType t
+            | Term_Let    (Bind (TermVar t, Embed (Term t)) (Term t)) t
+            | Term_LetAnn (Bind (TermVar t, Embed (Term t)) (Term t)) PolyType t
             | Term_Match  (Term t) String [(TermVar t, Bind [TermVar t] (Term t), t)] t
 
 atAnn :: (Alpha a, Alpha b) => (a -> b) -> Term a -> Term b
@@ -99,7 +101,7 @@ atAnn' f (Term_Match e c bs t) = do
   e' <- atAnn' f e
   b' <- mapM (\(d,b,ann) -> do (xs,expr) <- unbind b
                                expr' <- atAnn' f expr
-                               return $ (translate d, bind (map translate xs) expr', f ann)) bs
+                               return (translate d, bind (map translate xs) expr', f ann)) bs
   return $ Term_Match e' c b' (f t)
 
 getAnn :: Term t -> t
@@ -112,7 +114,9 @@ getAnn (Term_Let _ t)        = t
 getAnn (Term_LetAnn _ _ t)   = t
 getAnn (Term_Match _ _ _ t)  = t
 
-data Rule = Rule RuleRegex RuleCheck RuleScript deriving Show
+data Rule = Rule RuleStrictness String RuleRegex RuleCheck RuleScript deriving Show
+
+data RuleStrictness = RuleStrictness_NonStrict | RuleStrictness_Strict deriving Show
 
 type RuleRegexVar = Name RuleRegex
 data RuleRegex = RuleRegex_Square RuleRegexVar
@@ -151,7 +155,7 @@ $(makeLenses ''Env)
 instance Monoid Env where
   mempty = Env [] [] [] []
   (Env f1 d1 a1 r1) `mappend` (Env f2 d2 a2 r2) =
-    Env (union f1 f2) (union d1 d2) (a1 ++ a2) (r1 ++ r2)
+    Env (f1 `union` f2) (d1 `union` d2) (a1 ++ a2) (r1 ++ r2)
 
 type RawDefn = (RawTermVar, RawTerm, Maybe PolyType)
 type TyDefn  = (TyTermVar,  TyTerm,  PolyType)
@@ -171,26 +175,26 @@ instance Rep t => Rep (Term t) where
              , Con rTermAbsAnn ((rep :: R (Bind (TermVar t) (Term t))) :+: (rep :: R t)
                                 :+: (rep :: R PolyType) :+: (rep :: R t) :+: MNil)
              , Con rTermApp    ((rep :: R (Term t)) :+: (rep :: R (Term t)) :+: (rep :: R t) :+: MNil)
-             , Con rTermLet    ((rep :: R ((Bind ((TermVar t), Embed (Term t)) (Term t))))
+             , Con rTermLet    ((rep :: R (Bind (TermVar t, Embed (Term t)) (Term t)))
                                 :+: (rep :: R t) :+: MNil)
-             , Con rTermLetAnn ((rep :: R ((Bind ((TermVar t), Embed (Term t)) (Term t))))
+             , Con rTermLetAnn ((rep :: R (Bind (TermVar t, Embed (Term t)) (Term t)))
                                 :+: (rep :: R PolyType) :+: (rep :: R t) :+: MNil)
              , Con rTermMatch  ((rep :: R (Term t)) :+: (rep :: R String)
-                                :+: (rep :: R [((TermVar t), Bind [TermVar t] (Term t), t)])
+                                :+: (rep :: R [(TermVar t, Bind [TermVar t] (Term t), t)])
                                 :+: (rep :: R t) :+: MNil)
              ]
 
 instance ( Rep t, Sat (ctx t), Sat (ctx (Term t)), Sat (ctx (TermVar t))
          , Sat (ctx Integer), Sat (ctx String), Sat (ctx PolyType)
-         , Sat (ctx (Bind (TermVar t) (Term t))), Sat (ctx (Bind ((TermVar t), Embed (Term t)) (Term t)))
-         , Sat (ctx [((TermVar t), Bind [TermVar t] (Term t), t)])) => Rep1 ctx (Term t) where
+         , Sat (ctx (Bind (TermVar t) (Term t))), Sat (ctx (Bind (TermVar t, Embed (Term t)) (Term t)))
+         , Sat (ctx [(TermVar t, Bind [TermVar t] (Term t), t)])) => Rep1 ctx (Term t) where
   rep1 = rAnnTerm1 dict dict dict dict dict dict dict dict dict
 
 rAnnTerm1 :: forall t ctx. Rep t
           => ctx t -> ctx (Term t) -> ctx (TermVar t)
           -> ctx Integer -> ctx String -> ctx PolyType
-          -> ctx (Bind (TermVar t) (Term t)) -> ctx (Bind ((TermVar t), Embed (Term t)) (Term t))
-          -> ctx [((TermVar t), Bind [TermVar t] (Term t), t)] -> R1 ctx (Term t)
+          -> ctx (Bind (TermVar t) (Term t)) -> ctx (Bind (TermVar t, Embed (Term t)) (Term t))
+          -> ctx [(TermVar t, Bind [TermVar t] (Term t), t)] -> R1 ctx (Term t)
 rAnnTerm1 ct ctt ctv ci cs cp cb1 cb2 cbl =
   Data1 (DT "Term" ((rep :: R t) :+: MNil))
         [ Con rIntLiteral (ci  :+: ct :+: MNil)
@@ -213,7 +217,7 @@ rIntLiteral = Emb { to = \(n :*: t :*: Nil) -> Term_IntLiteral n t
                   , fixity = Nonfix
                   }
 
-rTermVar :: Emb ((TermVar t) :*: t :*: Nil) (Term t)
+rTermVar :: Emb (TermVar t :*: t :*: Nil) (Term t)
 rTermVar = Emb { to = \(v :*: t :*: Nil) -> Term_Var v t
                , from = \x -> case x of
                                 Term_Var v t -> Just (v :*: t :*: Nil)
@@ -223,7 +227,7 @@ rTermVar = Emb { to = \(v :*: t :*: Nil) -> Term_Var v t
                , fixity = Nonfix
                }
 
-rTermAbs :: Emb ((Bind (TermVar t) (Term t)) :*: t :*: t :*: Nil) (Term t)
+rTermAbs :: Emb (Bind (TermVar t) (Term t) :*: t :*: t :*: Nil) (Term t)
 rTermAbs = Emb { to = \(b :*: bt :*: t :*: Nil) -> Term_Abs b bt t
                , from = \x -> case x of
                                Term_Abs b bt t -> Just (b :*: bt :*: t :*: Nil)
@@ -233,7 +237,7 @@ rTermAbs = Emb { to = \(b :*: bt :*: t :*: Nil) -> Term_Abs b bt t
                , fixity = Nonfix
                }
 
-rTermAbsAnn :: Emb ((Bind (TermVar t) (Term t)) :*: t :*: PolyType :*: t :*: Nil) (Term t)
+rTermAbsAnn :: Emb (Bind (TermVar t) (Term t) :*: t :*: PolyType :*: t :*: Nil) (Term t)
 rTermAbsAnn = Emb { to = \(b :*: bt :*: p :*: t :*: Nil) -> Term_AbsAnn b bt p t
                   , from = \x -> case x of
                                   Term_AbsAnn b bt p t -> Just (b :*: bt :*: p :*: t :*: Nil)
@@ -253,7 +257,7 @@ rTermApp = Emb { to = \(t1 :*: t2 :*: t :*: Nil) -> Term_App t1 t2 t
                , fixity = Nonfix
                }
 
-rTermLet :: Emb ((Bind ((TermVar t), Embed (Term t)) (Term t)) :*: t :*: Nil) (Term t)
+rTermLet :: Emb (Bind (TermVar t, Embed (Term t)) (Term t) :*: t :*: Nil) (Term t)
 rTermLet = Emb { to = \(b :*: t :*: Nil) -> Term_Let b t
                , from = \x -> case x of
                                Term_Let b t -> Just (b :*: t :*: Nil)
@@ -263,7 +267,7 @@ rTermLet = Emb { to = \(b :*: t :*: Nil) -> Term_Let b t
                , fixity = Nonfix
                }
 
-rTermLetAnn :: Emb ((Bind ((TermVar t), Embed (Term t)) (Term t)) :*: PolyType :*: t :*: Nil) (Term t)
+rTermLetAnn :: Emb (Bind (TermVar t, Embed (Term t)) (Term t) :*: PolyType :*: t :*: Nil) (Term t)
 rTermLetAnn = Emb { to = \(b :*: p :*: t :*: Nil) -> Term_LetAnn b p t
                   , from = \x -> case x of
                                   Term_LetAnn b p t -> Just (b :*: p :*: t :*: Nil)
@@ -273,7 +277,7 @@ rTermLetAnn = Emb { to = \(b :*: p :*: t :*: Nil) -> Term_LetAnn b p t
                   , fixity = Nonfix
                   }
 
-rTermMatch :: Emb (Term t :*: String :*: [((TermVar t), Bind [TermVar t] (Term t), t)] :*: t :*: Nil) (Term t)
+rTermMatch :: Emb (Term t :*: String :*: [(TermVar t, Bind [TermVar t] (Term t), t)] :*: t :*: Nil) (Term t)
 rTermMatch = Emb { to = \(e :*: c :*: alts :*: t :*: Nil) -> Term_Match e c alts t
                  , from = \x -> case x of
                                  Term_Match e c alts t -> Just (e :*: c :*: alts :*: t :*: Nil)
@@ -320,11 +324,11 @@ instance (Alpha t, Show t) => Show (Term t) where
   show = showAnnTerm id
 
 showAnnTerm :: (Alpha a, Show b) => (a -> b) -> Term a -> String
-showAnnTerm f = unlines . runFreshM . (showAnnTerm' f)
+showAnnTerm f = unlines . runFreshM . showAnnTerm' f
 
 showAnnTerm' :: (Fresh m, Alpha a, Show b) => (a -> b) -> Term a -> m [String]
-showAnnTerm' f (Term_IntLiteral n t) = return $ [show n ++ " ==> " ++ show (f t)]
-showAnnTerm' f (Term_Var v t) = return $ [show v ++ " ==> " ++ show (f t)]
+showAnnTerm' f (Term_IntLiteral n t) = return [show n ++ " ==> " ++ show (f t)]
+showAnnTerm' f (Term_Var v t) = return [show v ++ " ==> " ++ show (f t)]
 showAnnTerm' f (Term_Abs b _ t) = do
   (x,e) <- unbind b
   inner <- showAnnTerm' f e

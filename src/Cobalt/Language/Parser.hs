@@ -22,7 +22,7 @@ import Cobalt.Language.Syntax
 import Cobalt.Types
 
 parseTerm :: Parsec String s RawTerm
-parseTerm = parseAtom `chainl1` (pure joinTerms)
+parseTerm = parseAtom `chainl1` pure joinTerms
             where joinTerms x y = let (xInn,xFin) = getAnn x
                                       (yInn,yFin) = getAnn y
                                    in Term_App x y (min xInn yInn, max xFin yFin)
@@ -265,6 +265,11 @@ parseExpected = try (id <$ reservedOp "=>" <*> (    const True  <$> reservedOp "
 
 parseRule :: Parsec String s Rule
 parseRule = Rule <$  reserved "rule"
+                 <*> (   id <$  reserved "strict"
+                            <*> pure RuleStrictness_Strict
+                     <|> pure RuleStrictness_NonStrict)
+                 <*> identifier
+                 <*  reserved "match"
                  <*> parseRuleRegex
                  <*> (   id <$  reserved "check"
                             <*> commaSep1 parseConstraint
@@ -279,7 +284,7 @@ parseRuleRegex = parseRuleRegexAtom `chainl1` (RuleRegex_Choice <$ reservedOp "|
 parseRuleRegexAtom :: Parsec String s RuleRegex
 parseRuleRegexAtom = -- Parenthesized expression
                      parens parseRuleRegex
-                 <|> createRegexIter <$> brackets (parseRuleRegex)
+                 <|> createRegexIter <$> brackets parseRuleRegex
                                      <*  reservedOp "*"
                                      <*> identifier
                  <|> RuleRegex_Any <$ reserved "any"
@@ -303,13 +308,13 @@ parseRuleScript = -- Parenthesized expression
                   parens parseRuleScript
               <|> RuleScript_Merge <$  reserved "merge"
                                    <*> parseRuleScriptList
-                                   <*> (optionMaybe stringLiteral)
+                                   <*> optionMaybe stringLiteral
               <|> RuleScript_Asym  <$  reserved "asym"
                                    <*> parseRuleScript
                                    <*> parseRuleScript
-                                   <*> (optionMaybe stringLiteral)
+                                   <*> optionMaybe stringLiteral
               <|> try (RuleScript_Singleton <$> parseConstraint
-                                            <*> (optionMaybe stringLiteral))
+                                            <*> optionMaybe stringLiteral)
               <|> RuleScript_Ref <$ char '#' <*> identifier
 
 parseRuleScriptList :: Parsec String s RuleScriptList
@@ -317,7 +322,7 @@ parseRuleScriptList = -- Parenthesized expression
                       parens parseRuleScriptList
                   <|> RuleScriptList_List <$> brackets (commaSep1 parseRuleScript) 
                   <|> try (RuleScriptList_PerItem <$> parseConstraint
-                                                  <*> (optionMaybe stringLiteral))
+                                                  <*> optionMaybe stringLiteral)
                   <|> RuleScriptList_Ref <$ char '#' <*> identifier
 
 data DeclType = AData   (String, [TyVar])
@@ -338,7 +343,7 @@ buildProgram = foldr (\decl (Env s d a r, df) -> case decl of
                         AData i   -> (Env s (i:d) a r, df)
                         AnAxiom i -> (Env s d (i ++ a) r, df)
                         ASig i    -> (Env (i:s) d a r, df)
-                        ADefn i   -> (Env s d a r, (i:df))
+                        ADefn i   -> (Env s d a r, i:df)
                         ARule i   -> (Env s d a (i:r),df))
                      (Env [] [] [] [], [])
 
@@ -348,7 +353,7 @@ parseFile = buildProgram <$> many parseDecl
 -- Lexer for Haskell-like language
 
 lexer :: T.TokenParser t
-lexer = T.makeTokenParser $ haskellDef { T.reservedNames = "rule" : "check" : "script"
+lexer = T.makeTokenParser $ haskellDef { T.reservedNames = "rule" : "strict" : "match" : "check" : "script"
                                                            : "merge" : "asym"
                                                            : "any" : "app" : "var" : "int"
                                                            : "injective" : "defer" : "synonym"
