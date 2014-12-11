@@ -20,6 +20,7 @@ module Cobalt.Script.Rules (
 , given
 , wanted
 , ty
+, custom
 , _Case
 , TypeRule
 , syntaxRuleToScriptRule
@@ -46,7 +47,7 @@ import Unsafe.Coerce
 type Errors = [String]
 data Syn (ix :: Ix) where
   Error      :: Errors -> Syn ix
-  GatherTerm :: [Constraint] -> [TyScript] -> [TyVar] -> Syn IsATerm
+  GatherTerm :: [Constraint] -> [TyScript] -> [TyVar] -> [Constraint] -> Syn IsATerm
   GatherCase :: [GatherCaseInfo] -> Syn IsACaseAlternative
 
 data GatherCaseInfo = GatherCaseInfo { _extraConstraints :: [Constraint]
@@ -54,6 +55,7 @@ data GatherCaseInfo = GatherCaseInfo { _extraConstraints :: [Constraint]
                                      , _konQ :: [Constraint]
                                      , _konT :: MonoType
                                      , _script :: TyScript
+                                     , _customChecks :: [Constraint]
                                      , _thisVar :: TyVar
                                      }
 
@@ -64,49 +66,53 @@ _Error = prism Error (\x -> case x of
                               Error e -> Right e
                               _       -> Left x)
 
-_Term :: Prism' (Syn IsATerm) ([Constraint], [TyScript], [TyVar])
-_Term = prism (\(g,w,t) -> GatherTerm g w t)
+_Term :: Prism' (Syn IsATerm) ([Constraint], [TyScript], [TyVar],[Constraint])
+_Term = prism (\(g,w,t,c) -> GatherTerm g w t c)
               (\x -> case x of
-                       GatherTerm g w t -> Right (g,w,t)
-                       _                -> Left x)
+                       GatherTerm g w t c -> Right (g,w,t,c)
+                       _                  -> Left x)
 
 given :: Functor f => ([Constraint] -> f [Constraint])
-      -> ([Constraint],[TyScript],[TyVar]) -> f ([Constraint],[TyScript],[TyVar])
-given  = _1
+      -> ([Constraint],[TyScript],[TyVar],[Constraint]) -> f ([Constraint],[TyScript],[TyVar],[Constraint])
+given = _1
 
 wanted :: Functor f => ([TyScript] -> f [TyScript])
-       -> ([Constraint],[TyScript],[TyVar]) -> f ([Constraint],[TyScript],[TyVar])
+       -> ([Constraint],[TyScript],[TyVar],[Constraint]) -> f ([Constraint],[TyScript],[TyVar],[Constraint])
 wanted = _2
 
 ty :: Functor f => ([TyVar] -> f [TyVar])
-   -> ([Constraint],[TyScript],[TyVar]) -> f ([Constraint],[TyScript],[TyVar])
-ty     = _3
+   -> ([Constraint],[TyScript],[TyVar],[Constraint]) -> f ([Constraint],[TyScript],[TyVar],[Constraint])
+ty = _3
+
+custom :: Functor f => ([Constraint] -> f [Constraint])
+       -> ([Constraint],[TyScript],[TyVar],[Constraint]) -> f ([Constraint],[TyScript],[TyVar],[Constraint])
+custom = _1
 
 _Case :: Prism' (Syn IsACaseAlternative) [GatherCaseInfo]
-_Case = prism (\g -> GatherCase g)
+_Case = prism GatherCase
               (\x -> case x of
                        GatherCase g -> Right g
                        _            -> Left x)
 
 -- Internal accessors
 termWanted :: Gathered -> [TyScript]
-termWanted (GatherTerm _ w _) = w
-termWanted _                  = error "This is not a term synthesized attribute"
+termWanted (GatherTerm _ w _ _) = w
+termWanted _                    = error "This is not a term synthesized attribute"
 
 termTy :: Gathered -> [TyVar]
-termTy (GatherTerm _ _ t) = t
-termTy _                  = error "This is not a term synthesized attribute"
+termTy (GatherTerm _ _ t _) = t
+termTy _                    = error "This is not a term synthesized attribute"
 
 instance Monoid (Syn IsATerm) where
-  mempty = GatherTerm [] [] []
-  (Error e1) `mappend` (Error e2) = Error (union e1 e2)
+  mempty = GatherTerm [] [] [] []
+  (Error e1) `mappend` (Error e2) = Error (e1 `union` e2)
   e@(Error _) `mappend` _ = e
   _ `mappend` e@(Error _) = e
-  (GatherTerm g1 w1 v1) `mappend` (GatherTerm g2 w2 v2) = GatherTerm (g1 ++ g2) (w1 ++ w2) (v1 ++ v2)
+  (GatherTerm g1 w1 v1 c1) `mappend` (GatherTerm g2 w2 v2 c2) = GatherTerm (g1 ++ g2) (w1 ++ w2) (v1 ++ v2) (c1 ++ c2)
 
 instance Monoid (Syn IsACaseAlternative) where
   mempty = GatherCase []
-  (Error e1) `mappend` (Error e2) = Error (union e1 e2)
+  (Error e1) `mappend` (Error e2) = Error (e1 `union` e2)
   e@(Error _) `mappend` _ = e
   _ `mappend` e@(Error _) = e
   (GatherCase i1) `mappend` (GatherCase i2) = GatherCase (i1 ++ i2)
@@ -137,14 +143,14 @@ syntaxRuleToScriptRule ax (Rule _ _ rx check script) =
         (\term envAndSat@(Rx.IndexIndependent (_,sat,tchs)) synChildren ->
           let (p,thisTy)  = ann term
               childrenMap = syntaxSynToMap synChildren
-              initialSyn  = foldr mappend mempty $ map snd childrenMap
+              initialSyn  = foldr (mappend . snd) mempty childrenMap
               rightSyns   = filter (is _Term . snd) childrenMap
               checkW      = syntaxConstraintListToScript check thisTy vars rightSyns
               wanteds     = syntaxScriptToScript script p thisTy vars rightSyns
-           in ( null check || entails ax sat (checkW) tchs
+           in ( null check || entails ax sat checkW tchs
               , [Rx.Child (Wrap n) [envAndSat] | n <- [0 .. (toEnum $ length vars)]]
               , case initialSyn of
-                  GatherTerm g _ _ -> GatherTerm g [wanteds] [thisTy]
+                  GatherTerm g _ _ c -> GatherTerm g [wanteds] [thisTy] (checkW ++ c)
                   _ -> initialSyn  -- Float errors upwards
               ) )
 
@@ -198,12 +204,12 @@ syntaxScriptToScript (RuleScript_Singleton c info) p this capVars captures =
   let [oneRule] = syntaxConstraintToScript c this capVars captures
    in Singleton oneRule (Just p, info)
 syntaxScriptToScript (RuleScript_Ref s) _ _ capVars captures =
-  c where [c] = termWanted (captures !!! (fromJust $ elemIndex s capVars))
+  c where [c] = termWanted (captures !!! fromJust (elemIndex s capVars))
 
 syntaxScriptListToScript :: RuleScriptList -> (SourcePos,SourcePos) -> TyVar
                          -> CaptureVarList -> [(Integer, Gathered)] -> [TyScript]
 syntaxScriptListToScript (RuleScriptList_Ref s) _ _ capVars captures =
-  termWanted (captures !!! (fromJust $ elemIndex s capVars))
+  termWanted (captures !!! fromJust (elemIndex s capVars))
 syntaxScriptListToScript (RuleScriptList_List items) p this capVars captures =
   map (\item -> syntaxScriptToScript item p this capVars captures) items
 syntaxScriptListToScript (RuleScriptList_PerItem c info) p this capVars captures =
@@ -247,7 +253,7 @@ syntaxMonoTypeToScript (MonoType_Var v) this capVars captures =
   case name2String v of
     -- Variables starting with # refer to captured variables
     "#this" -> return $ MonoType_Var this
-    '#':s   -> do tyx <- termTy (captures !!! (fromJust $ elemIndex s capVars))
+    '#':s   -> do tyx <- termTy (captures !!! fromJust (elemIndex s capVars))
                   return $ MonoType_Var (translate tyx)
     _       -> return $ MonoType_Var v
 syntaxMonoTypeToScript (MonoType_Arrow t1 t2) this capVars captures = do
@@ -259,7 +265,7 @@ syntaxPolyTypeToScript :: PolyType -> TyVar -> CaptureVarList -> [(Integer, Gath
 syntaxPolyTypeToScript (PolyType_Bind b) this capVars captures = do
   (v,p)  <- unbind b
   inn <- syntaxPolyTypeToScript p this capVars captures
-  return $ map (\item -> PolyType_Bind $ bind v item) inn
+  return $ map (PolyType_Bind . bind v) inn
 syntaxPolyTypeToScript (PolyType_Mono cs m) this capVars captures =
   return $ do cs2 <- map (\c -> syntaxConstraintToScript c this capVars captures) cs
               m2  <- syntaxMonoTypeToScript m this capVars captures

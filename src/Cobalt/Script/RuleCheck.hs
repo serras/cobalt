@@ -79,23 +79,26 @@ generateVar SIsATerm = UTerm_Var <$> arbitrary <*> arbitrary
 generateVar SIsACaseAlternative = error "Generation of case alternatives is not possible"
 
 okRule :: String -> RuleStrictness -> Sy.Env -> TypeRule -> AnnUTerm TyVar -> Either String TypeRule
-okRule name strictness (Env fn dat ax _) rule term =
+okRule name strictness (Env fn dat ax _) (Rx.Rule rx action) term =
   let -- 1. Add extra information for open variables
       (newVars :: [AnnUTermVar TyVar]) = nub (fv term) \\ map (translate . fst) fn
       extraFns      = [(translate newVar, var (translate newVar)) | newVar <- newVars]
       newEnv        = Env (extraFns ++ fn) dat ax []
-      -- 2. Obtain the constraints
+      -- 2. Generate a new rule which is always applicable
+      rule          = Rx.Rule rx (\x y z -> let (_,u,v) = action x y z in (True,u,v))
+      -- 3. Obtain the constraints
       evalWith      = Rx.eval (rule : mainTypeRules) (Rx.IndexIndependent (newEnv,[],[])) term
       evalWithout   = Rx.eval mainTypeRules (Rx.IndexIndependent (newEnv,[],[])) term
-      printError from to rss errs = intercalate "\n" [ "term:",     show (atUAnn snd term)
-                                                     , "given:",    show from
-                                                     , "wanted:",   show to
-                                                     , "residual:", show rss
-                                                     , "errors:",   show errs ]
+      printError from to rs ss errs = intercalate "\n" [ "term:",         show (atUAnn snd term)
+                                                       , "given:",        show from
+                                                       , "wanted:",       show to
+                                                       , "residual:",     show rs
+                                                       , "substitution:", show ss
+                                                       , "errors:",       show errs ]
    in case (evalWith, evalWithout) of
-        (GatherTerm gW [wW] _tW, GatherTerm gO [wO] _tO) ->
+        (GatherTerm gW [wW] _tW customW, GatherTerm gO [wO] _tO _) ->
            let -- Check soundness
-               fromSpec  = gW ++ gO ++ toConstraintList' wW
+               fromSpec  = customW ++ gW ++ gO ++ toConstraintList' wW
                toNonSpec = wO
                tchVars   = fvScript toNonSpec
                (OIn.Solution _ rs ss _, errs, _) = runFreshM $ solve ax fromSpec tchVars toNonSpec
@@ -105,15 +108,15 @@ okRule name strictness (Env fn dat ax _) rule term =
                          RuleStrictness_NonStrict -> Right rule
                          RuleStrictness_Strict ->
                            let -- Check completeness
-                               fromNonSpec = gW ++ gO ++ toConstraintList' wO
+                               fromNonSpec = customW ++ gW ++ gO ++ toConstraintList' wO
                                toSpec      = wW
                                tchVars2    = fvScript toSpec
                                (OIn.Solution _ rs2 ss2 _, errs2, _) = runFreshM $ solve ax fromNonSpec tchVars2 toSpec
                                rss2 = rs2 ++ residualSubstitution (tchVars2 \\ map translate newVars) ss2
                             in if null rss2 && null errs2
                                   then Right rule
-                                  else Left $ name ++ " is not complete:\n" ++ printError fromNonSpec toSpec rss2 errs2
-                  else Left $ name ++ " is not sound:\n" ++ printError fromSpec toNonSpec rss errs
+                                  else Left $ name ++ " is not complete:\n" ++ printError fromNonSpec toSpec rs2 ss2 errs2
+                  else Left $ name ++ " is not sound:\n" ++ printError fromSpec toNonSpec rs ss errs
         _ -> Left "error obtaining constraints"
 
 residualSubstitution :: [TyVar] -> [(TyVar,MonoType)] -> [Constraint]

@@ -6,7 +6,7 @@ import Control.Applicative ((<$>))
 import Control.Lens.Extras
 import Control.Monad.Except
 import Data.List (nub)
-import Data.Maybe (catMaybes)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Regex.MultiRules
 import Unbound.LocallyNameless hiding (name, union)
 
@@ -37,26 +37,26 @@ doTyvaring (Env fn dat _ _) (name,term,Just p) = do
   return (name, tyv, Just p, Just unboundP)
 
 gDefn_ :: [Constraint] -> [TyVar] -> Env -> RawUnboundDefn -> FreshM (Gathered, AnnUTerm TyVar, [TyVar])
-gDefn_ sat tchs env@(Env _ _ ax rules) (_name,tyv,_,Nothing) = do
+gDefn_ sat tchs env@(Env _ _ ax rules) (_name,tyv,_,Nothing) =
   case eval (map (syntaxRuleToScriptRule ax) rules ++ mainTypeRules) (IndexIndependent (env,sat,tchs)) tyv of
-    err@(Error _) -> return $ (err, tyv, [])
-    GatherTerm g [w] v ->
+    err@(Error _) -> return (err, tyv, [])
+    GatherTerm g [w] v c ->
       -- Chose whether to apply exists removal or not
       let simplifiedW = simplifyScript w in
-      return (GatherTerm g [simplifiedW] v, tyv, v ++ fvScript simplifiedW)
+      return (GatherTerm g [simplifiedW] v c, tyv, v ++ fvScript simplifiedW)
       -- case removeExistsScript w of
       --  (w2, newG, _) -> return (GatherTerm (union g newG) [simplifyScript w2] v, tyv)
     _ -> error "This should never happen"
 gDefn_ sat tchs (Env fn dat ax rules) (name,tyv,Just declaredType,Just (q1,t1,_)) = do
   let env' = Env ((name,declaredType) : fn) dat ax rules
   case eval (map (syntaxRuleToScriptRule ax) rules ++ mainTypeRules) (IndexIndependent (env',sat,tchs)) tyv of
-    err@(Error _) -> return $ (err, tyv, [])
-    GatherTerm g [w] [v] -> do
+    err@(Error _) -> return (err, tyv, [])
+    GatherTerm g [w] [v] c -> do
       let extra = Constraint_Unify (var v) t1
           simplifiedW = simplifyScript w
           withExtra = Asym (Singleton extra (Nothing,Nothing)) simplifiedW (Nothing,Nothing)
       -- Chose whether to apply exists removal or not -> look above
-      return (GatherTerm (g ++ q1) [withExtra] [v], tyv, v : fvScript simplifiedW)
+      return (GatherTerm (g ++ q1) [withExtra] [v] c, tyv, v : fvScript simplifiedW)
     _ -> error "This should never happen"
 gDefn_ _ _ _ _ = error "This should never happen"
 
@@ -76,10 +76,10 @@ tcDefn = tcDefn_ Nothing Nothing
 tcDefn_ :: Maybe [Constraint] -> Maybe [TyVar] -> Env -> RawUnboundDefn
         -> FreshM (FinalSolution, AnnUTerm MonoType, Maybe PolyType)
 tcDefn_ extra tchs env@(Env _ _ ax _) defn@(_,_,annotation,_) = do
-  (gatherResult, term, tch) <- gDefn_ (maybe [] id extra) (maybe [] id tchs) env defn  -- pass extra information
+  (gatherResult, term, tch) <- gDefn_ (fromMaybe [] extra) (fromMaybe [] tchs) env defn  -- pass extra information
   case gatherResult of
     Error errs -> return ((Solution [] [] [] [], errs, G.empty), atUAnn (\(pos, m) -> (pos, var m)) term, Nothing)
-    GatherTerm g [w] [v] -> do
+    GatherTerm g [w] [v] _ -> do
       -- reuse implementation of obtaining substitution
       s@(inn@(Solution smallG rs subst' tch'),errs,graph) <- solve ax g tch w
       let newTerm = atUAnn (\(pos, m) -> (pos, getFromSubst m subst')) term
@@ -88,7 +88,7 @@ tcDefn_ extra tchs env@(Env _ _ ax _) defn@(_,_,annotation,_) = do
         (Just p, []) -> return (s, newTerm, Just p)
         (Nothing, _) -> do -- We need to close it
            let (almostFinalT, restC) = closeExn (smallG ++ rs) (getFromSubst v subst') (not . (`elem` tch'))
-               finalT = nf $ almostFinalT
+               finalT = nf almostFinalT
            finalCheck <- runExceptT $ tcCheckErrors restC finalT
            case finalCheck of
              Left moreErrors -> return ((inn, moreErrors : errs, graph), newTerm, Nothing)
@@ -105,9 +105,7 @@ tcDefn_ extra tchs env@(Env _ _ ax _) defn@(_,_,annotation,_) = do
     _ -> error "This should never happen"
 
 getFromSubst :: TyVar -> [(TyVar, MonoType)] -> MonoType
-getFromSubst v s = case lookup v s of
-                    Just m  -> m
-                    Nothing -> var v
+getFromSubst v s = fromMaybe (var v) (lookup v s)
 
 tcDefns :: Env -> [(RawDefn,Bool)] -> [(FinalSolution, AnnUTerm MonoType, Maybe PolyType)]
 tcDefns env terms = runFreshM $ tcDefns_ env terms
@@ -130,12 +128,12 @@ tcCheckErrors rs t = do checkRigidity t
 
 checkRigidity :: PolyType -> ExceptT String FreshM ()
 checkRigidity t = do let fvT :: [TyVar] = fv t
-                     when (not (null fvT)) $ throwError $ case fvT of
+                     unless (null fvT) $ throwError $ case fvT of
                        [x] -> show x ++ " is a rigid type variable in: " ++ show t
                        _   -> show fvT ++ " are rigid type variables in: " ++ show t
 
 checkAmbiguity :: [Constraint] -> ExceptT String FreshM ()
-checkAmbiguity cs = do let vars = catMaybes $ map getVar cs
+checkAmbiguity cs = do let vars = mapMaybe getVar cs
                            dup  = findDuplicate vars
                        case dup of
                          Nothing -> return ()

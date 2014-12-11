@@ -41,13 +41,13 @@ mainCmd = do
     Left ep -> do setSGR [SetColor Foreground Vivid Red]
                   putStr "Error while parsing: "
                   setSGR [Reset]
-                  putStrLn (show ep)
+                  print ep
     Right (env, defns) ->
       let env' =  env & dataE %~ (++ initialDataEnv)
        in case todo of
-            "parse"  -> do putStrLn $ show env
+            "parse"  -> do print env
                            putStrLn ""
-                           mapM_ (putStrLn . show) defns
+                           mapM_ print defns
             "solve"  -> solveDefns env' defns
             "gather" -> gatherDefns env' defns
             _ -> putStrLn "Unrecognized command"
@@ -70,7 +70,7 @@ mainServe = do
               Left rulesErr -> json $ object [ "status"  .= ("error" :: String)
                                              , "message" .= intercalate "\n\n" rulesErr ]
               Right _ -> let tcs  = tcDefns env' defns
-                             vals = map jsonTypechecked (zip defns tcs)
+                             vals = zipWith jsonTypechecked defns tcs
                           in json $ object [ "status" .= ("ok" :: String)
                                            , "values" .= vals ]
     post "/gather" $ do
@@ -84,7 +84,7 @@ mainServe = do
               Left rulesErr -> json $ object [ "status"  .= ("error" :: String)
                                              , "message" .= intercalate "\n\n" rulesErr ]
               Right _ -> let gath = gDefns env' defns
-                             vals = map jsonScript (zip defns gath)
+                             vals = zipWith jsonScript defns gath
                           in json $ object [ "status" .= ("ok" :: String)
                                            , "values" .= vals ]
     get "/example/:file" $ do
@@ -117,11 +117,11 @@ showGathered (((n,_,_),_), (Error errors, _, _, _)) = do
   setSGR [Reset]
   mapM_ putStrLn errors
   putStrLn ""
-showGathered (((n,_,_),_), (GatherTerm _ [w] _, _, _, _)) = do
+showGathered (((n,_,_),_), (GatherTerm _ [w] _ _, _, _, _)) = do
   setSGR [SetColor Foreground Vivid Blue]
   putStrLn (name2String n)
   setSGR [Reset]
-  putStrLn (show w)
+  print w
   putStrLn ""
 showGathered _ = do
   setSGR [SetColor Foreground Vivid Blue]
@@ -136,18 +136,18 @@ showSolved (((n,_,_),_), sol) = do
   setSGR [Reset]
   putStr " ==> "
   setSGR [Reset]
-  putStrLn (show sol)
+  print sol
   putStrLn ""
 
 -- JSON PART
-jsonScript :: ((RawDefn,Bool), (Gathered, AnnUTerm TyVar, [TyVar], [Constraint])) -> Value
-jsonScript (((n,_,_),_), (Error e, _, _, _)) = 
+jsonScript :: (RawDefn,Bool) -> (Gathered, AnnUTerm TyVar, [TyVar], [Constraint]) -> Value
+jsonScript ((n,_,_),_) (Error e, _, _, _) =
   object [ "text" .= name2String n
          -- , "tags" .= [withGreek e]
          , "nodes" .= map justText e
          , "color" .= ("white" :: String)
          , "backColor" .= ("#F58471" :: String) ] -- red
-jsonScript (((n,_,_),_), (GatherTerm g w _, term, _, extra)) =
+jsonScript ((n,_,_),_) (GatherTerm g w _ _, term, _, extra) =
   object [ "text" .= name2String n
          -- , "tags" .= [showWithGreek t]
          , "color" .= ("white" :: String)
@@ -161,8 +161,8 @@ jsonScript (((n,_,_),_), (GatherTerm g w _, term, _, extra)) =
                       , object [ "text"  .= ("extra" :: String)
                                , "nodes" .= map (justText . textJsonConstraint) extra ] ] ]
 
-jsonTypechecked :: ((RawDefn,Bool), (FinalSolution, AnnUTerm MonoType, Maybe PolyType)) -> Value
-jsonTypechecked (((n,_,_),ok), ((Solution _ rs _ _, errs, _graph), term, p)) =
+jsonTypechecked :: (RawDefn,Bool) -> (FinalSolution, AnnUTerm MonoType, Maybe PolyType) -> Value
+jsonTypechecked ((n,_,_),ok) ((Solution _ rs _ _, errs, _graph), term, p) =
   let errNodes = if null errs
                     then []
                     else [ object [ "text"  .= ("errors" :: String)
