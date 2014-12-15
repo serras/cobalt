@@ -4,6 +4,7 @@ module Cobalt.OutsideIn.Top (
 , gDefns
 , tcDefn
 , tcDefns
+, SolverError
 ) where
 
 import Control.Lens hiding ((.=))
@@ -24,16 +25,16 @@ import Cobalt.Types
 tcNextEnv :: Env -> (TyDefn,a) -> Env
 tcNextEnv e ((n,_,t),_) = e & fnE %~ ((translate n,t):)
 
-doPerDefn' :: (Env -> RawDefn -> FreshM (Either String a, b))
+doPerDefn' :: (Env -> RawDefn -> FreshM (Either err a, b))
            -> (Env -> a -> Env)
            -> Env -> [(RawDefn,Bool)]
-           -> [(Either (RawTermVar,String) a, b, Bool)]
+           -> [(Either (RawTermVar,err) a, b, Bool)]
 doPerDefn' f nx e d = runFreshM (doPerDefn f nx e d)
 
-doPerDefn :: (Env -> RawDefn -> FreshM (Either String a, b))
+doPerDefn :: (Env -> RawDefn -> FreshM (Either err a, b))
           -> (Env -> a -> Env)
           -> Env -> [(RawDefn,Bool)]
-          -> FreshM [(Either (RawTermVar,String) a, b, Bool)]
+          -> FreshM [(Either (RawTermVar,err) a, b, Bool)]
 doPerDefn _ _ _ [] = return []
 doPerDefn f nx e (((n,t,p),b):xs) = do r <- f e (n,t,p)
                                        case r of
@@ -65,11 +66,11 @@ gDefns :: UseHigherRanks -> Env -> [(RawDefn,Bool)]
 gDefns higher = doPerDefn' (gDefn higher) const
 
 -- | Typecheck a definition
-tcDefn :: UseHigherRanks -> Env -> RawDefn -> FreshM (Either String (TyDefn, [Constraint]), Graph)
+tcDefn :: UseHigherRanks -> Env -> RawDefn -> FreshM (Either SolverError (TyDefn, [Constraint]), Graph)
 tcDefn h e (n,t,annP) = do
   gResult <- gDefn h e (n,t,annP)
   case gResult of
-    (Left errG, g) -> return (Left errG, g)
+    (Left errG, g) -> return (Left (SolverError_PreviousPhase errG), g)
     (Right (n', Gathered _ a g w, tch), _) -> do
       tcResult <- solve (e^.axiomE) g w tch
       case tcResult of
@@ -84,27 +85,25 @@ tcDefn h e (n,t,annP) = do
                           case finalCheck of
                             Left errF -> return (Left errF, graph)
                             Right _   -> return (Right ((n',thisAnn,finalT),rs),graph)
-            Just p  -> if not (null rs) then return (Left ("Could not deduce: " ++ show rs), graph)
+            Just p  -> if not (null rs) then return (Left (SolverError_CouldNotDischarge rs), graph)
                                         else return (Right ((n',thisAnn,p),rs),graph)
 
-tcCheckErrors :: [Constraint] -> PolyType -> ExceptT String FreshM ()
+tcCheckErrors :: [Constraint] -> PolyType -> ExceptT SolverError FreshM ()
 tcCheckErrors rs t = do checkRigidity t
                         checkAmbiguity rs
                         checkLeftUnclosed rs
 
-checkRigidity :: PolyType -> ExceptT String FreshM ()
+checkRigidity :: PolyType -> ExceptT SolverError FreshM ()
 checkRigidity t = do let fvT :: [TyVar] = fv t
-                     when (not (null fvT)) $ throwError $ case fvT of
-                       [x] -> show x ++ " is a rigid type variable in: " ++ show t
-                       _   -> show fvT ++ " are rigid type variables in: " ++ show t
+                     when (not (null fvT)) $ throwError (SolverError_NonTouchable fvT)
 
-checkAmbiguity :: [Constraint] -> ExceptT String FreshM ()
+checkAmbiguity :: [Constraint] -> ExceptT SolverError FreshM ()
 checkAmbiguity cs = do let vars = catMaybes $ map getVar cs
                            dup  = findDuplicate vars
                        case dup of
                          Nothing -> return ()
                          Just v  -> let cs' = filter (\c -> getVar c == Just v) cs
-                                     in throwError $ "Ambiguous variable " ++ show v ++ ": " ++ show cs'
+                                     in throwError (SolverError_Ambiguous v cs')
 
 getVar :: Constraint -> Maybe TyVar
 getVar (Constraint_Inst  (MonoType_Var v) _) = Just v
@@ -115,15 +114,15 @@ findDuplicate :: Eq a => [a] -> Maybe a
 findDuplicate []     = Nothing
 findDuplicate (x:xs) = if x `elem` xs then Just x else findDuplicate xs
 
-checkLeftUnclosed :: [Constraint] -> ExceptT String FreshM ()
+checkLeftUnclosed :: [Constraint] -> ExceptT SolverError FreshM ()
 checkLeftUnclosed cs = let cs' = filter (\x -> not (is _Constraint_Inst x) && not (is _Constraint_Equal x)) cs
                         in case cs' of
                              [] -> return ()
-                             _  -> throwError $ "Could not deduce: " ++ show cs'
+                             _  -> throwError (SolverError_CouldNotDischarge cs')
 
 -- | Typecheck some definitions
 tcDefns :: UseHigherRanks -> Env -> [(RawDefn,Bool)]
-        -> [(Either (RawTermVar,String) (TyDefn,[Constraint]), Graph, Bool)]
+        -> [(Either (RawTermVar,SolverError) (TyDefn,[Constraint]), Graph, Bool)]
 tcDefns higher = doPerDefn' (tcDefn higher) tcNextEnv
 
 -- FreshM (Either String (TyDefn, [Constraint]), Graph)

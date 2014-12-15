@@ -42,13 +42,13 @@ mainCmd = do
     Left ep -> do setSGR [SetColor Foreground Vivid Red]
                   putStr "Error while parsing: "
                   setSGR [Reset]
-                  putStrLn (show ep)
+                  print ep
     Right (env, defns) ->
       let env' =  env & dataE %~ (++ initialDataEnv)
        in case todo of
-            "parse"  -> do putStrLn $ show env
+            "parse"  -> do print env
                            putStrLn ""
-                           mapM_ (putStrLn . show) defns
+                           mapM_ print defns
             "solve"  -> showAnns (tcDefns higher env' defns) (showTc True)
             "report" -> showAnns (tcDefns higher env' defns) (showTc False)
             "gather" -> showAnns (gDefns higher env' defns) showG
@@ -94,7 +94,7 @@ showTc always (((n,t,p),cs),gr,b) = do
   putStr " ==> "
   if b then setSGR [SetColor Foreground Vivid Green]
        else setSGR [SetColor Foreground Vivid Red]
-  putStrLn (show p)
+  print p
   setSGR [Reset]
   setSGR [SetColor Foreground Vivid Yellow]
   putStr " res: "
@@ -105,7 +105,7 @@ showTc always (((n,t,p),cs),gr,b) = do
     setSGR [SetColor Foreground Vivid Yellow]
     putStr "graph: "
     setSGR [Reset]
-    putStrLn (show gr)
+    print gr
     putStrLn ""
 
 showG :: ((TyTermVar,Gathered,[TyVar]),Graph,Bool) -> IO ()
@@ -115,7 +115,7 @@ showG ((n,(Gathered t ann g w),_),_,_) = do
   putStr (name2String n)
   setSGR [Reset]
   putStr " ==> "
-  putStrLn (show t)
+  print t
   setSGR [SetColor Foreground Vivid Green]
   putStr "Solve "
   setSGR [Reset]
@@ -127,10 +127,10 @@ showG ((n,(Gathered t ann g w),_),_,_) = do
   setSGR [SetColor Foreground Vivid Green]
   putStr "Touchables "
   setSGR [Reset]
-  putStrLn (show tch)
-  putStrLn (show ann)
+  print tch
+  print ann
 
-showAnns :: [(Either (RawTermVar,String) a, Graph, Bool)] -> ((a,Graph,Bool) -> IO ()) -> IO ()
+showAnns :: Show err => [(Either (RawTermVar,err) a, Graph, Bool)] -> ((a,Graph,Bool) -> IO ()) -> IO ()
 showAnns [] _ = return ()
 showAnns ((Left (n,e),_,b):xs) f = do
   when b $ putStrLn ""
@@ -143,19 +143,19 @@ showAnns ((Left (n,e),_,b):xs) f = do
   putStrLn "error"
   setSGR [Reset]
   putStr " "
-  putStrLn e
+  print e
   when b $ putStrLn ""
   showAnns xs f
 showAnns ((Right ok,g,b):xs) f = do
-  when (not b) $ putStrLn ""
+  unless b $ putStrLn ""
   f (ok,g,b)
   showAnns xs f
 
-showJsonAnns :: [(Either (RawTermVar,String) (TyDefn,[Constraint]), Graph, Bool)] -> [Value]
+showJsonAnns :: Show err => [(Either (RawTermVar,err) (TyDefn,[Constraint]), Graph, Bool)] -> [Value]
 showJsonAnns [] = []
 showJsonAnns ((Left (n,e),gr,b):xs) =
   let this = object [ "text" .= name2String n
-                    , "tags" .= [withGreek e]
+                    , "tags" .= [showWithGreek e]
                     , "color" .= ("white" :: String)
                     , "backColor" .= if b then ("#F58471" :: String)  -- red
                                           else ("#F1B75B" :: String)  -- yellow
@@ -173,58 +173,58 @@ showJsonAnns ((Right ((n,t,p),_cs),gr,b):xs) =
 
 showAnnTermJson :: Fresh m => TyTerm -> m [Value]
 showAnnTermJson (Term_IntLiteral n t) =
-  return $ [ object [ "text"  .= show n
-                    , "tags"  .= [showWithGreek t] ] ]
+  return [ object [ "text"  .= show n
+                  , "tags"  .= [showWithGreek t] ] ]
 showAnnTermJson (Term_Var v t) =
-  return $ [ object [ "text"  .= show v
-                    , "tags"  .= [showWithGreek t] ] ]
+  return [ object [ "text"  .= show v
+                  , "tags"  .= [showWithGreek t] ] ]
 showAnnTermJson (Term_Abs b _ t) = do
   (x,e) <- unbind b
   inner <- showAnnTermJson e
-  return $ [ object [ "text"  .= ("λ " ++ show x ++ " →")
-                    , "tags"  .= [showWithGreek t]
-                    , "nodes" .= inner ] ]
+  return [ object [ "text"  .= ("λ " ++ show x ++ " →")
+                  , "tags"  .= [showWithGreek t]
+                  , "nodes" .= inner ] ]
 showAnnTermJson (Term_AbsAnn b _ p t) = do
   (x,e) <- unbind b
   inner <- showAnnTermJson e
-  return $ [ object [ "text"  .= ("λ (" ++ show x ++ " :: " ++ showWithGreek p ++ ") →")
-                    , "tags"  .= [showWithGreek t]
-                    , "nodes" .= inner ] ]
+  return [ object [ "text"  .= ("λ (" ++ show x ++ " :: " ++ showWithGreek p ++ ") →")
+                  , "tags"  .= [showWithGreek t]
+                  , "nodes" .= inner ] ]
 showAnnTermJson (Term_App a b t) = do
   e1 <- showAnnTermJson a
   e2 <- showAnnTermJson b
-  return $ [ object [ "text"  .= ("@" :: String)
-                    , "tags"  .= [showWithGreek t]
-                    , "nodes" .= (e1 ++ e2) ] ]
+  return [ object [ "text"  .= ("@" :: String)
+                  , "tags"  .= [showWithGreek t]
+                  , "nodes" .= (e1 ++ e2) ] ]
 showAnnTermJson (Term_Let b t) = do
   ((x, unembed -> e1),e2) <- unbind b
   s1 <- showAnnTermJson e1
   s2 <- showAnnTermJson e2
-  return $ [ object [ "text"  .= ("let " ++ show x ++ " =")
-                    , "nodes" .= s1 ]
-           , object [ "text"  .= ("in" :: String)
-                    , "tags"  .= [showWithGreek t]
-                    , "nodes" .= s2 ] ]
+  return [ object [ "text"  .= ("let " ++ show x ++ " =")
+                  , "nodes" .= s1 ]
+         , object [ "text"  .= ("in" :: String)
+                  , "tags"  .= [showWithGreek t]
+                  , "nodes" .= s2 ] ]
 showAnnTermJson (Term_LetAnn b p t) = do
   ((x, unembed -> e1),e2) <- unbind b
   s1 <- showAnnTermJson e1
   s2 <- showAnnTermJson e2
-  return $ [ object [ "text"  .= ("let " ++ show x ++ " :: " ++ showWithGreek p ++ " =")
-                    , "nodes" .= s1 ]
-           , object [ "text"  .= ("in" :: String)
-                    , "tags"  .= [showWithGreek t]
-                    , "nodes" .= s2 ] ]
+  return [ object [ "text"  .= ("let " ++ show x ++ " :: " ++ showWithGreek p ++ " =")
+                  , "nodes" .= s1 ]
+         , object [ "text"  .= ("in" :: String)
+                  , "tags"  .= [showWithGreek t]
+                  , "nodes" .= s2 ] ]
 showAnnTermJson (Term_Match e c bs t) = do
   e'  <- showAnnTermJson e
   bs' <- mapM (\(d,b,_) -> do (xs,es) <- unbind b
                               es' <- showAnnTermJson es
                               return $ object [ "text"  .= ("| " ++ intercalate " " (map show (d:xs)) ++ " →")
                                               , "nodes" .= es']) bs
-  return $ [ object [ "text"  .= ("match" :: String)
-                    , "nodes" .= e' ]
-           , object [ "text"  .= ("with '" ++ c)
-                    , "tags"  .= [showWithGreek t]
-                    , "nodes" .= bs' ] ]
+  return [ object [ "text"  .= ("match" :: String)
+                  , "nodes" .= e' ]
+         , object [ "text"  .= ("with '" ++ c)
+                  , "tags"  .= [showWithGreek t]
+                  , "nodes" .= bs' ] ]
 
 showJsonConstraints :: [(Either (RawTermVar,String) (TyTermVar,Gathered,[TyVar]), Graph, Bool)] -> [Value]
 showJsonConstraints [] = []

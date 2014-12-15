@@ -1,6 +1,8 @@
 {-# LANGUAGE CPP #-}
 module Cobalt.OutsideIn.Solver.Step (
   SMonad
+, SolverError(..)
+, UnifyErrorReason(..)
 , SolutionStep(..)
 , whileApplicable
 , stepOverList
@@ -25,7 +27,33 @@ import Debug.Trace
 import Cobalt.Graph
 import Cobalt.Types
 
-type SMonad = (StateT [TyVar] (ReaderT [Axiom] (ExceptT String (WriterT Graph FreshM))))
+data SolverError = SolverError_Unify UnifyErrorReason MonoType MonoType
+                 | SolverError_Infinite TyVar MonoType
+                 | SolverError_Equiv PolyType PolyType
+                 | SolverError_CouldNotDischarge [Constraint]
+                 | SolverError_NonTouchable [TyVar]
+                 | SolverError_Inconsistency
+                 | SolverError_Ambiguous TyVar [Constraint]
+                 | SolverError_PreviousPhase String
+
+instance Show SolverError where
+  show (SolverError_Unify r m1 m2) = "Could not unify " ++ show m1 ++ " ~ " ++ show m2 ++ " (" ++ show r ++ ")"
+  show (SolverError_Infinite tv m) = "Could not construct infinite type " ++ show tv ++ " ~ " ++ show m
+  show (SolverError_Equiv m1 m2) = "Could not prove equivalence between " ++ show m1 ++ " = " ++ show m2
+  show (SolverError_CouldNotDischarge cs) = "Could not discharge " ++ show cs
+  show (SolverError_NonTouchable vs) = "Unifying non-touchable variables " ++ show vs
+  show SolverError_Inconsistency = "Inconsistent constraint found"
+  show (SolverError_Ambiguous v c) = "Ambiguous type variable " ++ show v ++ " stemming from " ++ show c
+  show (SolverError_PreviousPhase s) = "Error from a previous phase:\n" ++ s
+
+data UnifyErrorReason = UnifyErrorReason_Head
+                      | UnifyErrorReason_NumberOfArgs
+
+instance Show UnifyErrorReason where
+  show UnifyErrorReason_Head = "different head constructors"
+  show UnifyErrorReason_NumberOfArgs = "different number of arguments"
+
+type SMonad = (StateT [TyVar] (ReaderT [Axiom] (ExceptT SolverError (WriterT Graph FreshM))))
 data SolutionStep = NotApplicable | Applied [Constraint]
 
 whileApplicable :: ([Constraint] -> SMonad ([Constraint], Bool))

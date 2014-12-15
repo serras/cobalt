@@ -1,5 +1,10 @@
 {-# LANGUAGE TupleSections #-}
-module Cobalt.Script.Solver where
+module Cobalt.Script.Solver (
+  solve
+, simpl
+, SolverError(..)
+, FinalSolution
+) where
 
 import Control.Monad.Except
 import Control.Monad.Reader
@@ -10,16 +15,16 @@ import Unbound.LocallyNameless hiding (union)
 
 import Cobalt.Graph as G
 import qualified Cobalt.OutsideIn.Solver as OIn
+import Cobalt.OutsideIn.Solver (SolverError(..))
 import Cobalt.Script.Script
 import Cobalt.Types
 
-type TyError = String
 type OInState = ([Constraint],[Constraint],[TyVar])
 -- First is a consistent solution
 -- Second, the list of errors found
 -- Third, the graph of constraints
-type ScriptSolution = (OInState, [TyError], Graph)
-type FinalSolution  = (OIn.Solution, [TyError], Graph)
+type ScriptSolution = (OInState, [SolverError], Graph)
+type FinalSolution  = (OIn.Solution, [SolverError], Graph)
 
 solve :: [Axiom] -> [Constraint] -> [TyVar] -> TyScript
       -> FreshM FinalSolution
@@ -36,7 +41,7 @@ solveImpl ax g (Exists vars q c : rest) (curSol, currErr, currGraph) = do
   let newGraph = mappend thisGraph currGraph -- : map (\x -> singletonNode _ x "exists") (q ++ c)
   case (thisSol, thisErr) of
     (OIn.Solution _ [] _ _, []) -> solveImpl ax g rest (curSol, currErr, newGraph)
-    _ -> solveImpl ax g rest (curSol, ("Could not discharge: " ++ show c) : (currErr ++ thisErr), newGraph)
+    _ -> solveImpl ax g rest (curSol, OIn.SolverError_CouldNotDischarge (toConstraintList' c) : (currErr ++ thisErr), newGraph)
 solveImpl _ _ _ _ = error "This should never happen"
       
 -- Solve one layer of constraints
@@ -73,7 +78,7 @@ emptySolution g tch = (g, [], tch)
 
 -- Adapter for multiple OutsideIn solver
 simplMany' :: [Axiom] -> [ScriptSolution]
-           -> FreshM (Either String OInState, Graph)
+           -> FreshM (Either SolverError OInState, Graph)
 simplMany' ax lst =
   let given  = unions $ map (\((g,_,_),_,_) -> g) lst
       wanted = unions $ map (\((_,w,_),_,_) -> w) lst

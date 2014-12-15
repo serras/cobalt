@@ -166,7 +166,7 @@ jsonTypechecked ((n,_,_),ok) ((Solution _ rs _ _, errs, _graph), term, p) =
   let errNodes = if null errs
                     then []
                     else [ object [ "text"  .= ("errors" :: String)
-                                  , "nodes" .= map justText errs ] ]
+                                  , "nodes" .= map (justText . showWithGreek) errs ] ]
       resNodes = if null rs
                     then []
                     else [ object [ "text"  .= ("residual" :: String)

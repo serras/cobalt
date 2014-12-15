@@ -6,7 +6,7 @@ import Control.Applicative ((<$>))
 import Control.Lens.Extras
 import Control.Monad.Except
 import Data.List (nub)
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, catMaybes)
 import Data.Regex.MultiRules
 import Unbound.LocallyNameless hiding (name, union)
 
@@ -78,7 +78,7 @@ tcDefn_ :: Maybe [Constraint] -> Maybe [TyVar] -> Env -> RawUnboundDefn
 tcDefn_ extra tchs env@(Env _ _ ax _) defn@(_,_,annotation,_) = do
   (gatherResult, term, tch) <- gDefn_ (fromMaybe [] extra) (fromMaybe [] tchs) env defn  -- pass extra information
   case gatherResult of
-    Error errs -> return ((Solution [] [] [] [], errs, G.empty), atUAnn (\(pos, m) -> (pos, var m)) term, Nothing)
+    Error errs -> return ((Solution [] [] [] [], map SolverError_PreviousPhase errs, G.empty), atUAnn (\(pos, m) -> (pos, var m)) term, Nothing)
     GatherTerm g [w] [v] _ -> do
       -- reuse implementation of obtaining substitution
       s@(inn@(Solution smallG rs subst' tch'),errs,graph) <- solve ax g tch w
@@ -94,7 +94,7 @@ tcDefn_ extra tchs env@(Env _ _ ax _) defn@(_,_,annotation,_) = do
              Left moreErrors -> return ((inn, moreErrors : errs, graph), newTerm, Nothing)
              Right _ -> return (s, newTerm, Just finalT)
         _ -> -- Error, we could not discharge everything
-             return ((inn, ("Could not deduce " ++ show rs) : errs, graph), newTerm, Nothing)
+             return ((inn, SolverError_CouldNotDischarge rs : errs, graph), newTerm, Nothing)
       -- do a second pass if needed
       case (resultErrs, extra) of
         ([], _)      -> return result
@@ -121,24 +121,22 @@ tcDefns env terms = runFreshM $ tcDefns_ env terms
 -- COPIED FROM Cobalt.OutsideIn.Top
 -- ================================
 
-tcCheckErrors :: [Constraint] -> PolyType -> ExceptT String FreshM ()
+tcCheckErrors :: [Constraint] -> PolyType -> ExceptT SolverError FreshM ()
 tcCheckErrors rs t = do checkRigidity t
                         checkAmbiguity rs
                         checkLeftUnclosed rs
 
-checkRigidity :: PolyType -> ExceptT String FreshM ()
+checkRigidity :: PolyType -> ExceptT SolverError FreshM ()
 checkRigidity t = do let fvT :: [TyVar] = fv t
-                     unless (null fvT) $ throwError $ case fvT of
-                       [x] -> show x ++ " is a rigid type variable in: " ++ show t
-                       _   -> show fvT ++ " are rigid type variables in: " ++ show t
+                     when (not (null fvT)) $ throwError (SolverError_NonTouchable fvT)
 
-checkAmbiguity :: [Constraint] -> ExceptT String FreshM ()
-checkAmbiguity cs = do let vars = mapMaybe getVar cs
+checkAmbiguity :: [Constraint] -> ExceptT SolverError FreshM ()
+checkAmbiguity cs = do let vars = catMaybes $ map getVar cs
                            dup  = findDuplicate vars
                        case dup of
                          Nothing -> return ()
                          Just v  -> let cs' = filter (\c -> getVar c == Just v) cs
-                                     in throwError $ "Ambiguous variable " ++ show v ++ ": " ++ show cs'
+                                     in throwError (SolverError_Ambiguous v cs')
 
 getVar :: Constraint -> Maybe TyVar
 getVar (Constraint_Inst  (MonoType_Var v) _) = Just v
@@ -149,8 +147,8 @@ findDuplicate :: Eq a => [a] -> Maybe a
 findDuplicate []     = Nothing
 findDuplicate (x:xs) = if x `elem` xs then Just x else findDuplicate xs
 
-checkLeftUnclosed :: [Constraint] -> ExceptT String FreshM ()
+checkLeftUnclosed :: [Constraint] -> ExceptT SolverError FreshM ()
 checkLeftUnclosed cs = let cs' = filter (\x -> not (is _Constraint_Inst x) && not (is _Constraint_Equal x)) cs
                         in case cs' of
                              [] -> return ()
-                             _  -> throwError $ "Could not deduce: " ++ show cs'
+                             _  -> throwError (SolverError_CouldNotDischarge cs')

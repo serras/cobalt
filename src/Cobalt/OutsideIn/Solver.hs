@@ -3,6 +3,8 @@
 module Cobalt.OutsideIn.Solver (
   SMonad
 , Solution(..)
+, SolverError(..)
+, UnifyErrorReason(..)
 , solve
 , entails
 , toSolution
@@ -31,7 +33,7 @@ data Solution = Solution { smallGiven   :: [Constraint]
                          , touchable    :: [TyVar]
                          } deriving Show
 
-solve :: [Axiom] -> [Constraint] -> [Constraint] -> [TyVar] -> FreshM (Either String Solution, Graph)
+solve :: [Axiom] -> [Constraint] -> [Constraint] -> [TyVar] -> FreshM (Either SolverError Solution, Graph)
 solve a g w t = runWriterT (runExceptT (runReaderT (evalStateT (solve' g w) t) a))
 
 entails :: [Axiom] -> [Constraint] -> [Constraint] -> [TyVar] -> Bool
@@ -63,7 +65,7 @@ solveImpl g (existsC@(Constraint_Exists b) : rest) = do
       mapM_ (\x -> tell $ singletonNode existsC x "exists") (q ++ c)
       -- Continue with the rest, if possible
       if null rs then solveImpl g rest
-                 else throwError $ "Could not discharge: " ++ show c
+                 else throwError (SolverError_CouldNotDischarge c)
 solveImpl _ _ = error "This should never happen (solveImpl)"
 
 solveApartWithAxioms :: [Constraint] -> [Constraint] -> [TyVar] -> SMonad Solution
@@ -152,7 +154,7 @@ canon isGiven injectiveP rest (Constraint_Unify t1 t2) = case (t1,t2) of
                              findVar _ _ = False
                              possible1 = filter (findVar v1) rest
                              possible2 = filter (findVar v2) rest
-                         let errMsg = "Unifying non-touchable variables: " ++ show v1 ++ " ~ " ++ show v2
+                         let errMsg = SolverError_NonTouchable [v1,v2]
                          ps <- case (possible1, possible2) of
                            ([],_) -> throwError errMsg
                            (_,[]) -> throwError errMsg
@@ -171,38 +173,38 @@ canon isGiven injectiveP rest (Constraint_Unify t1 t2) = case (t1,t2) of
     | otherwise -> return NotApplicable
   (MonoType_Var v, _)
     | v `elem` fv t2, isFamilyFree t2
-                      -> throwError $ "Infinite type: " ++ show t1 ++ " ~ " ++ show t2
+                      -> throwError (SolverError_Infinite v t2)
     | isFamilyFree t2 -> do b <- isTouchable v  -- Check touchability when no family
                             if b || isGiven
                                then return NotApplicable
-                               else throwError $ "Unifying non-touchable variable: " ++ show v ++ " ~ " ++ show t2
+                               else throwError (SolverError_NonTouchable [v])
     | otherwise -> case t2 of
                      MonoType_Con c vs -> do (vs2, cons, vars) <- unfamilys vs
-                                             when (not isGiven) (mapM_ makeTouchable vars)
-                                             return $ Applied $ Constraint_Unify (MonoType_Var v) (MonoType_Con c vs2) : cons
+                                             unless isGiven (mapM_ makeTouchable vars)
+                                             return $ Applied (Constraint_Unify (MonoType_Var v) (MonoType_Con c vs2) : cons)
                      s2 :-->: r2       -> do (s2', con1, vars1) <- unfamily s2
                                              (r2', con2, vars2) <- unfamily r2
-                                             when (not isGiven) (mapM_ makeTouchable (vars1 ++ vars2))
-                                             return $ Applied $ Constraint_Unify (MonoType_Var v) (s2' :-->: r2') : con1 ++ con2
+                                             unless isGiven (mapM_ makeTouchable (vars1 ++ vars2))
+                                             return $ Applied (Constraint_Unify (MonoType_Var v) (s2' :-->: r2') : con1 ++ con2)
                      _ | t1 > t2   -> return $ Applied [Constraint_Unify t2 t1]  -- Orient
                        | otherwise -> return NotApplicable
   -- Type families
   (MonoType_Fam f1 ts1, MonoType_Fam f2 ts2) -- Injective type families
-    | f1 == f2, injectiveP f1, length ts1 == length ts2 -> return $ Applied $ zipWith Constraint_Unify ts1 ts2
-    | f1 == f2, injectiveP f1, length ts1 /= length ts2 -> throwError $ "Different number of arguments: " ++ show t1 ++ " ~ " ++ show t2
+    | f1 == f2, injectiveP f1, length ts1 == length ts2 -> return $ Applied (zipWith Constraint_Unify ts1 ts2)
+    | f1 == f2, injectiveP f1, length ts1 /= length ts2 -> throwError (SolverError_Unify UnifyErrorReason_NumberOfArgs t1 t2)
   (MonoType_Fam f ts, _) | any (not . isFamilyFree) ts -> -- ts has type families we can get out
                    do (ts2, cons, vars) <- unfamilys ts
-                      when (not isGiven) (mapM_ makeTouchable vars)
-                      return $ Applied $ Constraint_Unify (MonoType_Fam f ts2) t2 : cons
+                      unless isGiven (mapM_ makeTouchable vars)
+                      return $ Applied (Constraint_Unify (MonoType_Fam f ts2) t2 : cons)
   -- Next are Tdec and Faildec
   (s1 :-->: r1, s2 :-->: r2) ->
     return $ Applied [Constraint_Unify s1 s2, Constraint_Unify r1 r2]
-  (_ :-->: _, MonoType_Con _ _) -> throwError $ "Different constructor heads: " ++ show t1 ++ " ~ " ++ show t2
-  (MonoType_Con _ _, _ :-->: _) -> throwError $ "Different constructor heads: " ++ show t1 ++ " ~ " ++ show t2
+  (_ :-->: _, MonoType_Con _ _) -> throwError (SolverError_Unify UnifyErrorReason_Head t1 t2)
+  (MonoType_Con _ _, _ :-->: _) -> throwError (SolverError_Unify UnifyErrorReason_Head t1 t2)
   (MonoType_Con c1 a1, MonoType_Con c2 a2)
     | c1 == c2, length a1 == length a2 -> return $ Applied $ zipWith Constraint_Unify a1 a2
-    | c1 /= c2 -> throwError $ "Different constructor heads: " ++ show t1 ++ " ~ " ++ show t2
-    | length a1 /= length a2 -> throwError $ "Different number of arguments: " ++ show t1 ++ " ~ " ++ show t2
+    | c1 /= c2 -> throwError (SolverError_Unify UnifyErrorReason_Head t1 t2)
+    | length a1 /= length a2 -> throwError (SolverError_Unify UnifyErrorReason_NumberOfArgs t1 t2)
   -- Orient
   (_, _) | t1 > t2   -> return $ Applied [Constraint_Unify t2 t1]
          | otherwise -> return NotApplicable
@@ -218,7 +220,7 @@ canon _ _ _ (Constraint_Inst (MonoType_Var v) p)  =
                      else return $ Applied [Constraint_Inst (MonoType_Var v) nfP]
 canon _ _ _ (Constraint_Inst x p) = do
   (c,t) <- instantiate p True  -- Perform instantiation
-  return $ Applied $ (Constraint_Unify x t) : c
+  return $ Applied (Constraint_Unify x t : c)
 canon _ _ _ (Constraint_Equal (MonoType_Var v) p)  =
   let nfP = nf p
    in if nfP `aeq` p then return NotApplicable
@@ -227,16 +229,16 @@ canon _ _ _ (Constraint_Equal (MonoType_Var v) p)  =
 -- of those variables which are not touchable
 canon _ _ _ (Constraint_Equal x p) = do
   (c,t) <- instantiate p False  -- Perform instantiation
-  return $ Applied $ (Constraint_Unify x t) : c
+  return $ Applied (Constraint_Unify x t : c)
 -- Type classes
 canon isGiven _ _ (Constraint_Class c ts)
   | any (not . isFamilyFree) ts = do (ts2, cons, vars) <- unfamilys ts
-                                     when (not isGiven) (mapM_ makeTouchable vars)
-                                     return $ Applied $ Constraint_Class c ts2 : cons
+                                     unless isGiven (mapM_ makeTouchable vars)
+                                     return $ Applied (Constraint_Class c ts2 : cons)
   | otherwise = return NotApplicable
 -- Rest
 canon _ _ _ (Constraint_Exists _) = return NotApplicable
-canon _ _ _ Constraint_Inconsistent = throwError "Inconsistent constraint found"
+canon _ _ _ Constraint_Inconsistent = throwError SolverError_Inconsistency
 
 instantiate :: PolyType -> Bool -> SMonad ([Constraint], MonoType)
 instantiate (PolyType_Bind b) tch = do
@@ -298,11 +300,11 @@ unifyInteract' _ (Constraint_Unify (MonoType_Var v1) s1) (Constraint_Class c ss2
 unifyInteract' _ (Constraint_Unify (MonoType_Fam _ vs) _) (Constraint_Inst v@(MonoType_Var _) p)
   | v `elem` vs
   = do (c,t) <- instantiate p True  -- Perform instantiation
-       return $ Applied $ (Constraint_Unify v t) : c
+       return $ Applied (Constraint_Unify v t : c)
 unifyInteract' _ (Constraint_Class _ vs) (Constraint_Inst v@(MonoType_Var _) p)
   | v `elem` vs
   = do (c,t) <- instantiate p True  -- Perform instantiation
-       return $ Applied $ (Constraint_Unify v t) : c
+       return $ Applied (Constraint_Unify v t : c)
 -- Constructors are not canonical
 unifyInteract' _ (Constraint_Unify _ _) _ = return NotApplicable
 unifyInteract' _ _ (Constraint_Unify _ _) = return NotApplicable -- treated sym
@@ -374,7 +376,7 @@ simplifies _ _ _ _ (Constraint_Exists _) = return NotApplicable
 simplifies _ _ _ _ _ = return NotApplicable
 
 findLub :: [Constraint] -> PolyType -> PolyType -> SMonad (SolutionStep, PolyType)
-findLub ctx p1 p2 = do
+findLub ctx p1 p2 =
   -- equiv <- areEquivalent ctx p1 p2
   if p1 `aeq` p2 then return (Applied [], p1)
   else do (q1,t1,v1) <- split p1
@@ -385,7 +387,7 @@ findLub ctx p1 p2 = do
           Solution _ r s _ <- solveApartWithAxioms ctx (cs ++ q1 ++ q2) (tau : tch ++ v1 ++ v2)
           let s' = substitutionInTermsOf tch s
               r' = map (substs s') r ++ map (\(v,t) -> Constraint_Unify (MonoType_Var v) t) s'
-              (floatR, closeR) = partition (\c -> all (`elem` tch) (fv c)) r'
+              (floatR, closeR) = partition (all (`elem` tch) . fv) r'
               (closedR, _) = closeExn closeR (substs s' (var tau)) (`elem` tch)
           return (Applied floatR, closedR)
 
@@ -426,13 +428,13 @@ checkEquivalence ctx p1 p2 = do
   c1 <- checkSubsumption ctx p1 p2
   c2 <- checkSubsumption ctx p2 p1
   case (c1,c2) of
-    (NotApplicable, _) -> throwError $ "Equivalence check failed: " ++ show p1 ++ " = " ++ show p2
-    (_, NotApplicable) -> throwError $ "Equivalence check failed: " ++ show p1 ++ " = " ++ show p2
+    (NotApplicable, _) -> throwError (SolverError_Equiv p1 p2)
+    (_, NotApplicable) -> throwError (SolverError_Equiv p1 p2)
     (Applied a1, Applied a2) -> return $ Applied (a1 ++ a2)
 
 topReact :: Bool -> (String -> Bool) -> Axiom -> Constraint -> SMonad SolutionStep
 topReact _ deferP (Axiom_Unify _) (Constraint_Unify (MonoType_Fam f ms) (MonoType_Var v))
-  | deferP f, not (v `elem` fv ms) = return NotApplicable  -- deferred type family
+  | deferP f, v `notElem` fv ms = return NotApplicable  -- deferred type family
 topReact _ _ ax@(Axiom_Unify b) (Constraint_Unify (MonoType_Fam f ms) t)
   | all isFamilyFree ms, isFamilyFree t = do
       (aes, (lhs, rhs)) <- unbind b
@@ -482,4 +484,4 @@ isVarUnifyConstraint _ _ = False
 -- Utils
 
 unionMap :: Ord b => (a -> [b]) -> [a] -> [b]
-unionMap f = nub . concat . map f
+unionMap f = nub . concatMap f
