@@ -3,8 +3,6 @@
 module Cobalt.OutsideIn.Solver (
   SMonad
 , Solution(..)
-, SolverError(..)
-, UnifyErrorReason(..)
 , solve
 , entails
 , toSolution
@@ -20,6 +18,7 @@ import Control.Monad.Writer
 import Data.List (insert, find, delete, partition, nub, (\\))
 import Unbound.LocallyNameless
 
+import Cobalt.Errors
 import Cobalt.Graph as G
 import Cobalt.OutsideIn.Solver.Step
 import Cobalt.Types

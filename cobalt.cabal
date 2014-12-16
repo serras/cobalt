@@ -10,6 +10,7 @@ cabal-version:       >=1.10
 
 library
   exposed-modules:   Cobalt.Types,
+                     Cobalt.Errors,
                      Cobalt.Language.Syntax,
                      Cobalt.Language.Parser,
                      Cobalt.OutsideIn.Top,

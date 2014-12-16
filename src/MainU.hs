@@ -25,7 +25,7 @@ import Cobalt.Script.Solver
 import Cobalt.Script.Syntax
 import Cobalt.Script.Top
 import Cobalt.Types
-import Cobalt.Util (showWithGreek, doParens)
+import Cobalt.Util (showWithGreek, doParens, toHtmlString)
 
 main :: IO ()
 main = do
@@ -167,7 +167,7 @@ jsonTypechecked ((n,_,_),ok) ((Solution _ rs _ _, errs, graph), term, p) =
   let errNodes = if null errs
                     then []
                     else [ object [ "text"  .= ("errors" :: String)
-                                  , "nodes" .= map (justText . showWithGreek) errs ] ]
+                                  , "nodes" .= map (justText . toHtmlString . showWithGreek) errs ] ]
       resNodes = if null rs
                     then []
                     else [ object [ "text"  .= ("residual" :: String)

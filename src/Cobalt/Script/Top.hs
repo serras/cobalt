@@ -10,6 +10,7 @@ import Data.Maybe (fromMaybe, catMaybes)
 import Data.Regex.MultiRules
 import Unbound.LocallyNameless hiding (name, union)
 
+import Cobalt.Errors
 import Cobalt.Graph as G
 import Cobalt.Language.Syntax (Env(..), RawTermVar, RawDefn)
 import Cobalt.OutsideIn.Solver (Solution(..))
@@ -78,7 +79,7 @@ tcDefn_ :: Maybe [Constraint] -> Maybe [TyVar] -> Env -> RawUnboundDefn
 tcDefn_ extra tchs env@(Env _ _ ax _) defn@(_,_,annotation,_) = do
   (gatherResult, term, tch) <- gDefn_ (fromMaybe [] extra) (fromMaybe [] tchs) env defn  -- pass extra information
   case gatherResult of
-    Error errs -> return ((Solution [] [] [] [], map SolverError_PreviousPhase errs, G.empty), atUAnn (\(pos, m) -> (pos, var m)) term, Nothing)
+    Error errs -> return ((Solution [] [] [] [], map errorFromPreviousPhase errs, G.empty), atUAnn (\(pos, m) -> (pos, var m)) term, Nothing)
     GatherTerm g [w] [v] _ -> do
       -- reuse implementation of obtaining substitution
       s@(inn@(Solution smallG rs subst' tch'),errs,graph) <- solve ax g tch w
@@ -91,10 +92,10 @@ tcDefn_ extra tchs env@(Env _ _ ax _) defn@(_,_,annotation,_) = do
                finalT = nf almostFinalT
            finalCheck <- runExceptT $ tcCheckErrors restC finalT
            case finalCheck of
-             Left moreErrors -> return ((inn, moreErrors : errs, graph), newTerm, Nothing)
+             Left moreErrors -> return ((inn, emptySolverExplanation moreErrors : errs, graph), newTerm, Nothing)
              Right _ -> return (s, newTerm, Just finalT)
         _ -> -- Error, we could not discharge everything
-             return ((inn, SolverError_CouldNotDischarge rs : errs, graph), newTerm, Nothing)
+             return ((inn, emptySolverExplanation (SolverError_CouldNotDischarge rs) : errs, graph), newTerm, Nothing)
       -- do a second pass if needed
       case (resultErrs, extra) of
         ([], _)      -> return result

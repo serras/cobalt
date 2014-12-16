@@ -9,11 +9,12 @@ module Cobalt.OutsideIn.Top (
 
 import Control.Lens hiding ((.=))
 import Control.Lens.Extras
-import Data.Maybe (catMaybes)
+import Data.Maybe (mapMaybe)
 import Control.Monad.Except
 import Control.Monad.Reader
 import Unbound.LocallyNameless
 
+import Cobalt.Errors
 import Cobalt.Graph as G
 import Cobalt.Language.Syntax
 import Cobalt.OutsideIn.Gather
@@ -66,26 +67,26 @@ gDefns :: UseHigherRanks -> Env -> [(RawDefn,Bool)]
 gDefns higher = doPerDefn' (gDefn higher) const
 
 -- | Typecheck a definition
-tcDefn :: UseHigherRanks -> Env -> RawDefn -> FreshM (Either SolverError (TyDefn, [Constraint]), Graph)
+tcDefn :: UseHigherRanks -> Env -> RawDefn -> FreshM (Either ErrorExplanation (TyDefn, [Constraint]), Graph)
 tcDefn h e (n,t,annP) = do
   gResult <- gDefn h e (n,t,annP)
   case gResult of
-    (Left errG, g) -> return (Left (SolverError_PreviousPhase errG), g)
+    (Left errG, g) -> return (Left (errorFromPreviousPhase errG), g)
     (Right (n', Gathered _ a g w, tch), _) -> do
       tcResult <- solve (e^.axiomE) g w tch
       case tcResult of
-        (Left errTc, gTc) -> return (Left errTc, gTc)
+        (Left errTc, gTc) -> return (Left (emptySolverExplanation errTc), gTc)
         (Right (Solution smallG rs sb tch'), graph) -> do
           let thisAnn = atAnn (substs sb) a
           case annP of
             Nothing -> do let (almostFinalT, restC) = closeExn (smallG ++ rs) (getAnn thisAnn) (not . (`elem` tch'))
-                              finalT = nf $ almostFinalT
+                              finalT = nf almostFinalT
                           -- trace (show (restC,finalT,smallG ++ rs,thisAnn)) $
                           finalCheck <- runExceptT $ tcCheckErrors restC finalT
                           case finalCheck of
-                            Left errF -> return (Left errF, graph)
+                            Left errF -> return (Left (emptySolverExplanation errF), graph)
                             Right _   -> return (Right ((n',thisAnn,finalT),rs),graph)
-            Just p  -> if not (null rs) then return (Left (SolverError_CouldNotDischarge rs), graph)
+            Just p  -> if not (null rs) then return (Left (emptySolverExplanation (SolverError_CouldNotDischarge rs)), graph)
                                         else return (Right ((n',thisAnn,p),rs),graph)
 
 tcCheckErrors :: [Constraint] -> PolyType -> ExceptT SolverError FreshM ()
@@ -95,10 +96,10 @@ tcCheckErrors rs t = do checkRigidity t
 
 checkRigidity :: PolyType -> ExceptT SolverError FreshM ()
 checkRigidity t = do let fvT :: [TyVar] = fv t
-                     when (not (null fvT)) $ throwError (SolverError_NonTouchable fvT)
+                     unless (null fvT) $ throwError (SolverError_NonTouchable fvT)
 
 checkAmbiguity :: [Constraint] -> ExceptT SolverError FreshM ()
-checkAmbiguity cs = do let vars = catMaybes $ map getVar cs
+checkAmbiguity cs = do let vars = mapMaybe getVar cs
                            dup  = findDuplicate vars
                        case dup of
                          Nothing -> return ()
@@ -122,7 +123,7 @@ checkLeftUnclosed cs = let cs' = filter (\x -> not (is _Constraint_Inst x) && no
 
 -- | Typecheck some definitions
 tcDefns :: UseHigherRanks -> Env -> [(RawDefn,Bool)]
-        -> [(Either (RawTermVar,SolverError) (TyDefn,[Constraint]), Graph, Bool)]
+        -> [(Either (RawTermVar,ErrorExplanation) (TyDefn,[Constraint]), Graph, Bool)]
 tcDefns higher = doPerDefn' (tcDefn higher) tcNextEnv
 
 -- FreshM (Either String (TyDefn, [Constraint]), Graph)

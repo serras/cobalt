@@ -1,15 +1,11 @@
 module Cobalt.Graph where
 
-import Data.List (union)
-import Data.Maybe (fromJust)
+import Data.List
+import Data.Maybe
 import Data.Monoid
-import Text.Parsec.Pos
 
+import Cobalt.Errors
 import Cobalt.Types
-
-data Comment = Comment_String String
-             | Comment_Pos (SourcePos, SourcePos)
-             deriving (Show, Eq)
 
 data Graph = Graph { counter  :: Int
                    , vertices :: [(Constraint,(Int, Bool, [Comment]))]
@@ -72,3 +68,13 @@ merge g1 (Graph _cnt2 vrt2 nod2) =
 instance Monoid Graph where
   mempty  = empty
   mappend = merge
+
+blameConstraints :: Graph -> Constraint -> [(Constraint, [Comment])]
+blameConstraints (Graph _ vrtx edges) problem
+  | Just (_,(n,_,_)) <- find ((== problem) . fst) vrtx = blame [n]
+  | otherwise = []  -- No one to blame
+  where blame lst = let newLst = nub $ sort $ lst `union` mapMaybe (\(o,d,_) -> if d `elem` lst then Just o else Nothing) edges
+                     in if length newLst /= length lst
+                           then blame newLst -- next step
+                           else let lasts = filter (\n -> isNothing (find (\(_,d,_) -> d == n) edges)) newLst
+                                 in map (\(c,(_,_,cm)) -> (c,cm)) $ mapMaybe (\n -> find (\(_,(m,_,_)) -> n == m) vrtx) lasts

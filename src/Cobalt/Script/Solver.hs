@@ -2,7 +2,6 @@
 module Cobalt.Script.Solver (
   solve
 , simpl
-, SolverError(..)
 , FinalSolution
 ) where
 
@@ -12,11 +11,12 @@ import Control.Monad.State
 import Control.Monad.Writer
 import Data.List (union)
 import Data.Maybe (maybeToList)
+import Text.Parsec.Pos (SourcePos)
 import Unbound.LocallyNameless hiding (union)
 
+import Cobalt.Errors
 import Cobalt.Graph as G
 import qualified Cobalt.OutsideIn.Solver as OIn
-import Cobalt.OutsideIn.Solver (SolverError(..))
 import Cobalt.Script.Script
 import Cobalt.Types
 
@@ -24,8 +24,8 @@ type OInState = ([Constraint],[Constraint],[TyVar])
 -- First is a consistent solution
 -- Second, the list of errors found
 -- Third, the graph of constraints
-type ScriptSolution = (OInState, [SolverError], Graph)
-type FinalSolution  = (OIn.Solution, [SolverError], Graph)
+type ScriptSolution = (OInState, [ErrorExplanation], Graph)
+type FinalSolution  = (OIn.Solution, [ErrorExplanation], Graph)
 
 solve :: [Axiom] -> [Constraint] -> [TyVar] -> TyScript
       -> FreshM FinalSolution
@@ -42,7 +42,9 @@ solveImpl ax g (Exists vars q c : rest) (curSol, currErr, currGraph) = do
   let newGraph = mappend thisGraph currGraph -- : map (\x -> singletonNode _ x "exists") (q ++ c)
   case (thisSol, thisErr) of
     (OIn.Solution _ [] _ _, []) -> solveImpl ax g rest (curSol, currErr, newGraph)
-    _ -> solveImpl ax g rest (curSol, SolverError_CouldNotDischarge (toConstraintList' c) : (currErr ++ thisErr), newGraph)
+    _ -> solveImpl ax g rest ( curSol
+                             , emptySolverExplanation (SolverError_CouldNotDischarge (toConstraintList' c)) : (currErr ++ thisErr)
+                             , newGraph)
 solveImpl _ _ _ _ = error "This should never happen"
       
 -- Solve one layer of constraints
@@ -57,20 +59,26 @@ simpl ax g tch (Singleton c (pos,cm)) = do
   let comment = map Comment_Pos (maybeToList pos) ++ map Comment_String (maybeToList cm)
   solved <- simplMany' ax [((g,[c],tch), [], G.singletonCommented c comment)]
   case solved of
-    (Left err, _)    -> return ((emptySolution g tch, [err], G.empty), [])
-    (Right s, graph) -> return ((s, [], graph), [])
-simpl ax g tch (Merge lst _) = do
+    (Left err, graph) -> return ((emptySolution g tch, [makeExplanation err pos cm graph], G.empty), [])
+    (Right s,  graph) -> return ((s, [], graph), [])
+simpl ax g tch (Merge lst (pos,cm)) = do
   simpls <- mapM (simpl ax g tch) lst
   let (results, exs) = unzip simpls
       errs = map (\(_,e,_) -> e) results
   solved <- simplMany' ax results
   case solved of
-    (Left err, _) ->
-       -- Should be changed to use an heuristic
+    (Left err, graph) ->
+       -- TODO: should be changed to use an heuristic
        let (fstSol, _, fstGraph) = head results
-        in return ((fstSol, err : concat errs, fstGraph), concat exs)
+        in return ((fstSol, makeExplanation err pos cm graph : concat errs, fstGraph), concat exs)
     (Right s, graph) -> return ((s, concat errs, graph), concat exs)
 simpl ax g tch (Asym s1 s2 info) = simpl ax g tch (Merge [s2,s1] info)
+
+makeExplanation :: SolverError -> Maybe (SourcePos, SourcePos) -> Maybe String -> Graph -> ErrorExplanation
+makeExplanation err pos msg graph = SolverError { theError   = err
+                                                , thePoint   = pos
+                                                , theMessage = msg
+                                                , theBlame   = blameConstraints graph Constraint_Inconsistent }
 
 
 -- All the rest of this file is just converting back and forth
