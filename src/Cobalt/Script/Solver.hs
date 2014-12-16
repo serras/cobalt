@@ -11,6 +11,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Writer
 import Data.List (union)
+import Data.Maybe (maybeToList)
 import Unbound.LocallyNameless hiding (union)
 
 import Cobalt.Graph as G
@@ -41,7 +42,7 @@ solveImpl ax g (Exists vars q c : rest) (curSol, currErr, currGraph) = do
   let newGraph = mappend thisGraph currGraph -- : map (\x -> singletonNode _ x "exists") (q ++ c)
   case (thisSol, thisErr) of
     (OIn.Solution _ [] _ _, []) -> solveImpl ax g rest (curSol, currErr, newGraph)
-    _ -> solveImpl ax g rest (curSol, OIn.SolverError_CouldNotDischarge (toConstraintList' c) : (currErr ++ thisErr), newGraph)
+    _ -> solveImpl ax g rest (curSol, SolverError_CouldNotDischarge (toConstraintList' c) : (currErr ++ thisErr), newGraph)
 solveImpl _ _ _ _ = error "This should never happen"
       
 -- Solve one layer of constraints
@@ -50,10 +51,11 @@ simpl :: [Axiom] -> [Constraint] -> [TyVar] -> TyScript
       -> FreshM (ScriptSolution, [TyScript])
 simpl _ g tch Empty =
   return ((emptySolution g tch, [], G.empty), [])
-simpl _ g tch me@(Exists _ _ _) =
+simpl _ g tch me@(Exists { }) =
   return ((emptySolution g tch, [], G.empty), [me])
-simpl ax g tch (Singleton c _) = do
-  solved <- simplMany' ax [((g,[c],tch),[],G.empty)]
+simpl ax g tch (Singleton c (pos,cm)) = do
+  let comment = map Comment_Pos (maybeToList pos) ++ map Comment_String (maybeToList cm)
+  solved <- simplMany' ax [((g,[c],tch), [], G.singletonCommented c comment)]
   case solved of
     (Left err, _)    -> return ((emptySolution g tch, [err], G.empty), [])
     (Right s, graph) -> return ((s, [], graph), [])

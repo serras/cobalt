@@ -14,6 +14,7 @@ import Text.Parsec.String
 import Unbound.LocallyNameless hiding (toList)
 import Web.Scotty
 
+import Cobalt.Graph
 import Cobalt.Language.Parser (parseFile)
 import Cobalt.Language.Syntax
 import Cobalt.OutsideIn.Solver (Solution(..))
@@ -162,7 +163,7 @@ jsonScript ((n,_,_),_) (GatherTerm g w _ _, term, _, extra) =
                                , "nodes" .= map (justText . textJsonConstraint) extra ] ] ]
 
 jsonTypechecked :: (RawDefn,Bool) -> (FinalSolution, AnnUTerm MonoType, Maybe PolyType) -> Value
-jsonTypechecked ((n,_,_),ok) ((Solution _ rs _ _, errs, _graph), term, p) =
+jsonTypechecked ((n,_,_),ok) ((Solution _ rs _ _, errs, graph), term, p) =
   let errNodes = if null errs
                     then []
                     else [ object [ "text"  .= ("errors" :: String)
@@ -180,7 +181,8 @@ jsonTypechecked ((n,_,_),ok) ((Solution _ rs _ _, errs, _graph), term, p) =
                            Nothing -> []
              , "color" .= ("white" :: String)
              , "backColor" .= (color :: String)
-             , "nodes" .= (errNodes ++ showAnnTermJson term ++ resNodes) ]
+             , "nodes" .= (errNodes ++ showAnnTermJson term ++ resNodes)
+             , "graph" .= showJsonGraph graph ]
 
 showJsonScript :: TyScript -> Value
 showJsonScript Empty =
@@ -264,3 +266,13 @@ showAnnTermJson (UTerm_Match e c _k bs (_,t)) =
                , "tags"  .= [showWithGreek t]
                , "nodes" .= bs' ] ]
 showAnnTermJson _ = error "This should never happen"
+
+showJsonGraph :: Graph -> Value
+showJsonGraph (Graph _ vertx edges) =
+  object [ "nodes" .= map (\(x,(_,b,cm)) -> object [ "text" .= let comment = if null cm then "" else " " ++ show cm
+                                                                in (showWithGreek x ++ comment :: String)
+                                                   , "deleted" .= b ]) vertx
+         , "links" .= map (\(src,tgt,tag) -> object [ "source" .= src
+                                                    , "target" .= tgt
+                                                    , "value"  .= tag])
+                          edges ]

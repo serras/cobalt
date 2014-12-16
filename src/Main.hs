@@ -273,9 +273,9 @@ showJsonConstraint (Constraint_Inconsistent) =
 
 showJsonGraph :: Graph -> [Constraint] -> Value
 showJsonGraph (Graph _ vertx edges) blamed =
-  object [ "nodes" .= map (\(x,(_,b)) -> object [ "text" .= showWithGreek x
-                                                , "deleted" .= b
-                                                , "blamed"  .= (x `elem` blamed) ]) vertx
+  object [ "nodes" .= map (\(x,(_,b,_)) -> object [ "text" .= showWithGreek x
+                                                  , "deleted" .= b
+                                                  , "blamed"  .= (x `elem` blamed) ]) vertx
          , "links" .= map (\(src,tgt,tag) -> object [ "source" .= src
                                                     , "target" .= tgt
                                                     , "value"  .= tag])
@@ -283,10 +283,10 @@ showJsonGraph (Graph _ vertx edges) blamed =
 
 blamedConstraints :: Graph -> [Constraint]
 blamedConstraints (Graph _ vrtx edges)
-  | Just (_,(n,_)) <- find ((== Constraint_Inconsistent) . fst) vrtx = blame [n]
+  | Just (_,(n,_,_)) <- find ((== Constraint_Inconsistent) . fst) vrtx = blame [n]
   | otherwise = []  -- No one to blame
   where blame lst = let newLst = nub $ sort $ lst `union` mapMaybe (\(o,d,_) -> if d `elem` lst then Just o else Nothing) edges
                      in if length newLst /= length lst
                            then blame newLst -- next step
                            else let lasts = filter (\n -> isNothing (find (\(_,d,_) -> d == n) edges)) newLst
-                                 in map fst $ mapMaybe (\n -> find (\(_,(m,_)) -> n == m) vrtx) lasts
+                                 in map fst $ mapMaybe (\n -> find (\(_,(m,_,_)) -> n == m) vrtx) lasts
