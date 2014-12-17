@@ -15,6 +15,7 @@ import Unbound.LocallyNameless hiding (toList)
 import Web.Scotty
 
 import Cobalt.Errors (showErrorExplanation)
+import Cobalt.ErrorSimpl
 import Cobalt.Graph
 import Cobalt.Language.Parser (parseFile)
 import Cobalt.Language.Syntax
@@ -168,7 +169,9 @@ jsonTypechecked sourceCode ((n,_,_),ok) ((Solution _ rs _ _, errs, graph), term,
   let errNodes = if null errs
                     then []
                     else [ object [ "text"  .= ("errors" :: String)
-                                  , "nodes" .= map (justText . toHtmlString . withGreek . showErrorExplanation sourceCode) errs ] ]
+                                  , "nodes" .= map ( justText . toHtmlString . withGreek
+                                                   . showErrorExplanation sourceCode
+                                                   . simplifyErrorExplanation ) errs ] ]
       resNodes = if null rs
                     then []
                     else [ object [ "text"  .= ("residual" :: String)

@@ -20,7 +20,6 @@ import Cobalt.Types
 
 data Comment = Comment_String String
              | Comment_Pos (SourcePos, SourcePos)
-             | Comment_LeadsTo [Constraint]
              deriving (Show, Eq)
 
 data SolverError = SolverError_Unify UnifyErrorReason MonoType MonoType
@@ -84,14 +83,13 @@ showProblem contents (c,cms) = "* " ++ show c ++ concatMap (("\n  " ++) . showCo
 
 showComment :: String -> Comment -> String
 showComment _ (Comment_String s)   = "since " ++ s
-showComment _ (Comment_LeadsTo cs) = ""
 showComment contents (Comment_Pos (i,e)) = case (offset contents i, offset contents e) of
-    (Just ioff, Just eoff) -> "from `" ++ drop ioff (take (eoff - 1) contents) ++ "` "
+    (Just ioff, Just eoff) -> "from `" ++ drop ioff (take eoff contents) ++ "` "
     _ -> ""
   ++ "at " ++ showPosSmall i ++ "-" ++ showPosSmall e
 
 showPoint :: Maybe (SourcePos, SourcePos) -> String
-showPoint Nothing      = "<unknown>"
+showPoint Nothing      = "&lt;unknown&gt;"
 showPoint (Just (i,e)) = showPosSmall i ++ "-" ++ showPosSmall e
 
 showPosSmall :: SourcePos -> String

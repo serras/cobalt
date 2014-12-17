@@ -3,13 +3,15 @@ module Cobalt.Script.Solver (
   solve
 , simpl
 , FinalSolution
+, makeExplanation
+, makeManyExplanation
 ) where
 
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Writer
-import Data.List (union)
+import Data.List (union, foldl')
 import Data.Maybe (maybeToList)
 import Text.Parsec.Pos (SourcePos)
 import Unbound.LocallyNameless hiding (union)
@@ -42,9 +44,10 @@ solveImpl ax g (Exists vars q c : rest) (curSol, currErr, currGraph) = do
   let newGraph = mappend thisGraph currGraph -- : map (\x -> singletonNode _ x "exists") (q ++ c)
   case (thisSol, thisErr) of
     (OIn.Solution _ [] _ _, []) -> solveImpl ax g rest (curSol, currErr, newGraph)
-    _ -> solveImpl ax g rest ( curSol
-                             , emptySolverExplanation (SolverError_CouldNotDischarge (toConstraintList' c)) : (currErr ++ thisErr)
-                             , newGraph)
+    _ -> let cList = toConstraintList' c
+          in solveImpl ax g rest ( curSol
+                                 , makeManyExplanation (SolverError_CouldNotDischarge cList) cList Nothing Nothing thisGraph : (currErr ++ thisErr)
+                                 , newGraph)
 solveImpl _ _ _ _ = error "This should never happen"
       
 -- Solve one layer of constraints
@@ -75,11 +78,13 @@ simpl ax g tch (Merge lst (pos,cm)) = do
 simpl ax g tch (Asym s1 s2 info) = simpl ax g tch (Merge [s2,s1] info)
 
 makeExplanation :: SolverError -> Maybe (SourcePos, SourcePos) -> Maybe String -> Graph -> ErrorExplanation
-makeExplanation err pos msg graph = SolverError { theError   = err
-                                                , thePoint   = pos
-                                                , theMessage = msg
-                                                , theBlame   = blameConstraints graph Constraint_Inconsistent }
+makeExplanation err pos msg graph =
+  SolverError { theError = err, thePoint = pos, theMessage = msg, theBlame = blameConstraints graph Constraint_Inconsistent }
 
+makeManyExplanation :: SolverError -> [Constraint] -> Maybe (SourcePos, SourcePos) -> Maybe String -> Graph -> ErrorExplanation
+makeManyExplanation err cs pos msg graph =
+  let blamed = foldl' union [] $ map (blameConstraints graph) cs
+   in SolverError { theError = err, thePoint = pos, theMessage = msg, theBlame = blamed }
 
 -- All the rest of this file is just converting back and forth
 -- the OutsideIn representation and the Script representation

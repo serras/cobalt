@@ -11,7 +11,6 @@ import Data.Regex.MultiRules
 import Unbound.LocallyNameless hiding (name, union)
 
 import Cobalt.Errors
-import Cobalt.ErrorSimpl
 import Cobalt.Graph as G
 import Cobalt.Language.Syntax (Env(..), RawTermVar, RawDefn)
 import Cobalt.OutsideIn.Solver (Solution(..))
@@ -83,22 +82,27 @@ tcDefn_ extra tchs env@(Env _ _ ax _) defn@(_,_,annotation,_) = do
     Error errs -> return ((Solution [] [] [] [], map errorFromPreviousPhase errs, G.empty), atUAnn (\(pos, m) -> (pos, var m)) term, Nothing)
     GatherTerm g [w] [v] _ -> do
       -- reuse implementation of obtaining substitution
-      (inn@(Solution smallG rs subst' tch'),errs,graph) <- solve ax g tch w
+      s@(inn@(Solution smallG rs subst' tch'),errs,graph) <- solve ax g tch w
       let newTerm = atUAnn (\(pos, m) -> (pos, getFromSubst m subst')) term
-          newErrs = map (simplifyErrorExplanation graph) errs
-          newS    = (inn,newErrs,graph)
+          tyvTerm = atUAnn (\(pos, m) -> (pos, var m)) term
       result@((Solution resultGiven resultResidual resultSubst resultTchs, resultErrs, _)
              ,_,_) <- case (annotation, rs) of
-        (Just p, []) -> return (newS, newTerm, Just p)
+        (Just p, []) -> return (s, newTerm, Just p)
         (Nothing, _) -> do -- We need to close it
            let (almostFinalT, restC) = closeExn (smallG ++ rs) (getFromSubst v subst') (not . (`elem` tch'))
                finalT = nf almostFinalT
            finalCheck <- runExceptT $ tcCheckErrors restC finalT
            case finalCheck of
-             Left moreErrors -> return ((inn, emptySolverExplanation moreErrors : newErrs, graph), newTerm, Nothing)
-             Right _ -> return (newS, newTerm, Just finalT)
+             Left missing@(SolverError_CouldNotDischarge missingRs) ->
+                                return ( (inn, makeManyExplanation missing missingRs Nothing Nothing graph : errs, graph)
+                                       , tyvTerm {- newTerm -}, Nothing )
+             Left moreErrors -> return ((inn, emptySolverExplanation moreErrors : errs, graph), tyvTerm {- newTerm -}, Nothing)
+             Right _ -> return (s, newTerm, Just finalT)
         _ -> -- Error, we could not discharge everything
-             return ((inn, emptySolverExplanation (SolverError_CouldNotDischarge rs) : newErrs, graph), newTerm, Nothing)
+             return ( ( inn
+                      , makeManyExplanation (SolverError_CouldNotDischarge rs) rs Nothing Nothing graph : errs
+                      , graph )
+                    , tyvTerm {- newTerm -}, Nothing )
       -- do a second pass if needed
       case (resultErrs, extra) of
         ([], _)      -> return result

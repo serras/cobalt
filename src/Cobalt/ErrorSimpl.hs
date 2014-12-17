@@ -1,6 +1,7 @@
 {-# LANGUAGE RecordWildCards #-}
 module Cobalt.ErrorSimpl (
   simplifyErrorExplanation
+-- , addLeadsTo
 ) where
 
 import Control.Applicative
@@ -8,15 +9,35 @@ import Data.List (find)
 import Data.Maybe (isNothing)
 import Unbound.LocallyNameless
 
-import Cobalt.Graph
+-- import Cobalt.Graph
 import Cobalt.Errors
 import Cobalt.Types
 
--- | Runs all the different stages of simplification
-simplifyErrorExplanation :: Graph -> ErrorExplanation -> ErrorExplanation
-simplifyErrorExplanation _ s@(SolverError { .. }) = s { theBlame = simplifyBlame theBlame }
-simplifyErrorExplanation _ s = s
+{-
+addLeadsTo :: Graph -> ErrorExplanation -> ErrorExplanation
+addLeadsTo g s@(SolverError { theBlame = b }) = s { theBlame = map (addLeadsTo' g) b }
+addLeadsTo _ s = s
 
+addLeadsTo' :: Graph -> AnnConstraint -> AnnConstraint
+addLeadsTo' g (constraint, cm) = case filterLeads (getPathOfUniques g constraint) of
+                                   [first] -> (first, cm)
+                                   first : rest -> (first, cm ++ [Comment_LeadsTo rest])
+                                   [] -> error "This should never happen"
+
+filterLeads :: [Constraint] -> [Constraint]
+filterLeads [] = []
+filterLeads (Constraint_Equal _ _ : u@(Constraint_Unify _ _) : rest) = filterLeads (u : rest)
+filterLeads (Constraint_Inst  _ _ : u@(Constraint_Unify _ _) : rest) = filterLeads (u : rest)
+filterLeads (Constraint_Unify a1 b1 : u@(Constraint_Unify b2 a2) : rest) | a1 == a2, b1 == b2 = filterLeads (u : rest)
+filterLeads (c : rest) = c : filterLeads rest
+-}
+
+-- | Runs all the different stages of simplification
+simplifyErrorExplanation :: ErrorExplanation -> ErrorExplanation
+simplifyErrorExplanation s@(SolverError { .. }) = s { theBlame = simplifyBlame theBlame }
+simplifyErrorExplanation s = s
+
+-- | Simplification by iterated substitution
 simplifyBlame :: Blame -> Blame
 simplifyBlame b = simplifyBlame' b []
 

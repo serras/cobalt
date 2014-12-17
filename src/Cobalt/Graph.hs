@@ -8,7 +8,7 @@ import Cobalt.Errors
 import Cobalt.Types
 
 data Graph = Graph { counter  :: Int
-                   , vertices :: [(Constraint,(Int, Bool, [Comment]))]
+                   , vertices :: [(Constraint, (Int, Bool, [Comment]))]
                    , nodes    :: [(Int, Int, String)] }
              deriving (Show, Eq)
 
@@ -78,3 +78,14 @@ blameConstraints (Graph _ vrtx edges) problem
                            then blame newLst -- next step
                            else let lasts = filter (\n -> isNothing (find (\(_,d,_) -> d == n) edges)) newLst
                                  in map (\(c,(_,_,cm)) -> (c,cm)) $ mapMaybe (\n -> find (\(_,(m,_,_)) -> n == m) vrtx) lasts
+
+getPathOfUniques :: Graph -> Constraint -> [Constraint]
+getPathOfUniques (Graph _ vrtx edges) c
+  | Just (_,(n,_,_)) <- find ((== c) . fst) vrtx =
+      map (\m -> fst $ fromJust $ find (\(_,(u,_,_)) -> u == m) vrtx) $ getPathOfUniques' n
+      where getPathOfUniques' current = case [next | (origin,next,_) <- edges, origin == current] of
+                                          [one] -> case [past | (past,destination,_) <- edges, destination == one] of
+                                                     [_] -> current : getPathOfUniques' one
+                                                     _   -> [current]
+                                          _     -> [current]
+getPathOfUniques _ c = [c]
