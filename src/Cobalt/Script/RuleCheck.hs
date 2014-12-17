@@ -56,7 +56,7 @@ checkEnv env@(Sy.Env _ _ ax rules) = case checkEnv_ rules (1 :: Integer) of
             _                -> Nothing
         
 
-astGenerator :: Rx.Regex (Rx.Wrap Integer) (UTerm_ ((SourcePos,SourcePos),TyVar)) IsATerm
+astGenerator :: Rx.Regex (Rx.Wrap Integer) (UTerm_ ((SourcePos,SourcePos),TyVar,[TyVar])) IsATerm
              -> Gen (AnnUTerm TyVar)
 astGenerator = Rx.arbitraryFromRegexAndGen generateVar
 
@@ -74,7 +74,7 @@ instance Rep f => Arbitrary (Name f) where
   arbitrary = do Positive n <- resize 100000 arbitrary
                  return $ string2Name $ "x" ++ show (n :: Int)
 
-generateVar :: forall (ix :: Ix). Sing ix -> Gen (Rx.Fix (UTerm_ ((SourcePos,SourcePos),TyVar)) ix)
+generateVar :: forall (ix :: Ix). Sing ix -> Gen (Rx.Fix (UTerm_ ((SourcePos,SourcePos),TyVar,[TyVar])) ix)
 generateVar SIsATerm = UTerm_Var <$> arbitrary <*> arbitrary
 generateVar SIsACaseAlternative = error "Generation of case alternatives is not possible"
 
@@ -89,7 +89,7 @@ okRule name strictness (Env fn dat ax _) (Rx.Rule rx action) term =
       -- 3. Obtain the constraints
       evalWith      = Rx.eval (rule : mainTypeRules) (Rx.IndexIndependent (newEnv,[],[])) term
       evalWithout   = Rx.eval mainTypeRules (Rx.IndexIndependent (newEnv,[],[])) term
-      printError from to rs ss errs = intercalate "\n" [ "term:",         show (atUAnn snd term)
+      printError from to rs ss errs = intercalate "\n" [ "term:",         show (atUAnn (\(_,x,_) -> x) term)
                                                        , "given:",        show from
                                                        , "wanted:",       show to
                                                        , "residual:",     show rs

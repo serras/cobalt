@@ -13,6 +13,7 @@ module Cobalt.Language.Parser (
 ) where
 
 import Control.Applicative hiding (many)
+import Data.List (nub)
 import Text.Parsec hiding ((<|>))
 import Text.Parsec.Language
 import qualified Text.Parsec.Token as T
@@ -277,7 +278,7 @@ parseRule = Rule <$  reserved "rule"
                             <*> commaSep1 parseConstraint
                      <|> pure [])
                  <*  reserved "script"
-                 <*> parseRuleScript
+                 <*> (bindRuleScript <$> parseRuleScript)
                  <*  reservedOp ";"
 
 parseRuleRegex :: Parsec String s RuleRegex
@@ -304,6 +305,10 @@ parseRuleRegexAtom = -- Parenthesized expression
 
 createRegexIter :: RuleRegex -> String -> RuleRegex
 createRegexIter rx v = RuleRegex_Iter $ bind (string2Name v) rx
+
+bindRuleScript :: RuleScript -> Bind [TyVar] RuleScript
+bindRuleScript s = let vars = filter (\x -> case name2String x of { '#':_ -> False; _ -> True } ) $ nub $ fv s
+                    in bind vars s
 
 parseRuleScript :: Parsec String s RuleScript
 parseRuleScript = -- Parenthesized expression

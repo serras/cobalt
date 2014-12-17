@@ -114,7 +114,7 @@ getAnn (Term_Let _ t)        = t
 getAnn (Term_LetAnn _ _ t)   = t
 getAnn (Term_Match _ _ _ t)  = t
 
-data Rule = Rule RuleStrictness String RuleRegex RuleCheck RuleScript deriving Show
+data Rule = Rule RuleStrictness String RuleRegex RuleCheck (Bind [TyVar] RuleScript) deriving Show
 
 data RuleStrictness = RuleStrictness_NonStrict | RuleStrictness_Strict deriving Show
 
@@ -315,9 +315,14 @@ rSourcePos = Emb { to = \(fn :*: i :*: f :*: Nil) -> newPos fn i f
           
 instance Alpha SourcePos
 
-$(derive [''RuleRegex])
+$(derive [''RuleRegex, ''RuleScript, ''RuleScriptList])
 instance Alpha RuleRegex
-  
+instance Alpha RuleScript
+instance Alpha RuleScriptList
+
+instance Subst MonoType RuleScript
+instance Subst MonoType RuleScriptList
+
 -- Show instances
 
 instance (Alpha t, Show t) => Show (Term t) where

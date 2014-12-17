@@ -79,12 +79,14 @@ tcDefn_ :: Maybe [Constraint] -> Maybe [TyVar] -> Env -> RawUnboundDefn
 tcDefn_ extra tchs env@(Env _ _ ax _) defn@(_,_,annotation,_) = do
   (gatherResult, term, tch) <- gDefn_ (fromMaybe [] extra) (fromMaybe [] tchs) env defn  -- pass extra information
   case gatherResult of
-    Error errs -> return ((Solution [] [] [] [], map errorFromPreviousPhase errs, G.empty), atUAnn (\(pos, m) -> (pos, var m)) term, Nothing)
+    Error errs -> return ( (Solution [] [] [] [], map errorFromPreviousPhase errs, G.empty)
+                         , atUAnn (\(pos, m, svars) -> (pos, var m, svars)) term
+                         , Nothing )
     GatherTerm g [w] [v] _ -> do
       -- reuse implementation of obtaining substitution
       s@(inn@(Solution smallG rs subst' tch'),errs,graph) <- solve ax g tch w
-      let newTerm = atUAnn (\(pos, m) -> (pos, getFromSubst m subst')) term
-          tyvTerm = atUAnn (\(pos, m) -> (pos, var m)) term
+      let newTerm = atUAnn (\(pos, m, svars) -> (pos, getFromSubst m subst', svars)) term
+          tyvTerm = atUAnn (\(pos, m, svars) -> (pos, var m, svars)) term
       result@((Solution resultGiven resultResidual resultSubst resultTchs, resultErrs, _)
              ,_,_) <- case (annotation, rs) of
         (Just p, []) -> return (s, newTerm, Just p)

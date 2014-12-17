@@ -44,7 +44,7 @@ pattern MergeC     cs    p = Merge cs (Just p, Nothing)
 
 intLiteralRule :: TypeRule
 intLiteralRule = rule0 $
-  inj (UTerm_IntLiteral_ __ __) ->>> \(UTerm_IntLiteral _ (p,thisTy)) -> do
+  inj (UTerm_IntLiteral_ __ __) ->>> \(UTerm_IntLiteral _ (p,thisTy,_)) -> do
     this.syn._Term.given  .= []
     this.syn._Term.wanted .= [SingUnifyC (var thisTy) MonoType_Int p]
     this.syn._Term.ty     .= [thisTy]
@@ -52,7 +52,7 @@ intLiteralRule = rule0 $
 
 varRule :: TypeRule
 varRule = rule0 $
-  inj (UTerm_Var_ __ __) ->>> \(UTerm_Var v (p,thisTy)) -> do
+  inj (UTerm_Var_ __ __) ->>> \(UTerm_Var v (p,thisTy,_)) -> do
     env <- use (this.inh_.theEnv.fnE)
     case lookup (translate v) env of
       Nothing    -> this.syn .= Error ["Cannot find " ++ show v]
@@ -63,7 +63,7 @@ varRule = rule0 $
 
 absRule :: TypeRule
 absRule = rule $ \inner ->
-  inj (UTerm_Abs_ __ __ (inner <<- any_) __) ->>> \(UTerm_Abs v (_,vty) _ (p,thisTy)) -> do
+  inj (UTerm_Abs_ __ __ (inner <<- any_) __) ->>> \(UTerm_Abs v (_,vty,_) _ (p,thisTy,_)) -> do
     copy [inner]
     at inner . inh_ . theEnv . fnE %= ((translate v, var vty) : ) -- Add to environment
     innerSyn <- use (at inner . syn)
@@ -78,7 +78,7 @@ absRule = rule $ \inner ->
 
 absAnnRule :: TypeRule
 absAnnRule = rule $ \inner ->
-  inj (UTerm_AbsAnn_ __ __ (inner <<- any_) __ __) ->>> \(UTerm_AbsAnn v (vpos,vty) _ (tyAnn,_) (p,thisTy)) -> do
+  inj (UTerm_AbsAnn_ __ __ (inner <<- any_) __ __) ->>> \(UTerm_AbsAnn v (vpos,vty,_) _ (tyAnn,_) (p,thisTy,_)) -> do
     copy [inner]
     at inner . inh_ . theEnv . fnE %= ((translate v, tyAnn) : ) -- Add to environment
     innerSyn <- use (at inner . syn)
@@ -96,7 +96,7 @@ absAnnRule = rule $ \inner ->
 
 appRule :: TypeRule
 appRule = rule $ \(e1, e2) ->
-  inj (UTerm_App_ (e1 <<- any_) (e2 <<- any_) __) ->>> \(UTerm_App _ _ (p,thisTy)) -> do
+  inj (UTerm_App_ (e1 <<- any_) (e2 <<- any_) __) ->>> \(UTerm_App _ _ (p,thisTy,_)) -> do
     copy [e1, e2]
     e1Syn <- use (at e1 . syn)
     e2Syn <- use (at e2 . syn)
@@ -112,7 +112,7 @@ appRule = rule $ \(e1, e2) ->
 
 letRule :: TypeRule
 letRule = rule $ \(e1, e2) ->
-  inj (UTerm_Let_ __ (e1 <<- any_) (e2 <<- any_) __) ->>> \(UTerm_Let x _ _ (p,thisTy)) -> do
+  inj (UTerm_Let_ __ (e1 <<- any_) (e2 <<- any_) __) ->>> \(UTerm_Let x _ _ (p,thisTy,_)) -> do
     copy [e1, e2]
     e1Syn <- use (at e1 . syn)
     -- Change second part environment
@@ -133,7 +133,7 @@ letRule = rule $ \(e1, e2) ->
 letAnnRule :: TypeRule
 letAnnRule = rule $ \(e1, e2) ->
   inj (UTerm_LetAnn_ __ (e1 <<- any_) (e2 <<- any_) __ __) ->>>
-    \(UTerm_LetAnn x _ _ (tyAnn,(q1,t1,_)) (p,thisTy)) -> do
+    \(UTerm_LetAnn x _ _ (tyAnn,(q1,t1,_)) (p,thisTy,_)) -> do
       let isMono = case tyAnn of
                      PolyType_Mono [] m -> Just m
                      _                  -> Nothing
@@ -162,7 +162,7 @@ letAnnRule = rule $ \(e1, e2) ->
 
 matchRule :: TypeRule
 matchRule = rule $ \(e, branches) ->
-  inj (UTerm_Match_ (e <<- any_) __ __ [branches <<- any_] __) ->>> \(UTerm_Match _ k mk _ (p,thisTy)) -> do
+  inj (UTerm_Match_ (e <<- any_) __ __ [branches <<- any_] __) ->>> \(UTerm_Match _ k mk _ (p,thisTy,_)) -> do
         copy [e]
         copy [branches]
         env <- use (this.inh_.theEnv.fnE)

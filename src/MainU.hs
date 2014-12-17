@@ -222,37 +222,37 @@ textJsonConstraint Constraint_Inconsistent  = "⊥"
 
 
 showAnnTermJson :: Show t => AnnUTerm t -> [Value]
-showAnnTermJson (UTerm_IntLiteral n (_,t)) =
+showAnnTermJson (UTerm_IntLiteral n (_,t,_)) =
   [ object [ "text"  .= show n
            , "tags"  .= [showWithGreek t] ] ]
-showAnnTermJson (UTerm_Var v (_,t)) =
+showAnnTermJson (UTerm_Var v (_,t,_)) =
   [ object [ "text"  .= show v
            , "tags"  .= [showWithGreek t] ] ]
-showAnnTermJson (UTerm_Abs x _ e (_,t)) =
+showAnnTermJson (UTerm_Abs x _ e (_,t,_)) =
   [ object [ "text"  .= ("λ " ++ show x ++ " →")
            , "tags"  .= [showWithGreek t]
            , "nodes" .= showAnnTermJson e ] ]
-showAnnTermJson (UTerm_AbsAnn x _ e (p,_) (_,t)) =
+showAnnTermJson (UTerm_AbsAnn x _ e (p,_) (_,t,_)) =
   [ object [ "text"  .= ("λ (" ++ show x ++ " :: " ++ showWithGreek p ++ ") →")
            , "tags"  .= [showWithGreek t]
            , "nodes" .= showAnnTermJson e ] ]
-showAnnTermJson (UTerm_App a b (_,t)) =
+showAnnTermJson (UTerm_App a b (_,t,_)) =
   [ object [ "text"  .= ("@" :: String)
            , "tags"  .= [showWithGreek t]
            , "nodes" .= (showAnnTermJson a ++ showAnnTermJson b) ] ]
-showAnnTermJson (UTerm_Let x e1 e2 (_,t)) =
+showAnnTermJson (UTerm_Let x e1 e2 (_,t,_)) =
   [ object [ "text"  .= ("let " ++ show x ++ " =")
            , "nodes" .= showAnnTermJson e1 ]
   , object [ "text"  .= ("in" :: String)
            , "tags"  .= [showWithGreek t]
            , "nodes" .= showAnnTermJson e2 ] ]
-showAnnTermJson (UTerm_LetAnn x e1 e2 (p,_) (_,t)) =
+showAnnTermJson (UTerm_LetAnn x e1 e2 (p,_) (_,t,_)) =
   [ object [ "text"  .= ("let " ++ show x ++ " :: " ++ showWithGreek p ++ " =")
            , "nodes" .= showAnnTermJson e1 ]
   , object [ "text"  .= ("in" :: String)
            , "tags"  .= [showWithGreek t]
            , "nodes" .= showAnnTermJson e2 ] ]
-showAnnTermJson (UTerm_Match e c _k bs (_,t)) =
+showAnnTermJson (UTerm_Match e c _k bs (_,t,_)) =
   let bs' = map (\(UCaseAlternative d xs _casep es _) ->
                     object [ "text"  .= ("| " ++ intercalate " " (map show (d:xs)) ++ " →")
                            -- , "tags"  .= case casep of

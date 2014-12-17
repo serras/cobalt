@@ -132,7 +132,7 @@ theTouchables :: Functor f => ([TyVar] -> f [TyVar])
 theTouchables = _3
 
 type WI           = Wrap Integer
-type UTermWithPos = UTerm_ ((SourcePos,SourcePos),TyVar)
+type UTermWithPos = UTerm_ ((SourcePos,SourcePos),TyVar,[TyVar])
 type TypeRule     = Rx.Rule WI UTermWithPos Inh Syn
 
 syntaxRuleToScriptRule :: [Axiom] -> Sy.Rule -> TypeRule
@@ -141,12 +141,12 @@ syntaxRuleToScriptRule ax (Rule _ _ rx check script) =
    in Rx.Rule
         (Regex $ syntaxRegexToScriptRegex rx [] vars)
         (\term envAndSat@(Rx.IndexIndependent (_,sat,tchs)) synChildren ->
-          let (p,thisTy)  = ann term
+          let (p,thisTy,specTys) = ann term
               childrenMap = syntaxSynToMap synChildren
               initialSyn  = foldr (mappend . snd) mempty childrenMap
               rightSyns   = filter (is _Term . snd) childrenMap
               checkW      = syntaxConstraintListToScript check thisTy vars rightSyns
-              wanteds     = syntaxScriptToScript script p thisTy vars rightSyns
+              wanteds     = syntaxBindScriptToScript script p thisTy specTys vars rightSyns
            in ( null check || entails ax sat checkW tchs
               , [Rx.Child (Wrap n) [envAndSat] | n <- [0 .. (toEnum $ length vars)]]
               , case initialSyn of
@@ -191,6 +191,13 @@ syntaxSynToMap (Rx.Child (Wrap n) info : rest) = (n, fold (unsafeCoerce info :: 
 
 (!!!) :: [(Integer, Gathered)] -> Int -> Gathered
 (!!!) mp k = fromJust $ lookup (toEnum k) mp
+
+syntaxBindScriptToScript :: Bind [TyVar] RuleScript -> (SourcePos,SourcePos) -> TyVar -> [TyVar]
+                         -> CaptureVarList -> [(Integer, Gathered)] -> TyScript
+syntaxBindScriptToScript b p this specTys capVars captures =
+  let unboundScript = runFreshM $ do (bVars, s) <- unbind b
+                                     return $ substs (zip bVars (map var specTys)) s
+   in syntaxScriptToScript unboundScript p this capVars captures
 
 syntaxScriptToScript :: RuleScript -> (SourcePos,SourcePos) -> TyVar
                      -> CaptureVarList -> [(Integer, Gathered)] -> TyScript
