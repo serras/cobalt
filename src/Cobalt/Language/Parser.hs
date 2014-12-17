@@ -29,7 +29,9 @@ parseTerm = parseAtom `chainl1` pure joinTerms
 
 parseAtom :: Parsec String s RawTerm
 parseAtom = -- Parenthesized expression
-            parens parseTerm
+            (\pin tm pe -> atAnn (const (pin,pe)) tm) <$> getPosition
+                                                      <*> parens parseTerm
+                                                      <*> getPosition
         <|> -- Type annotated abstraction
             try (createTermAbsAnn <$> getPosition
                                   <*  reservedOp "\\"

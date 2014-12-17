@@ -23,7 +23,9 @@ showWithGreek :: Show a => a -> String
 showWithGreek = withGreek . show
 
 toHtmlString :: String -> String
-toHtmlString = ("<br />" ++) . replace "\n" "<br />" . replace " " "&nbsp;"
+toHtmlString = (\x -> "<br />" ++ x ++ "<br />")
+               . replace "\n" "<br />"
+               . replace " " "&nbsp;"
 
 doParens :: String -> String
 doParens s | ' ' `elem` s = '(' : s ++ ")"

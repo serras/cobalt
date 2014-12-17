@@ -6,11 +6,12 @@ import Control.Applicative ((<$>))
 import Control.Lens.Extras
 import Control.Monad.Except
 import Data.List (nub)
-import Data.Maybe (fromMaybe, catMaybes)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Regex.MultiRules
 import Unbound.LocallyNameless hiding (name, union)
 
 import Cobalt.Errors
+import Cobalt.ErrorSimpl
 import Cobalt.Graph as G
 import Cobalt.Language.Syntax (Env(..), RawTermVar, RawDefn)
 import Cobalt.OutsideIn.Solver (Solution(..))
@@ -82,20 +83,22 @@ tcDefn_ extra tchs env@(Env _ _ ax _) defn@(_,_,annotation,_) = do
     Error errs -> return ((Solution [] [] [] [], map errorFromPreviousPhase errs, G.empty), atUAnn (\(pos, m) -> (pos, var m)) term, Nothing)
     GatherTerm g [w] [v] _ -> do
       -- reuse implementation of obtaining substitution
-      s@(inn@(Solution smallG rs subst' tch'),errs,graph) <- solve ax g tch w
+      (inn@(Solution smallG rs subst' tch'),errs,graph) <- solve ax g tch w
       let newTerm = atUAnn (\(pos, m) -> (pos, getFromSubst m subst')) term
+          newErrs = map (simplifyErrorExplanation graph) errs
+          newS    = (inn,newErrs,graph)
       result@((Solution resultGiven resultResidual resultSubst resultTchs, resultErrs, _)
              ,_,_) <- case (annotation, rs) of
-        (Just p, []) -> return (s, newTerm, Just p)
+        (Just p, []) -> return (newS, newTerm, Just p)
         (Nothing, _) -> do -- We need to close it
            let (almostFinalT, restC) = closeExn (smallG ++ rs) (getFromSubst v subst') (not . (`elem` tch'))
                finalT = nf almostFinalT
            finalCheck <- runExceptT $ tcCheckErrors restC finalT
            case finalCheck of
-             Left moreErrors -> return ((inn, emptySolverExplanation moreErrors : errs, graph), newTerm, Nothing)
-             Right _ -> return (s, newTerm, Just finalT)
+             Left moreErrors -> return ((inn, emptySolverExplanation moreErrors : newErrs, graph), newTerm, Nothing)
+             Right _ -> return (newS, newTerm, Just finalT)
         _ -> -- Error, we could not discharge everything
-             return ((inn, emptySolverExplanation (SolverError_CouldNotDischarge rs) : errs, graph), newTerm, Nothing)
+             return ((inn, emptySolverExplanation (SolverError_CouldNotDischarge rs) : newErrs, graph), newTerm, Nothing)
       -- do a second pass if needed
       case (resultErrs, extra) of
         ([], _)      -> return result
@@ -129,10 +132,10 @@ tcCheckErrors rs t = do checkRigidity t
 
 checkRigidity :: PolyType -> ExceptT SolverError FreshM ()
 checkRigidity t = do let fvT :: [TyVar] = fv t
-                     when (not (null fvT)) $ throwError (SolverError_NonTouchable fvT)
+                     unless (null fvT) $ throwError (SolverError_NonTouchable fvT)
 
 checkAmbiguity :: [Constraint] -> ExceptT SolverError FreshM ()
-checkAmbiguity cs = do let vars = catMaybes $ map getVar cs
+checkAmbiguity cs = do let vars = mapMaybe getVar cs
                            dup  = findDuplicate vars
                        case dup of
                          Nothing -> return ()

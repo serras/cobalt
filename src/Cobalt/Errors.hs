@@ -1,13 +1,26 @@
 {-# LANGUAGE RecordWildCards #-}
-{-# ANN module ("HLint: ignore Use camelCase"::String) #-}
-module Cobalt.Errors where
+module Cobalt.Errors (
+  Comment(..)
+, SolverError(..)
+, UnifyErrorReason(..)
+, ErrorExplanation(..)
+, AnnConstraint
+, Blame
+, emptySolverExplanation
+, errorFromPreviousPhase
+, showErrorExplanation
+) where
 
+import Data.List (elemIndex)
 import Text.Parsec.Pos
 
 import Cobalt.Types
 
+{-# ANN module ("HLint: ignore Use camelCase"::String) #-}
+
 data Comment = Comment_String String
              | Comment_Pos (SourcePos, SourcePos)
+             | Comment_LeadsTo [Constraint]
              deriving (Show, Eq)
 
 data SolverError = SolverError_Unify UnifyErrorReason MonoType MonoType
@@ -34,10 +47,13 @@ instance Show UnifyErrorReason where
   show UnifyErrorReason_Head = "different head constructors"
   show UnifyErrorReason_NumberOfArgs = "different number of arguments"
 
+type AnnConstraint = (Constraint,[Comment])
+type Blame = [AnnConstraint]
+
 data ErrorExplanation = SolverError { theError   :: SolverError
                                     , thePoint   :: Maybe (SourcePos, SourcePos)
                                     , theMessage :: Maybe String
-                                    , theBlame   :: [(Constraint,[Comment])]
+                                    , theBlame   :: Blame
                                     }
                       | ErrorFromPreviousPhase { thePoint   :: Maybe (SourcePos, SourcePos)
                                                , theMessage :: Maybe String }
@@ -49,21 +65,40 @@ errorFromPreviousPhase :: String -> ErrorExplanation
 errorFromPreviousPhase s = ErrorFromPreviousPhase Nothing (Just s)
 
 instance Show ErrorExplanation where
-  show SolverError { theBlame = [], .. } = "Found error at " ++ showPoint thePoint
-                                           ++ ":\n  " ++ show theError
-  show SolverError { theBlame = b, .. } = "Found error at " ++ showPoint thePoint
-                                          ++ ":\n  " ++ show theError
-                                          ++ "\nstemming from:" ++ concatMap (('\n' :) . showProblem) b
-  show ErrorFromPreviousPhase { .. } = "Found error at point " ++ showPoint thePoint
-                                       ++ ":\n" ++ show theMessage
+  show = showErrorExplanation ""
 
-showProblem :: (Constraint,[Comment]) -> String
-showProblem (c,cms) = "* " ++ show c ++ concatMap (("\n  " ++) . showComment) cms
+showErrorExplanation :: String -> ErrorExplanation -> String
+showErrorExplanation _contents  SolverError { theBlame = [], .. } =
+  "Found error at " ++ showPoint thePoint
+  ++ ":\n  " ++ show theError
+showErrorExplanation contents  SolverError { theBlame = b, .. } =
+  "Found error at " ++ showPoint thePoint
+  ++ ":\n  " ++ show theError
+  ++ "\nstemming from:" ++ concatMap (('\n' :) . showProblem contents) b
+showErrorExplanation _contents ErrorFromPreviousPhase { .. } =
+  "Found error at point " ++ showPoint thePoint
+  ++ ":\n" ++ show theMessage
 
-showComment :: Comment -> String
-showComment (Comment_String s)  = "since " ++ s
-showComment (Comment_Pos (i,e)) = "at " ++ show i ++ " -- " ++ show e
+showProblem :: String -> (Constraint,[Comment]) -> String
+showProblem contents (c,cms) = "* " ++ show c ++ concatMap (("\n  " ++) . showComment contents) cms
+
+showComment :: String -> Comment -> String
+showComment _ (Comment_String s)   = "since " ++ s
+showComment _ (Comment_LeadsTo cs) = ""
+showComment contents (Comment_Pos (i,e)) = case (offset contents i, offset contents e) of
+    (Just ioff, Just eoff) -> "from `" ++ drop ioff (take (eoff - 1) contents) ++ "` "
+    _ -> ""
+  ++ "at " ++ showPosSmall i ++ "-" ++ showPosSmall e
 
 showPoint :: Maybe (SourcePos, SourcePos) -> String
 showPoint Nothing      = "<unknown>"
-showPoint (Just (i,e)) = show i ++ " -- " ++ show e
+showPoint (Just (i,e)) = showPosSmall i ++ "-" ++ showPosSmall e
+
+showPosSmall :: SourcePos -> String
+showPosSmall s = "(" ++ show (sourceLine s) ++ "," ++ show (sourceColumn s) ++ ")"
+
+-- From http://stackoverflow.com/questions/10473857/parsec-positions-as-offsets
+offset :: String -> SourcePos -> Maybe Int
+offset source pos = elemIndex pos positions
+  where positions = scanl updatePosChar firstPos source
+        firstPos  = initialPos (sourceName pos)

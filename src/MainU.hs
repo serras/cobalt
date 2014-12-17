@@ -14,6 +14,7 @@ import Text.Parsec.String
 import Unbound.LocallyNameless hiding (toList)
 import Web.Scotty
 
+import Cobalt.Errors (showErrorExplanation)
 import Cobalt.Graph
 import Cobalt.Language.Parser (parseFile)
 import Cobalt.Language.Syntax
@@ -25,7 +26,7 @@ import Cobalt.Script.Solver
 import Cobalt.Script.Syntax
 import Cobalt.Script.Top
 import Cobalt.Types
-import Cobalt.Util (showWithGreek, doParens, toHtmlString)
+import Cobalt.Util (showWithGreek, withGreek, doParens, toHtmlString)
 
 main :: IO ()
 main = do
@@ -71,7 +72,7 @@ mainServe = do
               Left rulesErr -> json $ object [ "status"  .= ("error" :: String)
                                              , "message" .= intercalate "\n\n" rulesErr ]
               Right _ -> let tcs  = tcDefns env' defns
-                             vals = zipWith jsonTypechecked defns tcs
+                             vals = zipWith (jsonTypechecked code) defns tcs
                           in json $ object [ "status" .= ("ok" :: String)
                                            , "values" .= vals ]
     post "/gather" $ do
@@ -162,12 +163,12 @@ jsonScript ((n,_,_),_) (GatherTerm g w _ _, term, _, extra) =
                       , object [ "text"  .= ("extra" :: String)
                                , "nodes" .= map (justText . textJsonConstraint) extra ] ] ]
 
-jsonTypechecked :: (RawDefn,Bool) -> (FinalSolution, AnnUTerm MonoType, Maybe PolyType) -> Value
-jsonTypechecked ((n,_,_),ok) ((Solution _ rs _ _, errs, graph), term, p) =
+jsonTypechecked :: String -> (RawDefn,Bool) -> (FinalSolution, AnnUTerm MonoType, Maybe PolyType) -> Value
+jsonTypechecked sourceCode ((n,_,_),ok) ((Solution _ rs _ _, errs, graph), term, p) =
   let errNodes = if null errs
                     then []
                     else [ object [ "text"  .= ("errors" :: String)
-                                  , "nodes" .= map (justText . toHtmlString . showWithGreek) errs ] ]
+                                  , "nodes" .= map (justText . toHtmlString . withGreek . showErrorExplanation sourceCode) errs ] ]
       resNodes = if null rs
                     then []
                     else [ object [ "text"  .= ("residual" :: String)
