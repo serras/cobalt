@@ -13,29 +13,17 @@ import Unbound.LocallyNameless
 import Cobalt.Errors
 import Cobalt.Types
 
-{-
-addLeadsTo :: Graph -> ErrorExplanation -> ErrorExplanation
-addLeadsTo g s@(SolverError { theBlame = b }) = s { theBlame = map (addLeadsTo' g) b }
-addLeadsTo _ s = s
-
-addLeadsTo' :: Graph -> AnnConstraint -> AnnConstraint
-addLeadsTo' g (constraint, cm) = case filterLeads (getPathOfUniques g constraint) of
-                                   [first] -> (first, cm)
-                                   first : rest -> (first, cm ++ [Comment_LeadsTo rest])
-                                   [] -> error "This should never happen"
-
-filterLeads :: [Constraint] -> [Constraint]
-filterLeads [] = []
-filterLeads (Constraint_Equal _ _ : u@(Constraint_Unify _ _) : rest) = filterLeads (u : rest)
-filterLeads (Constraint_Inst  _ _ : u@(Constraint_Unify _ _) : rest) = filterLeads (u : rest)
-filterLeads (Constraint_Unify a1 b1 : u@(Constraint_Unify b2 a2) : rest) | a1 == a2, b1 == b2 = filterLeads (u : rest)
-filterLeads (c : rest) = c : filterLeads rest
--}
-
 -- | Runs all the different stages of simplification
 simplifyErrorExplanation :: ErrorExplanation -> ErrorExplanation
-simplifyErrorExplanation s@(SolverError { .. }) = s { theBlame = simplifyBlame theBlame }
+simplifyErrorExplanation s@(SolverError { .. }) = s { theBlame = simplifyBlame theBlame, theDominators = filterDoms theDominators }
 simplifyErrorExplanation s = s
+
+filterDoms :: [Constraint] -> [Constraint]
+filterDoms [] = []
+-- filterDoms (Constraint_Equal _ _ : u@(Constraint_Unify _ _) : rest) = filterDoms (u : rest)
+-- filterDoms (Constraint_Inst  _ _ : u@(Constraint_Unify _ _) : rest) = filterDoms (u : rest)
+filterDoms (Constraint_Unify a1 b1 : u@(Constraint_Unify b2 a2) : rest) | a1 == a2, b1 == b2 = filterDoms (u : rest)
+filterDoms (c : rest) = c : filterDoms rest
 
 -- | Simplification by iterated substitution
 simplifyBlame :: Blame -> Blame

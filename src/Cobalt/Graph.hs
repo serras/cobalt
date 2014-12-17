@@ -1,11 +1,15 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 module Cobalt.Graph where
 
+import qualified Data.Graph.Inductive as D
 import Data.List
 import Data.Maybe
 import Data.Monoid
 
 import Cobalt.Errors
 import Cobalt.Types
+
+{-# ANN module ("HLint: ignore Use map once"::String) #-}
 
 data Graph = Graph { counter  :: Int
                    , vertices :: [(Constraint, (Int, Bool, [Comment]))]
@@ -89,3 +93,18 @@ getPathOfUniques (Graph _ vrtx edges) c
                                                      _   -> [current]
                                           _     -> [current]
 getPathOfUniques _ c = [c]
+
+getDominators :: Graph -> Constraint -> [Constraint]
+getDominators g@(Graph _ vrtx edges) problem | Just (_,(n,_,_)) <- find ((== problem) . fst) vrtx =
+  let blamed = map fst $ blameConstraints g problem
+      extGraph :: D.UGr = D.mkUGraph (map (\(_,(i,_,_)) -> i) vrtx) (map (\(a,b,_) -> (a,b)) edges)
+      initial :: [Int]
+      initial = map (\(_,(m,_,_)) -> m) $ map fromJust $ map (\b -> find ((== b) . fst) vrtx) blamed
+      getDomFor :: Int -> [Int]
+      getDomFor m = snd $ fromJust $ find (\(to, _) -> to == n) $ D.dom extGraph m
+      allDominators :: [[Int]]
+      allDominators = map getDomFor initial
+      jointDominators :: [Int]
+      jointDominators = foldl' intersect (map (\(_,(i,_,_)) -> i) vrtx) allDominators
+   in map (\b -> fst $ fromJust $ find (\(_,(i,_,_)) -> i == b) vrtx) (delete n jointDominators)
+getDominators _ _ = []

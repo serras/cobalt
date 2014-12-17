@@ -30,3 +30,12 @@ axiom $Eq 'Int;
 u = singleton 3;
 v :: {a} $Eq a => a -> [a] = \x -> singleton x;
 w = singleton 3 4;
+
+
+import noRule :: 'Bool -> 'Int;
+
+rule  make_rule
+match app #fn@(var "noRule") #arg
+script merge [ #fn, #arg, #this ~ 'Int, #arg ~ 'Bool] "The error is here!";
+
+z = noRule 3;

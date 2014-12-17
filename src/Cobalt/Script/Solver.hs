@@ -79,12 +79,16 @@ simpl ax g tch (Asym s1 s2 info) = simpl ax g tch (Merge [s2,s1] info)
 
 makeExplanation :: SolverError -> Maybe (SourcePos, SourcePos) -> Maybe String -> Graph -> ErrorExplanation
 makeExplanation err pos msg graph =
-  SolverError { theError = err, thePoint = pos, theMessage = msg, theBlame = blameConstraints graph Constraint_Inconsistent }
+  SolverError { theError = err
+              , thePoint = pos
+              , theMessage = msg
+              , theBlame = blameConstraints graph Constraint_Inconsistent
+              , theDominators = getDominators graph Constraint_Inconsistent }
 
 makeManyExplanation :: SolverError -> [Constraint] -> Maybe (SourcePos, SourcePos) -> Maybe String -> Graph -> ErrorExplanation
 makeManyExplanation err cs pos msg graph =
   let blamed = foldl' union [] $ map (blameConstraints graph) cs
-   in SolverError { theError = err, thePoint = pos, theMessage = msg, theBlame = blamed }
+   in SolverError { theError = err, thePoint = pos, theMessage = msg, theBlame = blamed, theDominators = [] }
 
 -- All the rest of this file is just converting back and forth
 -- the OutsideIn representation and the Script representation

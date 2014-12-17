@@ -49,16 +49,17 @@ instance Show UnifyErrorReason where
 type AnnConstraint = (Constraint,[Comment])
 type Blame = [AnnConstraint]
 
-data ErrorExplanation = SolverError { theError   :: SolverError
-                                    , thePoint   :: Maybe (SourcePos, SourcePos)
-                                    , theMessage :: Maybe String
-                                    , theBlame   :: Blame
+data ErrorExplanation = SolverError { theError      :: SolverError
+                                    , thePoint      :: Maybe (SourcePos, SourcePos)
+                                    , theMessage    :: Maybe String
+                                    , theBlame      :: Blame
+                                    , theDominators :: [Constraint]
                                     }
                       | ErrorFromPreviousPhase { thePoint   :: Maybe (SourcePos, SourcePos)
                                                , theMessage :: Maybe String }
 
 emptySolverExplanation :: SolverError -> ErrorExplanation
-emptySolverExplanation err = SolverError err Nothing Nothing []
+emptySolverExplanation err = SolverError err Nothing Nothing [] []
 
 errorFromPreviousPhase :: String -> ErrorExplanation
 errorFromPreviousPhase s = ErrorFromPreviousPhase Nothing (Just s)
@@ -67,13 +68,18 @@ instance Show ErrorExplanation where
   show = showErrorExplanation ""
 
 showErrorExplanation :: String -> ErrorExplanation -> String
-showErrorExplanation _contents  SolverError { theBlame = [], .. } =
-  "Found error at " ++ showPoint thePoint
-  ++ ":\n  " ++ show theError
-showErrorExplanation contents  SolverError { theBlame = b, .. } =
-  "Found error at " ++ showPoint thePoint
-  ++ ":\n  " ++ show theError
-  ++ "\nstemming from:" ++ concatMap (('\n' :) . showProblem contents) b
+showErrorExplanation contents  SolverError { .. } =
+  "Found error at " ++ showPoint thePoint ++ ":"
+  ++ case theMessage of
+       Nothing  -> ""
+       Just msg -> "\n  " ++ msg
+  ++ "\n  " ++ show theError
+  ++ if null theDominators
+        then ""
+        else "\nwhile checking:" ++ concatMap (("\n* " ++) . show) theDominators
+  ++ if null theBlame
+        then ""
+        else "\nstemming from:" ++ concatMap (('\n' :) . showProblem contents) theBlame
 showErrorExplanation _contents ErrorFromPreviousPhase { .. } =
   "Found error at point " ++ showPoint thePoint
   ++ ":\n" ++ show theMessage
