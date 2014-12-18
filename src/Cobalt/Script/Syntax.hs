@@ -44,7 +44,7 @@ module Cobalt.Script.Syntax (
 import Control.Applicative (Applicative, (<$>), (<*>), pure)
 import Data.List (intercalate)
 import Data.MultiGenerics
-import Data.Traversable (traverse, sequenceA)
+import Data.Traversable (traverse)
 import Unbound.LocallyNameless hiding (close)
 
 import Cobalt.Language.Syntax
@@ -206,7 +206,12 @@ nUMBER_OF_SPEC_RULES_VARS :: Int
 nUMBER_OF_SPEC_RULES_VARS = 20
 
 upgrade :: (Applicative m, Fresh m) => t -> m (t,TyVar,[TyVar])
-upgrade t = (,,) <$> pure t <*> fresh (s2n "t") <*> sequenceA (replicate nUMBER_OF_SPEC_RULES_VARS $ fresh (s2n "i"))
+upgrade t = (,,) <$> pure t <*> fresh (s2n "t") <*> generateNFresh nUMBER_OF_SPEC_RULES_VARS
+
+generateNFresh :: (Applicative m, Fresh m) => Int -> m [TyVar]
+generateNFresh n
+  | n <= 0    = return []
+  | otherwise = (:) <$> fresh (s2n "i") <*> generateNFresh (n-1)
 
 ann :: UTerm t -> t
 ann (UTerm_IntLiteral _ a)   = a

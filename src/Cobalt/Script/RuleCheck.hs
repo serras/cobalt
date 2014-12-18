@@ -5,6 +5,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE OverlappingInstances #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Cobalt.Script.RuleCheck (
   check
@@ -17,6 +18,7 @@ import Data.List (nub, (\\), intercalate)
 import Data.MultiGenerics
 import qualified Data.Regex.MultiGenerics as Rx
 import qualified Data.Regex.MultiRules as Rx
+import Data.Traversable (sequenceA)
 import Test.QuickCheck
 import Text.Parsec.Pos (newPos)
 import Unbound.LocallyNameless hiding (from, to, union, generate, name)
@@ -35,7 +37,7 @@ import Unsafe.Coerce
 
 check :: String -> RuleStrictness -> Sy.Env -> TypeRule -> Either String TypeRule
 check name strictness env rule@(Rx.Rule rx _) =
-  let samples = unsafePerformIO $ replicateM 100 $
+  let samples = unsafePerformIO $ replicateM 20 $
                   generate (astGenerator (unsafeCoerce rx))
    in check_ samples
       where check_ [] = Right rule
@@ -60,6 +62,11 @@ astGenerator :: Rx.Regex (Rx.Wrap Integer) (UTerm_ ((SourcePos,SourcePos),TyVar,
              -> Gen (AnnUTerm TyVar)
 astGenerator = Rx.arbitraryFromRegexAndGen generateVar
 
+instance Arbitrary ((SourcePos,SourcePos),TyVar,[TyVar]) where
+  arbitrary = (,,) <$> arbitrary
+                   <*> arbitrary
+                   <*> sequenceA (replicate nUMBER_OF_SPEC_RULES_VARS arbitrary)
+
 instance Arbitrary Constraint where
   arbitrary = error "Generation of constraints is not possible"
 instance Arbitrary MonoType where
@@ -78,6 +85,9 @@ generateVar :: forall (ix :: Ix). Sing ix -> Gen (Rx.Fix (UTerm_ ((SourcePos,Sou
 generateVar SIsATerm = UTerm_Var <$> arbitrary <*> arbitrary
 generateVar SIsACaseAlternative = error "Generation of case alternatives is not possible"
 
+nUMBER_OF_SPEC_RULES_VARS :: Int
+nUMBER_OF_SPEC_RULES_VARS = 20
+
 okRule :: String -> RuleStrictness -> Sy.Env -> TypeRule -> AnnUTerm TyVar -> Either String TypeRule
 okRule name strictness (Env fn dat ax _) (Rx.Rule rx action) term =
   let -- 1. Add extra information for open variables
@@ -89,18 +99,17 @@ okRule name strictness (Env fn dat ax _) (Rx.Rule rx action) term =
       -- 3. Obtain the constraints
       evalWith      = Rx.eval (rule : mainTypeRules) (Rx.IndexIndependent (newEnv,[],[])) term
       evalWithout   = Rx.eval mainTypeRules (Rx.IndexIndependent (newEnv,[],[])) term
-      printError from to rs ss errs = intercalate "\n" [ "term:",         show (atUAnn (\(_,x,_) -> x) term)
-                                                       , "given:",        show from
-                                                       , "wanted:",       show to
-                                                       , "residual:",     show rs
-                                                       , "substitution:", show ss
-                                                       , "errors:",       show errs ]
+      printError from to rss errs = intercalate "\n" [ "term:",         show (atUAnn (\(_,x,_) -> x) term)
+                                                     , "given:",        show from
+                                                     , "wanted:",       show to
+                                                     , "residual:",     show rss
+                                                     , "errors:",       show errs ]
    in case (evalWith, evalWithout) of
-        (GatherTerm gW [wW] _tW customW, GatherTerm gO [wO] _tO _) ->
+        (GatherTerm gW [wW] _tW customW customWVars, GatherTerm gO [wO] _tO _ _) ->
            let -- Check soundness
                fromSpec  = customW ++ gW ++ gO ++ toConstraintList' wW
                toNonSpec = wO
-               tchVars   = fvScript toNonSpec
+               tchVars   = customWVars ++ fvScript toNonSpec
                (OIn.Solution _ rs ss _, errs, _) = runFreshM $ solve ax fromSpec tchVars toNonSpec
                rss = rs ++ residualSubstitution (tchVars \\ map translate newVars) ss
             in if null rss && null errs
@@ -115,8 +124,8 @@ okRule name strictness (Env fn dat ax _) (Rx.Rule rx action) term =
                                rss2 = rs2 ++ residualSubstitution (tchVars2 \\ map translate newVars) ss2
                             in if null rss2 && null errs2
                                   then Right rule
-                                  else Left $ name ++ " is not complete:\n" ++ printError fromNonSpec toSpec rs2 ss2 errs2
-                  else Left $ name ++ " is not sound:\n" ++ printError fromSpec toNonSpec rs ss errs
+                                  else Left $ name ++ " is not complete:\n" ++ printError fromNonSpec toSpec rss2 errs2
+                  else Left $ name ++ " is not sound:\n" ++ printError fromSpec toNonSpec rss errs
         _ -> Left "error obtaining constraints"
 
 residualSubstitution :: [TyVar] -> [(TyVar,MonoType)] -> [Constraint]

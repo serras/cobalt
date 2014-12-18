@@ -1,0 +1,19 @@
+import dollar :: {a} {b} {s} (a -> b) -> 'Parser s a -> 'Parser s b;
+
+rule app_parser
+match app #first@(app #dollar@(var "dollar") #fn) #arg
+script asym #fn ~ a1 -> b1 "left operand must be a function"
+       asym #fn
+       asym #arg ~ 'Parser s1 a2 "right operand must be a parser"
+       asym #arg
+       asym #this ~ 'Parser s2 b2
+       asym s1 ~ s2 "parser symbols must coincide"
+       asym a1 ~ a2 "function should be applied to parser's result"
+       asym b1 ~ b2 "the result type must be as expected"
+       merge [ #dollar ~ (a1 -> b1) -> 'Parser s1 a1 -> 'Parser s1 b1
+             , #first  ~ 'Parser s1 a1 -> 'Parser s1 b1 ];
+
+import mapToUpper :: [a] -> [a];
+import helloWorld :: 'String;
+
+test = dollar mapToUpper helloWorld;

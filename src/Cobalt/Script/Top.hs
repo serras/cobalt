@@ -41,10 +41,10 @@ gDefn_ :: [Constraint] -> [TyVar] -> Env -> RawUnboundDefn -> FreshM (Gathered, 
 gDefn_ sat tchs env@(Env _ _ ax rules) (_name,tyv,_,Nothing) =
   case eval (map (syntaxRuleToScriptRule ax) rules ++ mainTypeRules) (IndexIndependent (env,sat,tchs)) tyv of
     err@(Error _) -> return (err, tyv, [])
-    GatherTerm g [w] v c ->
+    GatherTerm g [w] v c cv ->
       -- Chose whether to apply exists removal or not
       let simplifiedW = simplifyScript w in
-      return (GatherTerm g [simplifiedW] v c, tyv, v ++ fvScript simplifiedW)
+      return (GatherTerm g [simplifiedW] v c cv, tyv, v ++ fvScript simplifiedW)
       -- case removeExistsScript w of
       --  (w2, newG, _) -> return (GatherTerm (union g newG) [simplifyScript w2] v, tyv)
     _ -> error "This should never happen"
@@ -52,12 +52,12 @@ gDefn_ sat tchs (Env fn dat ax rules) (name,tyv,Just declaredType,Just (q1,t1,_)
   let env' = Env ((name,declaredType) : fn) dat ax rules
   case eval (map (syntaxRuleToScriptRule ax) rules ++ mainTypeRules) (IndexIndependent (env',sat,tchs)) tyv of
     err@(Error _) -> return (err, tyv, [])
-    GatherTerm g [w] [v] c -> do
+    GatherTerm g [w] [v] c cv -> do
       let extra = Constraint_Unify (var v) t1
           simplifiedW = simplifyScript w
           withExtra = Asym (Singleton extra (Nothing,Nothing)) simplifiedW (Nothing,Nothing)
       -- Chose whether to apply exists removal or not -> look above
-      return (GatherTerm (g ++ q1) [withExtra] [v] c, tyv, v : fvScript simplifiedW)
+      return (GatherTerm (g ++ q1) [withExtra] [v] c cv, tyv, v : fvScript simplifiedW)
     _ -> error "This should never happen"
 gDefn_ _ _ _ _ = error "This should never happen"
 
@@ -82,7 +82,7 @@ tcDefn_ extra tchs env@(Env _ _ ax _) defn@(_,_,annotation,_) = do
     Error errs -> return ( (Solution [] [] [] [], map errorFromPreviousPhase errs, G.empty)
                          , atUAnn (\(pos, m, svars) -> (pos, var m, svars)) term
                          , Nothing )
-    GatherTerm g [w] [v] _ -> do
+    GatherTerm g [w] [v] _ _ -> do
       -- reuse implementation of obtaining substitution
       s@(inn@(Solution smallG rs subst' tch'),errs,graph) <- solve ax g tch w
       let newTerm = atUAnn (\(pos, m, svars) -> (pos, getFromSubst m subst', svars)) term

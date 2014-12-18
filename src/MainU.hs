@@ -120,7 +120,7 @@ showGathered (((n,_,_),_), (Error errors, _, _, _)) = do
   setSGR [Reset]
   mapM_ putStrLn errors
   putStrLn ""
-showGathered (((n,_,_),_), (GatherTerm _ [w] _ _, _, _, _)) = do
+showGathered (((n,_,_),_), (GatherTerm _ [w] _ _ _, _, _, _)) = do
   setSGR [SetColor Foreground Vivid Blue]
   putStrLn (name2String n)
   setSGR [Reset]
@@ -150,7 +150,7 @@ jsonScript ((n,_,_),_) (Error e, _, _, _) =
          , "nodes" .= map justText e
          , "color" .= ("white" :: String)
          , "backColor" .= ("#F58471" :: String) ] -- red
-jsonScript ((n,_,_),_) (GatherTerm g w _ _, term, _, extra) =
+jsonScript ((n,_,_),_) (GatherTerm g w _ _ _, term, _, extra) =
   object [ "text" .= name2String n
          -- , "tags" .= [showWithGreek t]
          , "color" .= ("white" :: String)
