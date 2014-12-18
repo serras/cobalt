@@ -313,13 +313,15 @@ bindRuleScript s = let vars = filter (\x -> case name2String x of { '#':_ -> Fal
 parseRuleScript :: Parsec String s RuleScript
 parseRuleScript = -- Parenthesized expression
                   parens parseRuleScript
-              <|> RuleScript_Merge <$  reserved "merge"
+              <|> flip RuleScript_Merge
+                                   <$  reserved "merge"
+                                   <*> optionMaybe stringLiteral
                                    <*> parseRuleScriptList
+              <|> (\x y z -> RuleScript_Asym y z x)
+                                   <$  reserved "asym"
                                    <*> optionMaybe stringLiteral
-              <|> RuleScript_Asym  <$  reserved "asym"
                                    <*> parseRuleScript
                                    <*> parseRuleScript
-                                   <*> optionMaybe stringLiteral
               <|> try (RuleScript_Singleton <$> parseConstraint
                                             <*> optionMaybe stringLiteral)
               <|> RuleScript_Ref <$ char '#' <*> identifier

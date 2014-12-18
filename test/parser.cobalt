@@ -2,18 +2,32 @@ import dollar :: {a} {b} {s} (a -> b) -> 'Parser s a -> 'Parser s b;
 
 rule app_parser
 match app #first@(app #dollar@(var "dollar") #fn) #arg
-script asym #fn ~ a1 -> b1 "left operand must be a function"
-       asym #fn
-       asym #arg ~ 'Parser s1 a2 "right operand must be a parser"
+script asym "parser has an incorrect symbol type"
+            s1 ~ s2 "parser symbols must coincide"
+       asym "function cannot be applied to parser's result"
+            a1 ~ a2 "function should be applied to parser's result"
+       asym "parser has an incorrect result type"
+            b1 ~ b2 "the result type must be as expected"
+       asym "context does not accept a parser"
+            #this ~ 'Parser s2 b2
+       asym "right operand is not a parser"
+            #arg ~ 'Parser s1 a2 "right operand must be a parser"
        asym #arg
-       asym #this ~ 'Parser s2 b2
-       asym s1 ~ s2 "parser symbols must coincide"
-       asym a1 ~ a2 "function should be applied to parser's result"
-       asym b1 ~ b2 "the result type must be as expected"
+       asym "left operand is not a function"
+            #fn ~ a1 -> b1 "left operand must be a function"
+       asym #fn
        merge [ #dollar ~ (a1 -> b1) -> 'Parser s1 a1 -> 'Parser s1 b1
              , #first  ~ 'Parser s1 a1 -> 'Parser s1 b1 ];
 
 import mapToUpper :: [a] -> [a];
 import helloWorld :: 'String;
+import definitelyNotAFunction :: 'Bool;
 
-test = dollar mapToUpper helloWorld;
+import parser1 :: 'Parser 'String ['Int];
+import parser2 :: 'Parser 'String 'Bool;
+
+test1 = dollar mapToUpper helloWorld;
+test2 = dollar definitelyNotAFunction parser1;
+test3 = dollar definitelyNotAFunction helloWorld;
+test4 = dollar mapToUpper parser1;
+test5 = dollar mapToUpper parser2;

@@ -7,7 +7,7 @@ import example :: 'Int -> 'Bool;
 rule   example_rule
 match  app (var "example") #thing
 script asym (#thing ~ 'Int "argument must be an Int")
-            #thing "";
+            #thing;
 
 f x y = x y (example 3);
 
@@ -36,6 +36,7 @@ import noRule :: 'Bool -> 'Int;
 
 rule  make_rule
 match app #fn@(var "noRule") #arg
-script merge [ #fn, #arg, #this ~ 'Int, #arg ~ 'Bool] "The error is here!";
+script merge "The error is here!"
+             [ #fn, #arg, #this ~ 'Int, #arg ~ 'Bool];
 
 z = noRule 3;
