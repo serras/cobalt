@@ -1,5 +1,5 @@
 {-# LANGUAGE RecordWildCards #-}
-module Cobalt.Errors (
+module Cobalt.Core.Errors (
   Comment(..)
 , SolverError(..)
 , UnifyErrorReason(..)
@@ -14,7 +14,7 @@ module Cobalt.Errors (
 import Data.List (elemIndex)
 import Text.Parsec.Pos
 
-import Cobalt.Types
+import Cobalt.Core.Types
 
 {-# ANN module ("HLint: ignore Use camelCase"::String) #-}
 

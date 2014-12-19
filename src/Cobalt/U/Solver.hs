@@ -1,10 +1,11 @@
 {-# LANGUAGE TupleSections #-}
-module Cobalt.Script.Solver (
+module Cobalt.U.Solver (
   solve
 , simpl
 , FinalSolution
 , makeExplanation
 , makeManyExplanation
+, OIn.Solution(..)
 ) where
 
 import Control.Monad.Except
@@ -16,11 +17,9 @@ import Data.Maybe (maybeToList)
 import Text.Parsec.Pos (SourcePos)
 import Unbound.LocallyNameless hiding (union)
 
-import Cobalt.Errors
-import Cobalt.Graph as G
-import qualified Cobalt.OutsideIn.Solver as OIn
-import Cobalt.Script.Script
-import Cobalt.Types
+import Cobalt.Core
+import qualified Cobalt.OutsideIn as OIn
+import Cobalt.U.Script
 
 type OInState = ([Constraint],[Constraint],[TyVar])
 -- First is a consistent solution
@@ -55,14 +54,14 @@ solveImpl _ _ _ _ = error "This should never happen"
 simpl :: [Axiom] -> [Constraint] -> [TyVar] -> TyScript
       -> FreshM (ScriptSolution, [TyScript])
 simpl _ g tch Empty =
-  return ((emptySolution g tch, [], G.empty), [])
+  return ((emptySolution g tch, [], emptyGraph), [])
 simpl _ g tch me@(Exists { }) =
-  return ((emptySolution g tch, [], G.empty), [me])
+  return ((emptySolution g tch, [], emptyGraph), [me])
 simpl ax g tch (Singleton c (pos,cm)) = do
   let comment = map Comment_Pos (maybeToList pos) ++ map Comment_String (maybeToList cm)
-  solved <- simplMany' ax [((g,[c],tch), [], G.singletonCommented c comment)]
+  solved <- simplMany' ax [((g,[c],tch), [], singletonCommented c comment)]
   case solved of
-    (Left err, graph) -> return ((emptySolution g tch, [makeExplanation err pos cm graph], G.empty), [])
+    (Left err, graph) -> return ((emptySolution g tch, [makeExplanation err pos cm graph], emptyGraph), [])
     (Right s,  graph) -> return ((s, [], graph), [])
 simpl ax g tch (Merge lst (pos,cm)) = do
   simpls <- mapM (simpl ax g tch) lst

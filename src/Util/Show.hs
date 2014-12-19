@@ -1,13 +1,7 @@
-{-# OPTIONS_GHC -fno-warn-orphans #-}
-module Cobalt.Util where
+module Util.Show where
 
-import Control.Monad.Except
 import Data.List (intercalate)
 import Data.List.Split
-import Unbound.LocallyNameless
-
-instance Fresh m => Fresh (ExceptT e m) where
-  fresh = lift . fresh
 
 replace :: Eq a => [a] -> [a] -> [a] -> [a]
 replace old new l = intercalate new . splitOn old $ l

@@ -1,7 +1,7 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ViewPatterns #-}
-module Cobalt.Script.Gather (
+module Cobalt.U.Gather (
   Syn(..)
 , Gathered
 , mainTypeRules
@@ -16,12 +16,10 @@ import Data.Regex.MultiGenerics hiding (var)
 import Data.Regex.MultiRules
 import Unbound.LocallyNameless
 
-import Cobalt.Language.Syntax (SourcePos, fnE)
-import Cobalt.Script.Rules
-import Cobalt.Script.Script
-import Cobalt.Script.Syntax
-import Cobalt.Types
-import Cobalt.Util ()
+import Cobalt.Core
+import Cobalt.Language
+import Cobalt.U.Attributes
+import Util.ExceptTIsFresh ()
 
 mainTypeRules :: [TypeRule]
 mainTypeRules = [ intLiteralRule

@@ -1,34 +1,12 @@
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE GADTs #-}
-module Cobalt.Script.Rules (
-  Errors
-, Inh
-, theEnv
-, theSat
-, theTouchables
-, Syn(..)
-, Gathered
-, GatherCaseInfo(..)
-, _Error
-, _Term
-, given
-, wanted
-, ty
-, custom
-, customVars
-, _Case
-, TypeRule
+module Cobalt.U.Rules.Translation (
+  TypeRule
 , syntaxRuleToScriptRule
 ) where
 
-import Control.Lens hiding (at)
-import Control.Lens.Extras
+import Control.Lens.Extras (is)
 import Data.Foldable (fold)
 import Data.List (elemIndex, union, insert)
 import Data.Maybe (fromJust)
@@ -37,68 +15,12 @@ import Data.Regex.MultiGenerics hiding (var)
 import qualified Data.Regex.MultiRules as Rx
 import Unbound.LocallyNameless hiding (union)
 
-import Cobalt.Language.Syntax as Sy
-import Cobalt.OutsideIn.Solver (entails)
-import Cobalt.Script.Script
-import Cobalt.Script.Syntax
-import Cobalt.Types
+import Cobalt.Core
+import Cobalt.Language
+import Cobalt.OutsideIn (entails)
+import Cobalt.U.Attributes
 
 import Unsafe.Coerce
-
-type Errors = [String]
-data Syn (ix :: Ix) where
-  Error      :: Errors -> Syn ix
-  GatherTerm :: [Constraint] -> [TyScript] -> [TyVar] -> [Constraint] -> [TyVar] -> Syn IsATerm
-  GatherCase :: [GatherCaseInfo] -> Syn IsACaseAlternative
-
-data GatherCaseInfo = GatherCaseInfo { _extraConstraints :: [Constraint]
-                                     , _hiddenVars :: [TyVar]
-                                     , _konQ :: [Constraint]
-                                     , _konT :: MonoType
-                                     , _script :: TyScript
-                                     , _customChecks :: [Constraint]
-                                     , _customVars :: [TyVar]
-                                     , _thisVar :: TyVar
-                                     }
-
-type Gathered = Syn IsATerm
-
-_Error :: Prism' (Syn ix) Errors
-_Error = prism Error (\x -> case x of
-                              Error e -> Right e
-                              _       -> Left x)
-
-_Term :: Prism' (Syn IsATerm) ([Constraint], [TyScript], [TyVar],[Constraint],[TyVar])
-_Term = prism (\(g,w,t,c,cv) -> GatherTerm g w t c cv)
-              (\x -> case x of
-                       GatherTerm g w t c cv -> Right (g,w,t,c,cv)
-                       _                     -> Left x)
-
-given :: Functor f => ([Constraint] -> f [Constraint])
-      -> ([Constraint],[TyScript],[TyVar],[Constraint],[TyVar]) -> f ([Constraint],[TyScript],[TyVar],[Constraint],[TyVar])
-given = _1
-
-wanted :: Functor f => ([TyScript] -> f [TyScript])
-       -> ([Constraint],[TyScript],[TyVar],[Constraint],[TyVar]) -> f ([Constraint],[TyScript],[TyVar],[Constraint],[TyVar])
-wanted = _2
-
-ty :: Functor f => ([TyVar] -> f [TyVar])
-   -> ([Constraint],[TyScript],[TyVar],[Constraint],[TyVar]) -> f ([Constraint],[TyScript],[TyVar],[Constraint],[TyVar])
-ty = _3
-
-custom :: Functor f => ([Constraint] -> f [Constraint])
-       -> ([Constraint],[TyScript],[TyVar],[Constraint],[TyVar]) -> f ([Constraint],[TyScript],[TyVar],[Constraint],[TyVar])
-custom = _4
-
-customVars :: Functor f => ([TyVar] -> f [TyVar])
-           -> ([Constraint],[TyScript],[TyVar],[Constraint],[TyVar]) -> f ([Constraint],[TyScript],[TyVar],[Constraint],[TyVar])
-customVars = _5
-
-_Case :: Prism' (Syn IsACaseAlternative) [GatherCaseInfo]
-_Case = prism GatherCase
-              (\x -> case x of
-                       GatherCase g -> Right g
-                       _            -> Left x)
 
 -- Internal accessors
 termWanted :: Gathered -> [TyScript]
@@ -109,40 +31,10 @@ termTy :: Gathered -> [TyVar]
 termTy (GatherTerm _ _ t _ _) = t
 termTy _                      = error "This is not a term synthesized attribute"
 
-instance Monoid (Syn IsATerm) where
-  mempty = GatherTerm [] [] [] [] []
-  (Error e1) `mappend` (Error e2) = Error (e1 `union` e2)
-  e@(Error _) `mappend` _ = e
-  _ `mappend` e@(Error _) = e
-  (GatherTerm g1 w1 v1 c1 cv1) `mappend` (GatherTerm g2 w2 v2 c2 cv2)
-    = GatherTerm (g1 ++ g2) (w1 ++ w2) (v1 ++ v2) (c1 ++ c2) (cv1 `union` cv2)
-
-instance Monoid (Syn IsACaseAlternative) where
-  mempty = GatherCase []
-  (Error e1) `mappend` (Error e2) = Error (e1 `union` e2)
-  e@(Error _) `mappend` _ = e
-  _ `mappend` e@(Error _) = e
-  (GatherCase i1) `mappend` (GatherCase i2) = GatherCase (i1 ++ i2)
-
-type Inh = Rx.IndexIndependent (Env, [Constraint], [TyVar])
-
-theEnv :: Functor f => (Env -> f Env)
-       -> (Env, [Constraint], [TyVar]) -> f (Env, [Constraint], [TyVar])
-theEnv = _1
-
-theSat :: Functor f => ([Constraint] -> f [Constraint])
-       -> (Env, [Constraint], [TyVar]) -> f (Env, [Constraint], [TyVar])
-theSat = _2
-
-theTouchables :: Functor f => ([TyVar] -> f [TyVar])
-              -> (Env, [Constraint], [TyVar]) -> f (Env, [Constraint], [TyVar])
-theTouchables = _3
-
 type WI           = Wrap Integer
 type UTermWithPos = UTerm_ ((SourcePos,SourcePos),TyVar,[TyVar])
-type TypeRule     = Rx.Rule WI UTermWithPos Inh Syn
 
-syntaxRuleToScriptRule :: [Axiom] -> Sy.Rule -> TypeRule
+syntaxRuleToScriptRule :: [Axiom] -> Rule -> TypeRule
 syntaxRuleToScriptRule ax (Rule _ _ rx check script) =
   let vars = getCaptureVars rx
    in Rx.Rule
@@ -163,33 +55,33 @@ syntaxRuleToScriptRule ax (Rule _ _ rx check script) =
 
 type CaptureVarList = [String]
 
-getCaptureVars :: Sy.RuleRegex -> CaptureVarList
-getCaptureVars (Sy.RuleRegex_Capture s Nothing)  = [s]
-getCaptureVars (Sy.RuleRegex_Capture s (Just r)) = insert s (getCaptureVars r)
-getCaptureVars (Sy.RuleRegex_App     r1 r2) = getCaptureVars r1 `union` getCaptureVars r2
-getCaptureVars (Sy.RuleRegex_Choice  r1 r2) = getCaptureVars r1 `union` getCaptureVars r2
-getCaptureVars (Sy.RuleRegex_Iter        b) = runFreshM $ do (_,rx) <- unbind b
-                                                             return $ getCaptureVars rx
-getCaptureVars _                            = []
+getCaptureVars :: RuleRegex -> CaptureVarList
+getCaptureVars (RuleRegex_Capture s Nothing)  = [s]
+getCaptureVars (RuleRegex_Capture s (Just r)) = insert s (getCaptureVars r)
+getCaptureVars (RuleRegex_App     r1 r2) = getCaptureVars r1 `union` getCaptureVars r2
+getCaptureVars (RuleRegex_Choice  r1 r2) = getCaptureVars r1 `union` getCaptureVars r2
+getCaptureVars (RuleRegex_Iter        b) = runFreshM $ do (_,rx) <- unbind b
+                                                          return $ getCaptureVars rx
+getCaptureVars _                         = []
 
-syntaxRegexToScriptRegex :: Sy.RuleRegex -> [(RuleRegexVar, c IsATerm)]
+syntaxRegexToScriptRegex :: RuleRegex -> [(RuleRegexVar, c IsATerm)]
                          -> CaptureVarList -> Regex' c WI UTermWithPos IsATerm
-syntaxRegexToScriptRegex (Sy.RuleRegex_Square v) varMap _ = square $ fromJust $ lookup v varMap
-syntaxRegexToScriptRegex (Sy.RuleRegex_Iter   b) varMap captureMap = runFreshM $ do
+syntaxRegexToScriptRegex (RuleRegex_Square v) varMap _ = square $ fromJust $ lookup v varMap
+syntaxRegexToScriptRegex (RuleRegex_Iter   b) varMap captureMap = runFreshM $ do
   (v, rx) <- unbind b
   return $ iter (\k -> syntaxRegexToScriptRegex rx ((v,k):varMap) captureMap)
-syntaxRegexToScriptRegex Sy.RuleRegex_Any _ _ = any_
-syntaxRegexToScriptRegex (Sy.RuleRegex_Choice r1 r2) varMap captureMap =
+syntaxRegexToScriptRegex RuleRegex_Any _ _ = any_
+syntaxRegexToScriptRegex (RuleRegex_Choice r1 r2) varMap captureMap =
   syntaxRegexToScriptRegex r1 varMap captureMap <||> syntaxRegexToScriptRegex r2 varMap captureMap
-syntaxRegexToScriptRegex (Sy.RuleRegex_App r1 r2) varMap captureMap = 
+syntaxRegexToScriptRegex (RuleRegex_App r1 r2) varMap captureMap =
   inj $ UTerm_App_ (syntaxRegexToScriptRegex r1 varMap captureMap)
                    (syntaxRegexToScriptRegex r2 varMap captureMap)
                    __
-syntaxRegexToScriptRegex (Sy.RuleRegex_Var s) _ _ = inj $ UTerm_Var_ (s2n s) __
-syntaxRegexToScriptRegex (Sy.RuleRegex_Int i) _ _ = inj $ UTerm_IntLiteral_ i __
-syntaxRegexToScriptRegex (Sy.RuleRegex_Capture n Nothing) _ captureMap =
+syntaxRegexToScriptRegex (RuleRegex_Var s) _ _ = inj $ UTerm_Var_ (s2n s) __
+syntaxRegexToScriptRegex (RuleRegex_Int i) _ _ = inj $ UTerm_IntLiteral_ i __
+syntaxRegexToScriptRegex (RuleRegex_Capture n Nothing) _ captureMap =
   (Wrap $ toEnum $ fromJust $ elemIndex n captureMap) <<- any_
-syntaxRegexToScriptRegex (Sy.RuleRegex_Capture n (Just r)) varMap captureMap =
+syntaxRegexToScriptRegex (RuleRegex_Capture n (Just r)) varMap captureMap =
   (Wrap $ toEnum $ fromJust $ elemIndex n captureMap) <<- syntaxRegexToScriptRegex r varMap captureMap
 
 syntaxSynToMap :: Rx.Children WI Syn -> [(Integer, Gathered)]

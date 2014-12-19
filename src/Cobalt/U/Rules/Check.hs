@@ -7,7 +7,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverlappingInstances #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-module Cobalt.Script.RuleCheck (
+module Cobalt.U.Rules.Check (
   check
 , checkEnv
 ) where
@@ -20,17 +20,15 @@ import qualified Data.Regex.MultiGenerics as Rx
 import qualified Data.Regex.MultiRules as Rx
 import Data.Traversable (sequenceA)
 import Test.QuickCheck
-import Text.Parsec.Pos (newPos)
 import Unbound.LocallyNameless hiding (from, to, union, generate, name)
 
-import Cobalt.Language.Syntax as Sy
-import qualified Cobalt.OutsideIn.Solver as OIn
-import Cobalt.Script.Gather
-import Cobalt.Script.Rules
-import Cobalt.Script.Script
-import Cobalt.Script.Solver
-import Cobalt.Script.Syntax
-import Cobalt.Types
+import Cobalt.Core
+import Cobalt.Language as Sy
+import qualified Cobalt.OutsideIn as OIn
+import Cobalt.U.Attributes
+import Cobalt.U.Gather
+import Cobalt.U.Rules.Translation
+import Cobalt.U.Solver
 
 import System.IO.Unsafe
 import Unsafe.Coerce

@@ -1,25 +1,31 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-module Cobalt.Script.Top where
+module Cobalt.U (
+  check
+, checkEnv
+, module Cobalt.U.Attributes
+, gDefns
+, FinalSolution
+, Solution(..)
+, tcDefn
+, tcDefns
+) where
 
 import Control.Applicative ((<$>))
 import Control.Lens.Extras
 import Control.Monad.Except
 import Data.List (nub)
 import Data.Maybe (fromMaybe, mapMaybe)
-import Data.Regex.MultiRules
+import Data.Regex.MultiRules hiding (check)
 import Unbound.LocallyNameless hiding (name, union)
 
-import Cobalt.Errors
-import Cobalt.Graph as G
-import Cobalt.Language.Syntax (Env(..), RawTermVar, RawDefn)
-import Cobalt.OutsideIn.Solver (Solution(..))
-import Cobalt.Script.Gather
-import Cobalt.Script.Rules
-import Cobalt.Script.Script
-import Cobalt.Script.Solver
-import Cobalt.Script.Syntax
-import Cobalt.Types
+import Cobalt.Core
+import Cobalt.Language
+import Cobalt.U.Gather
+import Cobalt.U.Attributes
+import Cobalt.U.Solver
+import Cobalt.U.Rules.Translation
+import Cobalt.U.Rules.Check
 
 type RawUnboundDefn = ( RawTermVar
                       , AnnUTerm TyVar
@@ -79,7 +85,7 @@ tcDefn_ :: Maybe [Constraint] -> Maybe [TyVar] -> Env -> RawUnboundDefn
 tcDefn_ extra tchs env@(Env _ _ ax _) defn@(_,_,annotation,_) = do
   (gatherResult, term, tch) <- gDefn_ (fromMaybe [] extra) (fromMaybe [] tchs) env defn  -- pass extra information
   case gatherResult of
-    Error errs -> return ( (Solution [] [] [] [], map errorFromPreviousPhase errs, G.empty)
+    Error errs -> return ( (Solution [] [] [] [], map errorFromPreviousPhase errs, emptyGraph)
                          , atUAnn (\(pos, m, svars) -> (pos, var m, svars)) term
                          , Nothing )
     GatherTerm g [w] [v] _ _ -> do

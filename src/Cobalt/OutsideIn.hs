@@ -1,10 +1,16 @@
 {-# LANGUAGE ScopedTypeVariables #-}
-module Cobalt.OutsideIn.Top (
-  gDefn
+module Cobalt.OutsideIn (
+  Gathered(..)
+, UseHigherRanks(..)
+, gDefn
 , gDefns
 , tcDefn
 , tcDefns
-, SolverError
+, Solution(..)
+, solve
+, entails
+, simpl
+, toSolution
 ) where
 
 import Control.Lens hiding ((.=))
@@ -14,12 +20,10 @@ import Control.Monad.Except
 import Control.Monad.Reader
 import Unbound.LocallyNameless
 
-import Cobalt.Errors
-import Cobalt.Graph as G
-import Cobalt.Language.Syntax
+import Cobalt.Core
+import Cobalt.Language
 import Cobalt.OutsideIn.Gather
 import Cobalt.OutsideIn.Solver
-import Cobalt.Types
 
 -- import Debug.Trace
 
@@ -48,18 +52,18 @@ doPerDefn f nx e (((n,t,p),b):xs) = do r <- f e (n,t,p)
 gDefn :: UseHigherRanks -> Env -> RawDefn -> FreshM (Either String (TyTermVar, Gathered, [TyVar]), Graph)
 gDefn h e (n,t,Nothing) = do result <- runExceptT $ runReaderT (gather h t) e
                              case result of
-                               Left err -> return (Left err, G.empty)
+                               Left err -> return (Left err, emptyGraph)
                                Right r@(Gathered _ a _ w) ->
-                                 return (Right (translate n, r, fv (getAnn a) `union` fv w), G.empty)
+                                 return (Right (translate n, r, fv (getAnn a) `union` fv w), emptyGraph)
 gDefn h e (n,t,Just p)  = do -- Add the annotated type to the environment
                              let e' = e & fnE %~ ((n,p) :)
                              result <- runExceptT $ runReaderT (gather h t) e'
                              case result of
-                               Left err -> return (Left err, G.empty)
+                               Left err -> return (Left err, emptyGraph)
                                Right (Gathered typ a g w) -> do
                                  (q1,t1,_) <- split p
                                  let extra = Constraint_Unify (getAnn a) t1
-                                 return (Right (translate n, Gathered typ a (g ++ q1) (extra:w), fv (getAnn a) `union` fv w), G.empty)
+                                 return (Right (translate n, Gathered typ a (g ++ q1) (extra:w), fv (getAnn a) `union` fv w), emptyGraph)
 
 -- | Gather constraints from a list of definitions
 gDefns :: UseHigherRanks -> Env -> [(RawDefn,Bool)]

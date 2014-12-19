@@ -20,7 +20,7 @@ import qualified Text.Parsec.Token as T
 import Unbound.LocallyNameless
 
 import Cobalt.Language.Syntax
-import Cobalt.Types
+import Cobalt.Core
 
 parseTerm :: Parsec String s RawTerm
 parseTerm = parseAtom `chainl1` pure joinTerms

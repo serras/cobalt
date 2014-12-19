@@ -16,7 +16,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE TupleSections #-}
-module Cobalt.Script.Syntax (
+module Cobalt.Language.UnboundSyntax (
   Ix(..)
 , Sing(..)
 , UnboundPolyType
@@ -45,10 +45,11 @@ import Control.Applicative (Applicative, (<$>), (<*>), pure)
 import Data.List (intercalate)
 import Data.MultiGenerics
 import Data.Traversable (traverse)
+import Text.Parsec.Pos (SourcePos)
 import Unbound.LocallyNameless hiding (close)
 
+import Cobalt.Core
 import Cobalt.Language.Syntax
-import Cobalt.Types
 
 data Ix = IsATerm | IsACaseAlternative
 data instance Sing (a :: Ix) where

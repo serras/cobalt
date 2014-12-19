@@ -2,7 +2,7 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE PatternGuards #-}
-module Cobalt.Script.Script (
+module Cobalt.U.Script (
   Script(..), TyScript
 , toConstraintList
 , toConstraintList'
@@ -16,8 +16,8 @@ module Cobalt.Script.Script (
 import Data.List (intercalate, union, (\\))
 import Unbound.LocallyNameless (fv, subst, substs)
 
-import Cobalt.Language.Syntax (SourcePos)
-import Cobalt.Types
+import Cobalt.Core
+import Cobalt.Language (SourcePos)
 
 data Script var constraint info
   = Empty

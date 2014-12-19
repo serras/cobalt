@@ -14,20 +14,10 @@ import Text.Parsec.String
 import Unbound.LocallyNameless hiding (toList)
 import Web.Scotty
 
-import Cobalt.Errors (showErrorExplanation)
-import Cobalt.ErrorSimpl
-import Cobalt.Graph
-import Cobalt.Language.Parser (parseFile)
-import Cobalt.Language.Syntax
-import Cobalt.OutsideIn.Solver (Solution(..))
-import Cobalt.Script.Gather
-import Cobalt.Script.RuleCheck
-import Cobalt.Script.Script
-import Cobalt.Script.Solver
-import Cobalt.Script.Syntax
-import Cobalt.Script.Top
-import Cobalt.Types
-import Cobalt.Util (showWithGreek, withGreek, doParens, toHtmlString)
+import Cobalt.Core
+import Cobalt.Language
+import Cobalt.U
+import Util.Show
 
 main :: IO ()
 main = do
@@ -272,11 +262,12 @@ showAnnTermJson (UTerm_Match e c _k bs (_,t,_)) =
 showAnnTermJson _ = error "This should never happen"
 
 showJsonGraph :: Graph -> Value
-showJsonGraph (Graph _ vertx edges) =
+showJsonGraph g =
   object [ "nodes" .= map (\(x,(_,b,cm)) -> object [ "text" .= let comment = if null cm then "" else " " ++ show cm
                                                                 in (showWithGreek x ++ comment :: String)
-                                                   , "deleted" .= b ]) vertx
+                                                   , "deleted" .= b ])
+                          (vertices g)
          , "links" .= map (\(src,tgt,tag) -> object [ "source" .= src
                                                     , "target" .= tgt
                                                     , "value"  .= tag])
-                          edges ]
+                          (edges g) ]

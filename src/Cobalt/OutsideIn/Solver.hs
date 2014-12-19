@@ -1,4 +1,3 @@
-{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE PatternSynonyms #-}
 module Cobalt.OutsideIn.Solver (
   SMonad
@@ -18,11 +17,9 @@ import Control.Monad.Writer
 import Data.List (insert, find, delete, partition, nub, (\\))
 import Unbound.LocallyNameless
 
-import Cobalt.Errors
-import Cobalt.Graph as G
+import Cobalt.Core
 import Cobalt.OutsideIn.Solver.Step
-import Cobalt.Types
-import Cobalt.Util ()
+import Util.ExceptTIsFresh ()
 
 -- Phase 2: constraint solving
 
@@ -46,7 +43,7 @@ solve' g w = myTrace ("Solve " ++ show g ++ " ||- " ++ show w) $ do
   (g',w',s') <- simpl g simple
   let s@(Solution _ rs theta _) = toSolution g' w' s'
   solveImpl (g ++ rs) (substs theta implic)
-  return $ s
+  return s
 
 solveImpl :: [Constraint] -> [Constraint] -> SMonad ()
 solveImpl _ [] = return ()
@@ -61,7 +58,7 @@ solveImpl g (existsC@(Constraint_Exists b) : rest) = do
     Left e -> throwError e  -- Rethrow errors
     Right (Solution _ rs _ _ ) -> do
       -- Continue with next implications
-      mapM_ (\x -> tell $ singletonNode existsC x "exists") (q ++ c)
+      mapM_ (\x -> tell $ singletonEdge existsC x "exists") (q ++ c)
       -- Continue with the rest, if possible
       if null rs then solveImpl g rest
                  else throwError (SolverError_CouldNotDischarge c)

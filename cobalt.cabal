@@ -9,24 +9,28 @@ build-type:          Simple
 cabal-version:       >=1.10
 
 library
-  exposed-modules:   Cobalt.Types,
-                     Cobalt.Errors,
-                     Cobalt.ErrorSimpl,
+  exposed-modules:   Cobalt.Core,
+                     Cobalt.Language,
+                     Cobalt.OutsideIn,
+                     Cobalt.U
+  other-modules:     Util.Show,
+                     Util.ExceptTIsFresh,
+                     Cobalt.Core.Graph,
+                     Cobalt.Core.Types,
+                     Cobalt.Core.Errors,
+                     Cobalt.Core.ErrorSimplifier,
                      Cobalt.Language.Syntax,
+                     Cobalt.Language.UnboundSyntax,
                      Cobalt.Language.Parser,
-                     Cobalt.OutsideIn.Top,
                      Cobalt.OutsideIn.Gather,
                      Cobalt.OutsideIn.Solver,
-                     Cobalt.Script.Syntax,
-                     Cobalt.Script.Script,
-                     Cobalt.Script.Rules,
-                     Cobalt.Script.RuleCheck,
-                     Cobalt.Script.Gather,
-                     Cobalt.Script.Solver,
-                     Cobalt.Script.Top
-  other-modules:     Cobalt.OutsideIn.Solver.Step,
-                     Cobalt.Util,
-                     Cobalt.Graph
+                     Cobalt.OutsideIn.Solver.Step,
+                     Cobalt.U.Script,
+                     Cobalt.U.Attributes,
+                     Cobalt.U.Rules.Translation,
+                     Cobalt.U.Rules.Check,
+                     Cobalt.U.Gather,
+                     Cobalt.U.Solver
   build-depends:     base >= 4 && < 5,
                      unbound,
                      parsec,
@@ -43,16 +47,19 @@ library
 
 executable cobalt
   build-depends:     cobalt,
-                     ansi-terminal > 0.6,
                      base >= 4 && < 5,
                      unbound,
                      parsec,
                      mtl > 2.2,
                      lens,
-                     aeson,
                      split,
-                     scotty,
-                     fgl
+                     t-regex,
+                     containers,
+                     QuickCheck,
+                     fgl,
+                     ansi-terminal > 0.6,
+                     aeson,
+                     scotty
   main-is:           Main.hs
   hs-source-dirs:    src
   default-language:  Haskell2010
@@ -60,19 +67,19 @@ executable cobalt
 
 executable cobalt-u
   build-depends:     cobalt,
-                     ansi-terminal > 0.6,
                      base >= 4 && < 5,
                      unbound,
                      parsec,
                      mtl > 2.2,
                      lens,
-                     aeson,
                      split,
                      t-regex,
                      containers,
-                     scotty,
                      QuickCheck,
-                     fgl
+                     fgl,
+                     ansi-terminal > 0.6,
+                     aeson,
+                     scotty
   main-is:           MainU.hs
   hs-source-dirs:    src
   default-language:  Haskell2010

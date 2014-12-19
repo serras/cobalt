@@ -6,8 +6,7 @@ module Main where
 import Control.Lens hiding ((.=))
 import Control.Monad.Except
 import Data.Aeson hiding (json)
-import Data.List (find, intercalate, sort, nub)
-import Data.Maybe (mapMaybe, isNothing)
+import Data.List (intercalate)
 import System.Console.ANSI
 import System.Environment
 import Text.Parsec (parse)
@@ -15,13 +14,10 @@ import Text.Parsec.String
 import Unbound.LocallyNameless
 import Web.Scotty
 
-import Cobalt.Graph
-import Cobalt.Language.Parser (parseFile)
-import Cobalt.Language.Syntax
-import Cobalt.OutsideIn.Gather
-import Cobalt.OutsideIn.Top
-import Cobalt.Types
-import Cobalt.Util (withGreek, showWithGreek, doParens)
+import Cobalt.Core
+import Cobalt.Language
+import Cobalt.OutsideIn
+import Util.Show
 
 main :: IO ()
 main = do
@@ -109,8 +105,8 @@ showTc always (((n,t,p),cs),gr,b) = do
     putStrLn ""
 
 showG :: ((TyTermVar,Gathered,[TyVar]),Graph,Bool) -> IO ()
-showG ((n,(Gathered t ann g w),_),_,_) = do
-  let tch :: [TyVar] = fv (getAnn ann) `union` fv w
+showG ((n,(Gathered t annot g w),_),_,_) = do
+  let tch :: [TyVar] = fv (getAnn annot) `union` fv w
   setSGR [SetColor Foreground Vivid Blue]
   putStr (name2String n)
   setSGR [Reset]
@@ -128,7 +124,7 @@ showG ((n,(Gathered t ann g w),_),_,_) = do
   putStr "Touchables "
   setSGR [Reset]
   print tch
-  print ann
+  print annot
 
 showAnns :: Show err => [(Either (RawTermVar,err) a, Graph, Bool)] -> ((a,Graph,Bool) -> IO ()) -> IO ()
 showAnns [] _ = return ()
@@ -159,7 +155,7 @@ showJsonAnns ((Left (n,e),gr,b):xs) =
                     , "color" .= ("white" :: String)
                     , "backColor" .= if b then ("#F58471" :: String)  -- red
                                           else ("#F1B75B" :: String)  -- yellow
-                    , "graph" .= showJsonGraph gr (blamedConstraints gr) ]
+                    , "graph" .= showJsonGraph gr (map fst $ blameConstraints gr Constraint_Inconsistent) ]
    in this : showJsonAnns xs
 showJsonAnns ((Right ((n,t,p),_cs),gr,b):xs) =
   let this = object [ "text" .= name2String n
@@ -272,21 +268,12 @@ showJsonConstraint (Constraint_Inconsistent) =
   return $ object [ "text" .= ("⊥" :: String) ]
 
 showJsonGraph :: Graph -> [Constraint] -> Value
-showJsonGraph (Graph _ vertx edges) blamed =
+showJsonGraph g blamed =
   object [ "nodes" .= map (\(x,(_,b,_)) -> object [ "text" .= showWithGreek x
                                                   , "deleted" .= b
-                                                  , "blamed"  .= (x `elem` blamed) ]) vertx
+                                                  , "blamed"  .= (x `elem` blamed) ])
+                          (vertices g)
          , "links" .= map (\(src,tgt,tag) -> object [ "source" .= src
                                                     , "target" .= tgt
                                                     , "value"  .= tag])
-                          edges ]
-
-blamedConstraints :: Graph -> [Constraint]
-blamedConstraints (Graph _ vrtx edges)
-  | Just (_,(n,_,_)) <- find ((== Constraint_Inconsistent) . fst) vrtx = blame [n]
-  | otherwise = []  -- No one to blame
-  where blame lst = let newLst = nub $ sort $ lst `union` mapMaybe (\(o,d,_) -> if d `elem` lst then Just o else Nothing) edges
-                     in if length newLst /= length lst
-                           then blame newLst -- next step
-                           else let lasts = filter (\n -> isNothing (find (\(_,d,_) -> d == n) edges)) newLst
-                                 in map fst $ mapMaybe (\n -> find (\(_,(m,_,_)) -> n == m) vrtx) lasts
+                          (edges g) ]

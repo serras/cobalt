@@ -15,9 +15,9 @@ import Control.Monad.Reader
 import Data.List (partition, nub, (\\))
 import Unbound.LocallyNameless
 
-import Cobalt.Language.Syntax
-import Cobalt.Types
-import Cobalt.Util ()
+import Cobalt.Core
+import Cobalt.Language
+import Util.ExceptTIsFresh ()
 
 data Gathered = Gathered { ty      :: MonoType
                          , annTerm :: TyTerm
@@ -53,20 +53,20 @@ gather _ (Term_Var x _) =
 gather higher (Term_Abs b _ _) =
   do (x,e) <- unbind b
      alpha <- fresh (string2Name "alpha")
-     Gathered tau ann ex c <- extendEnv x (var alpha) $ gather higher e
+     Gathered tau annot ex c <- extendEnv x (var alpha) $ gather higher e
      let arrow = var alpha :-->: tau
-     return $ Gathered arrow (Term_Abs (bind (translate x) ann) (var alpha) arrow) ex c
+     return $ Gathered arrow (Term_Abs (bind (translate x) annot) (var alpha) arrow) ex c
 gather higher (Term_AbsAnn b _ mt@(PolyType_Mono [] m) _) = -- Case monotype
   do (x,e) <- unbind b
-     Gathered tau ann ex c <- extendEnv x mt $ gather higher e
+     Gathered tau annot ex c <- extendEnv x mt $ gather higher e
      let arrow = m :-->: tau
-     return $ Gathered arrow (Term_Abs (bind (translate x) ann) m arrow) ex c
+     return $ Gathered arrow (Term_Abs (bind (translate x) annot) m arrow) ex c
 gather higher (Term_AbsAnn b _ t _) = -- Case polytype
   do (x,e) <- unbind b
      alpha <- fresh (string2Name "alpha")
-     Gathered tau ann ex c <- extendEnv x t $ gather higher e
+     Gathered tau annot ex c <- extendEnv x t $ gather higher e
      let arrow = var alpha :-->: tau
-     return $ Gathered arrow (Term_AbsAnn (bind (translate x) ann) (var alpha) t arrow)
+     return $ Gathered arrow (Term_AbsAnn (bind (translate x) annot) (var alpha) t arrow)
                        (ex ++ [Constraint_Equal (var alpha) t]) c
 gather higher (Term_App e1 e2 _) =
   do Gathered tau1 ann1 ex1 c1 <- gather higher e1
@@ -100,7 +100,7 @@ gather higher (Term_LetAnn b t _) = -- Case polytype
      return $ Gathered tau2 (Term_LetAnn (bind (translate x, embed ann1) ann2) t tau2)
                        ex2 (extra : c2)
 gather higher (Term_Match e dname bs _) =
-  do Gathered tau ann ex c <- gather higher e
+  do Gathered tau annot ex c <- gather higher e
      -- Work on alternatives
      tyvars <- mapM fresh =<< lookupFail dataE dname
      resultvar <- fresh $ string2Name "beta"
@@ -109,7 +109,7 @@ gather higher (Term_Match e dname bs _) =
          allCs     = concatMap (wantedC . snd) alternatives
          bindings  = map (\((con,vars),g) -> (con, bind vars (annTerm g), var resultvar)) alternatives
          extra     = Constraint_Unify (MonoType_Con dname (map var tyvars)) tau
-     return $ Gathered (var resultvar) (Term_Match ann dname bindings (var resultvar))
+     return $ Gathered (var resultvar) (Term_Match annot dname bindings (var resultvar))
                        (ex ++ allExtras) (extra : c ++ allCs)
 
 gatherAlternative :: UseHigherRanks -> String -> [TyVar] -> TyVar -> (RawTermVar, Bind [RawTermVar] RawTerm, pos)
@@ -129,13 +129,13 @@ gatherAlternative higher dname tyvars resultvar (con, b, _) =
              trivial    = all isTrivialConstraint extraQs
              withResult = Constraint_Unify taui (var resultvar) : ci
          if trivial && null extraVars
-            then return $ ( (translate con, map translate args)
-                          , Gathered taui anni exi withResult )
+            then return ( (translate con, map translate args)
+                        , Gathered taui anni exi withResult )
             else do env <- asks (^. fnE)
                     let deltai = (fv taui `union` fv ci) \\ (fv env `union` tyvars)
                         extrai = map (substs unifs) (filter (not . isTrivialConstraint) extraQs) ++ exi
-                    return $ ( (translate con, map translate args)
-                             , Gathered taui anni [] [Constraint_Exists (bind deltai (extrai,withResult))] )
+                    return ( (translate con, map translate args)
+                           , Gathered taui anni [] [Constraint_Exists (bind deltai (extrai,withResult))] )
        _ -> throwError $ "Match alternative " ++ show con ++ " does not correspond to data " ++ dname
 
 generateExtraUnifications :: [TyVar] -> [MonoType] -> ([Constraint],[(TyVar,MonoType)])

@@ -22,9 +22,7 @@ import Debug.Trace
 #else
 #endif
 
-import Cobalt.Errors
-import Cobalt.Graph
-import Cobalt.Types
+import Cobalt.Core
 
 type SMonad = (StateT [TyVar] (ReaderT [Axiom] (ExceptT SolverError (WriterT Graph FreshM))))
 data SolutionStep = NotApplicable | Applied [Constraint]

@@ -9,13 +9,13 @@
 {-# LANGUAGE OverlappingInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module Cobalt.Language.Syntax (
   -- * Terms
   RawTermVar
 , RawTerm
 , TyTermVar
 , TyTerm
-, SourcePos
   -- ** Generic annotated terms
 , TermVar
 , Term(..)
@@ -51,7 +51,7 @@ import Data.Monoid
 import Text.Parsec.Pos
 import Unbound.LocallyNameless hiding (close, union)
 
-import Cobalt.Types
+import Cobalt.Core
 {-# ANN module ("HLint: ignore Use camelCase"::String) #-}
 
 type RawTermVar = TermVar (SourcePos, SourcePos)

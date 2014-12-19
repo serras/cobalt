@@ -1,23 +1,36 @@
 {-# LANGUAGE ScopedTypeVariables #-}
-module Cobalt.Graph where
+{-# LANGUAGE RecordWildCards #-}
+module Cobalt.Core.Graph (
+  Graph
+, vertices
+, edges
+, emptyGraph
+, singletonDeleted
+, singletonCommented
+, singletonEdge
+, singletonNodeWithTwoParents
+, singletonNodeOrphan
+, blameConstraints
+, getDominators
+) where
 
 import qualified Data.Graph.Inductive as D
 import Data.List
 import Data.Maybe
 import Data.Monoid
 
-import Cobalt.Errors
-import Cobalt.Types
+import Cobalt.Core.Errors
+import Cobalt.Core.Types
 
 {-# ANN module ("HLint: ignore Use map once"::String) #-}
 
 data Graph = Graph { counter  :: Int
                    , vertices :: [(Constraint, (Int, Bool, [Comment]))]
-                   , nodes    :: [(Int, Int, String)] }
+                   , edges    :: [(Int, Int, String)] }
              deriving (Show, Eq)
 
-empty :: Graph
-empty = Graph 0 [] []
+emptyGraph :: Graph
+emptyGraph = Graph 0 [] []
 
 addVertexWithComment :: Constraint -> [Comment] -> Graph -> (Graph, Int)
 addVertexWithComment c newComment g = case lookup c (vertices g) of
@@ -34,26 +47,26 @@ markVertexAsDeleted cs g = g { vertices = map (\e@(c,(n,_,_)) -> if c == cs then
 singletonDeleted :: Constraint -> Graph
 singletonDeleted c = Graph { counter  = 1
                            , vertices = [(c,(0,True,[]))]
-                           , nodes    = [] }
+                           , edges    = [] }
 
 singletonCommented :: Constraint -> [Comment] -> Graph
 singletonCommented c comment = Graph { counter  = 1
                                      , vertices = [(c,(0,False,comment))]
-                                     , nodes    = [] }
+                                     , edges    = [] }
 
-singletonNode :: Constraint -> Constraint -> String -> Graph
-singletonNode c1 c2 s = Graph { counter  = 2
+singletonEdge :: Constraint -> Constraint -> String -> Graph
+singletonEdge c1 c2 s = Graph { counter  = 2
                               , vertices = [(c1,(0,False,[])),(c2,(1,False,[]))]
-                              , nodes    = [(0,1,s)] }
+                              , edges    = [(0,1,s)] }
 
 singletonNodeWithTwoParents :: Constraint -> Constraint -> Constraint -> String -> Graph
 singletonNodeWithTwoParents c1 c2 child s =
   Graph { counter  = 3
         , vertices = [(c1,(0,False,[])),(c2,(1,False,[])),(child,(2,False,[]))]
-        , nodes    = [(0,2,s),(1,2,s)] }
+        , edges    = [(0,2,s),(1,2,s)] }
 
 singletonNodeOrphan :: Maybe Constraint -> Constraint -> Constraint -> String -> Graph
-singletonNodeOrphan Nothing  = singletonNode
+singletonNodeOrphan Nothing  = singletonEdge
 singletonNodeOrphan (Just x) = singletonNodeWithTwoParents x
 
 merge :: Graph -> Graph -> Graph
@@ -67,22 +80,23 @@ merge g1 (Graph _cnt2 vrt2 nod2) =
                      nod2
    in Graph { counter  = cnt1'
             , vertices = vrt1'
-            , nodes    = nod1' `union` newNodes }
+            , edges    = nod1' `union` newNodes }
 
 instance Monoid Graph where
-  mempty  = empty
+  mempty  = emptyGraph
   mappend = merge
 
 blameConstraints :: Graph -> Constraint -> [(Constraint, [Comment])]
-blameConstraints (Graph _ vrtx edges) problem
-  | Just (_,(n,_,_)) <- find ((== problem) . fst) vrtx = blame [n]
+blameConstraints (Graph { .. }) problem
+  | Just (_,(n,_,_)) <- find ((== problem) . fst) vertices = blame [n]
   | otherwise = []  -- No one to blame
   where blame lst = let newLst = nub $ sort $ lst `union` mapMaybe (\(o,d,_) -> if d `elem` lst then Just o else Nothing) edges
                      in if length newLst /= length lst
                            then blame newLst -- next step
                            else let lasts = filter (\n -> isNothing (find (\(_,d,_) -> d == n) edges)) newLst
-                                 in map (\(c,(_,_,cm)) -> (c,cm)) $ mapMaybe (\n -> find (\(_,(m,_,_)) -> n == m) vrtx) lasts
+                                 in map (\(c,(_,_,cm)) -> (c,cm)) $ mapMaybe (\n -> find (\(_,(m,_,_)) -> n == m) vertices) lasts
 
+{-
 getPathOfUniques :: Graph -> Constraint -> [Constraint]
 getPathOfUniques (Graph _ vrtx edges) c
   | Just (_,(n,_,_)) <- find ((== c) . fst) vrtx =
@@ -93,6 +107,7 @@ getPathOfUniques (Graph _ vrtx edges) c
                                                      _   -> [current]
                                           _     -> [current]
 getPathOfUniques _ c = [c]
+-}
 
 getDominators :: Graph -> Constraint -> [Constraint]
 getDominators g@(Graph _ vrtx edges) problem | Just (_,(n,_,_)) <- find ((== problem) . fst) vrtx =

@@ -1,7 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
-module Cobalt.ErrorSimpl (
+module Cobalt.Core.ErrorSimplifier (
   simplifyErrorExplanation
--- , addLeadsTo
 ) where
 
 import Control.Applicative
@@ -9,9 +8,8 @@ import Data.List (find)
 import Data.Maybe (isNothing)
 import Unbound.LocallyNameless
 
--- import Cobalt.Graph
-import Cobalt.Errors
-import Cobalt.Types
+import Cobalt.Core.Errors
+import Cobalt.Core.Types
 
 -- | Runs all the different stages of simplification
 simplifyErrorExplanation :: ErrorExplanation -> ErrorExplanation
