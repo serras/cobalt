@@ -29,7 +29,7 @@ axiom $Eq 'Int;
 
 u = singleton 3;
 v :: {a} $Eq a => a -> [a] = \x -> singleton x;
-w = singleton 3 4;
+w = singleton 3 4 => fail;
 
 
 import noRule :: 'Bool -> 'Int;

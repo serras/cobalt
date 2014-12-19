@@ -12,6 +12,7 @@ module Cobalt.Core.Errors (
 ) where
 
 import Data.List (elemIndex)
+import Data.Maybe (fromMaybe)
 import Text.Parsec.Pos
 
 import Cobalt.Core.Types
@@ -69,11 +70,8 @@ instance Show ErrorExplanation where
 
 showErrorExplanation :: String -> ErrorExplanation -> String
 showErrorExplanation contents  SolverError { .. } =
-  "Found error at " ++ showPoint thePoint ++ ":"
-  ++ case theMessage of
-       Nothing  -> ""
-       Just msg -> "\n  " ++ msg
-  ++ "\n  " ++ show theError
+    fromMaybe "Found error" theMessage
+  ++ " at " ++ showPoint thePoint ++ ":\n " ++ show theError
   ++ if null theDominators
         then ""
         else "\nwhile checking:" ++ concatMap (("\n* " ++) . show) theDominators

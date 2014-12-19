@@ -112,14 +112,18 @@ getPathOfUniques _ c = [c]
 getDominators :: Graph -> Constraint -> [Constraint]
 getDominators g@(Graph _ vrtx edges) problem | Just (_,(n,_,_)) <- find ((== problem) . fst) vrtx =
   let blamed = map fst $ blameConstraints g problem
-      extGraph :: D.UGr = D.mkUGraph (map (\(_,(i,_,_)) -> i) vrtx) (map (\(a,b,_) -> (a,b)) edges)
+      extGraph :: D.Gr Constraint Int = D.mkGraph (map (\(c,(i,_,_)) -> (i,c)) vrtx) (map (\(a,b,_) -> (a,b,1)) edges)
       initial :: [Int]
       initial = map (\(_,(m,_,_)) -> m) $ map fromJust $ map (\b -> find ((== b) . fst) vrtx) blamed
-      getDomFor :: Int -> [Int]
       getDomFor m = snd $ fromJust $ find (\(to, _) -> to == n) $ D.dom extGraph m
-      allDominators :: [[Int]]
+      allDominators :: [[D.Node]]
       allDominators = map getDomFor initial
-      jointDominators :: [Int]
+      jointDominators :: [D.Node]
       jointDominators = foldl' intersect (map (\(_,(i,_,_)) -> i) vrtx) allDominators
-   in map (\b -> fst $ fromJust $ find (\(_,(i,_,_)) -> i == b) vrtx) (delete n jointDominators)
+      orderedDominators :: [D.Node]
+      orderedDominators = flip sortBy jointDominators $ \a b -> case D.sp a b extGraph of
+                            []  -> LT
+                            [_] -> EQ
+                            _   -> GT
+   in delete problem $ map (fromJust . D.lab extGraph) orderedDominators
 getDominators _ _ = []
