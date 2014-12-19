@@ -83,6 +83,10 @@ mainServe = do
     get "/example/:file" $ do
       fname <- param "file"
       file $ "test/" ++ fname
+    get "/:dir/:file" $ do
+      dname <- param "dir"
+      fname <- param "file"
+      file $ "static/" ++ dname ++ "/" ++ fname
     get "/:file" $ do
       fname <- param "file"
       file $ "static/" ++ fname
