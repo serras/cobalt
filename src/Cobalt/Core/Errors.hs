@@ -71,7 +71,7 @@ instance Show ErrorExplanation where
 showErrorExplanation :: String -> ErrorExplanation -> String
 showErrorExplanation contents  SolverError { .. } =
     fromMaybe "Found error" theMessage
-  ++ " at " ++ showPoint thePoint ++ ":\n " ++ show theError
+  ++ " at " ++ showPoint thePoint ++ ":\n  " ++ show theError
   ++ if null theDominators
         then ""
         else "\nwhile checking:" ++ concatMap (("\n* " ++) . show) theDominators

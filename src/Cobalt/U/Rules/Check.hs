@@ -109,7 +109,8 @@ okRule name strictness (Env fn dat ax _) (Rx.Rule rx action) term =
                toNonSpec = wO
                tchVars   = customWVars ++ fvScript toNonSpec
                (OIn.Solution _ rs ss _, errs, _) = runFreshM $ solve ax fromSpec tchVars toNonSpec
-               rss = rs ++ residualSubstitution (tchVars \\ map translate newVars) ss
+               varsToCheck = (nub (fvScript toNonSpec) \\ map translate newVars) \\ customWVars
+               rss = rs ++ residualSubstitution varsToCheck ss
             in if null rss && null errs
                   then case strictness of
                          RuleStrictness_NonStrict -> Right rule
@@ -119,7 +120,7 @@ okRule name strictness (Env fn dat ax _) (Rx.Rule rx action) term =
                                toSpec      = wW
                                tchVars2    = fvScript toSpec
                                (OIn.Solution _ rs2 ss2 _, errs2, _) = runFreshM $ solve ax fromNonSpec tchVars2 toSpec
-                               rss2 = rs2 ++ residualSubstitution (tchVars2 \\ map translate newVars) ss2
+                               rss2 = rs2 ++ residualSubstitution (nub tchVars2 \\ map translate newVars) ss2
                             in if null rss2 && null errs2
                                   then Right rule
                                   else Left $ name ++ " is not complete:\n" ++ printError fromNonSpec toSpec rss2 errs2
