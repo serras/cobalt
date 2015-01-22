@@ -22,6 +22,7 @@ import aTask :: 'Task;
 import TaskTitle :: 'EntityField 'Task 'String;
 import TaskDescr :: 'EntityField 'Task 'String;
 
+data 'Entity e;
 import Entity :: {e} 'Key e -> e -> 'Entity e;
 
 import equal      :: {e} {a} 'EntityField e a -> a -> 'Filter e;
@@ -69,3 +70,12 @@ u1 = update (MkPersonKey 1) aPerson;
 u2 = update 1 aPerson => fail;
 u3 = update (MkPersonKey 1) aTask => fail;
 u4 = update (MkPersonKey 1) (Entity (MkPersonKey 1) aPerson) => fail;
+
+gu1 = let lst = selectList (cons (equal PersonFirstName hello) nil)
+       in match lst with 'List
+          | cons e es -> match e with 'Entity
+                         | Entity k v -> update k v;
+gu2 = let lst = selectList (cons (equal PersonFirstName hello) nil)
+       in match lst with 'List
+          | cons e es -> match e with 'Entity
+                         | Entity k v -> update k e => fail;
