@@ -4,7 +4,7 @@ script #this ~ 'Int "3 is a number";
 
 import example :: 'Int -> 'Bool;
 
-rule   example_rule
+rule   example_unsound_rule
 match  app (var "example") #thing
 script asym (#thing ~ 'Int "argument must be an Int")
             #thing;
@@ -30,6 +30,8 @@ axiom $Eq 'Int;
 u = singleton 3;
 v :: {a} $Eq a => a -> [a] = \x -> singleton x;
 w = singleton 3 4 => fail;
+import aNonEq :: 'NonEqThingy;
+t = singleton aNonEq;
 
 
 import noRule :: 'Bool -> 'Int;

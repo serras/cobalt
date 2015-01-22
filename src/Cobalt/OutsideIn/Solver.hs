@@ -35,7 +35,9 @@ solve a g w t = runWriterT (runExceptT (runReaderT (evalStateT (solve' g w) t) a
 entails :: [Axiom] -> [Constraint] -> [Constraint] -> [TyVar] -> Bool
 entails a g w t = case runFreshM $ solve a g w t of
   (Left _, _) -> False
-  (Right (Solution _ rs _ _), _) -> null rs  -- No residual constraints
+  (Right (Solution _ rs ss _), _) -> 
+    let tchSubst = filter (\(v,_) -> v `elem` t) (substitutionInTermsOf t ss)
+     in null rs && null tchSubst -- No residual constraints
 
 solve' :: [Constraint] -> [Constraint] -> SMonad Solution
 solve' g w = myTrace ("Solve " ++ show g ++ " ||- " ++ show w) $ do

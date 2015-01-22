@@ -176,9 +176,12 @@ cartesianProduct f (x:xs) = do
 
 syntaxPolyTypeToScript :: PolyType -> TyVar -> CaptureVarList -> [(Integer, Gathered)] -> FreshM [PolyType]
 syntaxPolyTypeToScript (PolyType_Bind b) this capVars captures = do
-  (v,p)  <- unbind b
-  inn <- syntaxPolyTypeToScript p this capVars captures
+  (v,p) <- unbind b
+  inn   <- syntaxPolyTypeToScript p this capVars captures
   return $ map (PolyType_Bind . bind v) inn
+syntaxPolyTypeToScript (PolyType_Mono [] m) this capVars captures =
+  return $ do m2 <- syntaxMonoTypeToScript m this capVars captures
+              return $ PolyType_Mono [] m2
 syntaxPolyTypeToScript (PolyType_Mono cs m) this capVars captures =
   return $ do cs2 <- map (\c -> syntaxConstraintToScript c this capVars captures) cs
               m2  <- syntaxMonoTypeToScript m this capVars captures

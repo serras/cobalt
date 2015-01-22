@@ -103,6 +103,11 @@ okRule name strictness (Env fn dat ax _) (Rx.Rule rx action) term =
                                                      , "residual:",     show rss
                                                      , "errors:",       show errs ]
    in case (evalWith, evalWithout) of
+        (GatherTerm _ [wW] _ _ _, _) | toConstraintList' wW == [Constraint_Inconsistent] ->
+           -- It is always sound, but never complete
+           case strictness of
+             RuleStrictness_NonStrict -> Right rule
+             RuleStrictness_Strict -> Left $ name ++ " is not complete"
         (GatherTerm gW [wW] _tW customW customWVars, GatherTerm gO [wO] _tO _ _) ->
            let -- Check soundness
                fromSpec  = customW ++ gW ++ gO ++ toConstraintList' wW

@@ -142,10 +142,11 @@ createPolyTypeBind :: String -> PolyType -> PolyType
 createPolyTypeBind x p = PolyType_Bind $ bind (string2Name x) p
 
 parseConstraint :: Parsec String s Constraint
-parseConstraint = try (Constraint_Inst  <$> (var . string2Name <$> identifier)
+parseConstraint = Constraint_Inconsistent <$ reservedOp "_|_"
+              <|> try (Constraint_Inst  <$> (var . string2Name <$> parseVarName)
                                         <*  reservedOp ">"
                                         <*> parsePolyType)
-              <|> try (Constraint_Equal <$> (var . string2Name <$> identifier)
+              <|> try (Constraint_Equal <$> (var . string2Name <$> parseVarName)
                                         <*  reservedOp "="
                                         <*> parsePolyType)
               <|> Constraint_Class <$> parseClsName
