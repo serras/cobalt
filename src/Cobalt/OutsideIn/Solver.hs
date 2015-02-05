@@ -314,11 +314,11 @@ interact_ :: [Constraint] -> [Constraint] -> Constraint -> Constraint -> SMonad 
 interact_ _ _ (Constraint_Unify _ _) _ = return NotApplicable  -- treated in unifyInteract
 interact_ _ _ _ (Constraint_Unify _ _) = return NotApplicable
 -- == and >=
-interact_ given ctx (Constraint_Equal t1 p1) (Constraint_Equal t2 p2)
-  | t1 == t2  = checkEquivalence (given ++ ctx) p1 p2
+interact_ given ctx c1@(Constraint_Equal t1 p1) (Constraint_Equal t2 p2)
+  | t1 == t2  = addExtraConstraint c1 $ checkEquivalence (given ++ ctx) p1 p2
   | otherwise = return NotApplicable
-interact_ given ctx (Constraint_Equal t1 p1) (Constraint_Inst t2 p2)
-  | t1 == t2  = checkSubsumption (given ++ ctx) p2 p1
+interact_ given ctx c1@(Constraint_Equal t1 p1) (Constraint_Inst t2 p2)
+  | t1 == t2  = addExtraConstraint c1 $ checkSubsumption (given ++ ctx) p2 p1
   | otherwise = return NotApplicable
 interact_ _ _ (Constraint_Inst _ _) (Constraint_Equal _ _) = return NotApplicable  -- treated sym
 interact_ given ctx (Constraint_Inst t1 p1) (Constraint_Inst t2 p2)
@@ -358,8 +358,8 @@ simplifies _ given ctx (Constraint_Inst t1 p1) (Constraint_Inst t2 p2)
                    else do (Applied q,p) <- findLub ctx p1 p2
                            return $ Applied (Constraint_Inst t1 p : q)
   | otherwise = return NotApplicable
-simplifies _ given ctx (Constraint_Inst t1 p1) (Constraint_Equal t2 p2)
-  | t1 == t2  = checkSubsumption (given ++ ctx) p1 p2
+simplifies _ given ctx (Constraint_Inst t1 p1) c2@(Constraint_Equal t2 p2)
+  | t1 == t2  = addExtraConstraint c2 $ checkSubsumption (given ++ ctx) p1 p2
   | otherwise = return NotApplicable
 simplifies _ _given _ctx (Constraint_Inst t1 p1) (Constraint_Unify t2 p2)
   | t1 == t2  = return $ Applied [Constraint_Inst p2 p1]
@@ -372,6 +372,12 @@ simplifies _ _ _ (Constraint_Exists _) _ = return NotApplicable
 simplifies _ _ _ _ (Constraint_Exists _) = return NotApplicable
 -- Rest of things
 simplifies _ _ _ _ _ = return NotApplicable
+
+addExtraConstraint :: Constraint -> SMonad SolutionStep -> SMonad SolutionStep
+addExtraConstraint c s = do ss <- s
+                            case ss of
+                              Applied t -> return $ Applied (c:t)
+                              other     -> return other
 
 findLub :: [Constraint] -> PolyType -> PolyType -> SMonad (SolutionStep, PolyType)
 findLub ctx p1 p2 =
