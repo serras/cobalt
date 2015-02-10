@@ -1,4 +1,5 @@
 import dollar :: {a} {b} {s} (a -> b) -> 'Parser s a -> 'Parser s b;
+import star   :: {a} {b} {s} 'Parser s (a -> b) -> 'Parser s a -> 'Parser s b;
 
 rule app_parser
 match app #first@(app #dollar@(var "dollar") #fn) #arg
@@ -31,3 +32,23 @@ test2 = dollar definitelyNotAFunction parser1 => fail;
 test3 = dollar definitelyNotAFunction helloWorld => fail;
 test4 = dollar mapToUpper parser1;
 test5 = dollar mapToUpper parser2 => fail;
+
+{- Not working from here
+import dollar2 :: {a} {b} {s} (a -> b) -> 'Parser s a -> 'Parser s b;
+import star2   :: {a} {b} {s} 'Parser s (a -> b) -> 'Parser s a -> 'Parser s b;
+
+import twoArgsFnOk  :: ['Int] -> 'Bool -> 'String;
+import twoArgsFnNot :: ['Int] -> 'Int  -> 'String;
+
+rule unsafe app_parser2
+match app #starsApp@(app #stars@(var "star2")
+               [ app #dollarApp@(app #dollar@(var "dollar2") #fn) #arg
+               | app #starsApp@(app #stars@(var "star2")   &k)  #arg ]*k )
+          #arg
+script asym (merge "Arguments are not parsers" #arg > {x} {s} 'Parser x s)
+       asym "First operand is not a function"  #fn > {a} {b} a -> b
+       merge [ #fn, merge #arg, #dollar, #dollarApp, merge #stars, merge #starsApp ];
+
+tast1 = star2 (dollar2 twoArgsFnOk  parser1) parser2;
+tast2 = star2 (dollar2 twoArgsFnNot parser1) parser2 => fail;
+-}

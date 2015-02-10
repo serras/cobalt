@@ -42,3 +42,24 @@ script merge "The error is here!"
              [ #fn, #arg, #this ~ 'Int, #arg ~ 'Bool];
 
 z = noRule 3;
+
+
+import map :: {a} {b} (a -> b) -> [a] -> [b];
+
+rule   map
+match  app #intermediate@(app #map@(var "map") #fn) #list
+script asym (merge [ #intermediate ~ [e] -> [r], #this ~ [r] ])
+       asym "The function does not have the correct domain"
+            x ~ e
+       asym "First argument to map must be a function"
+            #fn ~ x -> r
+       asym "Second argument to map must be a list"
+            #list ~ [e]
+       merge [ #map, #fn, #list ];
+
+import listOfInt  :: ['Int];
+import fnOfInt    :: 'Int -> 'IntResult;
+import listOfBool :: ['Bool];
+import fnOfBool   :: 'Bool -> 'BoolResult;
+
+example1 = map fnOfBool listOfInt;

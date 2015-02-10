@@ -271,6 +271,8 @@ parseRule :: Parsec String s Rule
 parseRule = Rule <$  reserved "rule"
                  <*> (   id <$  reserved "strict"
                             <*> pure RuleStrictness_Strict
+                     <|> id <$  reserved "unsafe"
+                            <*> pure RuleStrictness_Unsafe
                      <|> pure RuleStrictness_NonStrict)
                  <*> identifier
                  <*  reserved "match"
@@ -363,7 +365,8 @@ parseFile = buildProgram <$> many parseDecl
 -- Lexer for Haskell-like language
 
 lexer :: T.TokenParser t
-lexer = T.makeTokenParser $ haskellDef { T.reservedNames = "rule" : "strict" : "match" : "check" : "script"
+lexer = T.makeTokenParser $ haskellDef { T.reservedNames = "rule" : "strict" : "unsafe" 
+                                                           : "match" : "check" : "script"
                                                            : "merge" : "asym"
                                                            : "any" : "app" : "var" : "int"
                                                            : "injective" : "defer" : "synonym"

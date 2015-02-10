@@ -116,7 +116,7 @@ getAnn (Term_Match _ _ _ t)  = t
 
 data Rule = Rule RuleStrictness String RuleRegex RuleCheck (Bind [TyVar] RuleScript) deriving Show
 
-data RuleStrictness = RuleStrictness_NonStrict | RuleStrictness_Strict deriving Show
+data RuleStrictness = RuleStrictness_NonStrict | RuleStrictness_Strict | RuleStrictness_Unsafe deriving Show
 
 type RuleRegexVar = Name RuleRegex
 data RuleRegex = RuleRegex_Square RuleRegexVar

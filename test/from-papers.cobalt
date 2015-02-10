@@ -1,0 +1,53 @@
+const1 = \x -> \y -> x;
+const2 :: {a} {c} c > {b} b -> a => a -> c = \x -> \y -> x;
+
+import g  :: {a} a > {b} [b] -> [b] => (a -> 'Int) -> 'Int;
+import k1 :: {a} a = {b} b -> b => a -> 'Int;
+import k2 :: (['Int] -> ['Int]) -> 'Int;
+
+import g'  :: {a} a > {b} b -> b => (a -> 'Int) -> 'Int;
+import k1' :: {a} a = {b} [b] -> [b] => a -> 'Int;
+
+h1 = g k1 => fail;
+h1' = g' k1';
+h2 = g k2;
+
+import k  :: {a} {b} a -> b -> b;
+import f1 :: ('Int -> 'Int -> 'Int) -> 'Int;
+import f2 :: {a} a = {x} x -> x -> x => a -> 'Int;
+
+i1 = f1 k;
+i2 = f2 k;
+
+import choose :: {a} a -> a -> a;
+import id     :: {b} b -> b;
+import true   :: 'Bool;
+poly = \(f :: {a} a -> a) -> tuple (f 1) (f true);
+
+cid = choose id;
+cpoly = choose poly;
+
+import runST :: {a} {b} b = {c} 'ST c a => b -> a;
+import cons :: {a} a -> [a] -> [a];
+import nil :: {a} [a];
+import tuple :: {a} {b} a -> b -> 'Tuple a b;
+
+st1 = cons runST nil;
+st2 = tuple runST 1;
+
+revapp1 = \x -> \f -> f x;
+revapp2 :: {a} {b} b = {c} (a -> c) -> c => a -> b = \x -> \f -> f x;
+
+iapp :: ('Int -> 'Int) -> 'Int -> 'Int = \f -> \x -> f x;
+ii :: 'Int -> 'Int = \x -> x;
+
+ra1 = revapp1 id poly;
+ra2 = let f = revapp1 id in f poly;
+ra3 = let f = revapp1 id in f iapp;
+ra4 = let f = revapp1 ii in f poly => fail;
+ra5 = revapp1 id;
+ra6 = revapp1 ii;
+
+-- No scoped type variables :(
+-- revapp3 :: {a} {b} b = {c} (a -> c) -> c => a -> b
+--          = \x-> \(f :: {c} (a -> c) -> c) -> f x;

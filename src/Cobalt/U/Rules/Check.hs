@@ -34,6 +34,7 @@ import System.IO.Unsafe
 import Unsafe.Coerce
 
 check :: String -> RuleStrictness -> Sy.Env -> TypeRule -> Either String TypeRule
+check _ RuleStrictness_Unsafe _ rule = Right rule
 check name strictness env rule@(Rx.Rule rx _) =
   let samples = unsafePerformIO $ replicateM 20 $
                   generate (astGenerator (unsafeCoerce rx))
@@ -106,8 +107,8 @@ okRule name strictness (Env fn dat ax _) (Rx.Rule rx action) term =
         (GatherTerm _ [wW] _ _ _, _) | toConstraintList' wW == [Constraint_Inconsistent] ->
            -- It is always sound, but never complete
            case strictness of
-             RuleStrictness_NonStrict -> Right rule
              RuleStrictness_Strict -> Left $ name ++ " is not complete"
+             _ -> Right rule
         (GatherTerm gW [wW] _tW customW customWVars, GatherTerm gO [wO] _tO _ _) ->
            let -- Check soundness
                fromSpec  = customW ++ gW ++ gO ++ toConstraintList' wW
@@ -118,7 +119,6 @@ okRule name strictness (Env fn dat ax _) (Rx.Rule rx action) term =
                rss = rs ++ residualSubstitution varsToCheck ss
             in if null rss && null errs
                   then case strictness of
-                         RuleStrictness_NonStrict -> Right rule
                          RuleStrictness_Strict ->
                            let -- Check completeness
                                fromNonSpec = customW ++ gW ++ gO ++ toConstraintList' wO
@@ -129,6 +129,7 @@ okRule name strictness (Env fn dat ax _) (Rx.Rule rx action) term =
                             in if null rss2 && null errs2
                                   then Right rule
                                   else Left $ name ++ " is not complete:\n" ++ printError fromNonSpec toSpec rss2 errs2
+                         _ -> Right rule
                   else Left $ name ++ " is not sound:\n" ++ printError fromSpec toNonSpec rss errs
         _ -> Left "error obtaining constraints"
 
