@@ -104,7 +104,7 @@ okRule name strictness (Env fn dat ax _) (Rx.Rule rx action) term =
                                                      , "residual:",     show rss
                                                      , "errors:",       show errs ]
    in case (evalWith, evalWithout) of
-        (GatherTerm _ [wW] _ _ _, _) | toConstraintList' wW == [Constraint_Inconsistent] ->
+        (GatherTerm _ [wW] _ _ _, _) | Constraint_Inconsistent `elem` toConstraintList' wW ->
            -- It is always sound, but never complete
            case strictness of
              RuleStrictness_Strict -> Left $ name ++ " is not complete"

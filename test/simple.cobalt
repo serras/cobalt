@@ -63,3 +63,15 @@ import listOfBool :: ['Bool];
 import fnOfBool   :: 'Bool -> 'BoolResult;
 
 example1 = map fnOfBool listOfInt;
+
+
+import by :: {a} $Fractional a => a -> a -> a;
+axiom $Fractional 'Float;
+axiom $Integral   'Int;
+
+rule   divide_integers
+match  app (app (var "by") #n) #m
+check  $Integral #n, $Integral #m
+script _|_ "Use `div' or `quot' to divide integers";
+
+by1 = by 3 2 => fail;

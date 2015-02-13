@@ -1,0 +1,29 @@
+axiom {a} {lst} ^ElemR a ('Record lst) ~ ^Elem a lst;
+
+axiom {a} ^Elem a 'Nil ~ 'No;
+axiom {a} {b} ^Elem a ('Cons a b) ~ 'Yes;
+axiom {a} {b} {c} ^Elem a ('Cons b c) ~ ^Elem a c;
+
+axiom {a} ^Concat 'Nil a ~ a;
+axiom {a} {b} {c} ^Concat ('Cons a b) c ~ 'Cons a (^Concat b c);
+
+import name :: 'Field 'Name 'String;
+import age  :: 'Field 'Age  'Int;
+
+import field :: {a} {b} 'Field a b -> b -> 'Record ('Cons ('Field a b) 'Nil);
+import plus  :: {a} {b} 'Record a -> 'Record b -> 'Record (^Concat a b);
+
+import aString :: 'String;
+
+alex = plus (field name aString) (field age 26);
+jur  = field name aString;
+
+import get :: {a} {b} {r} ^Elem ('Field a b) r ~ 'Yes => 'Field a b -> 'Record r -> b;
+
+f1 = get age alex;
+f2 = get age jur;
+
+rule   field_not_found
+match  app (app (var "get") #field) #record
+check  ^ElemR #field #record ~ 'No
+script _|_ "Cannot find field";

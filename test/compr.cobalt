@@ -36,6 +36,24 @@ test2 = map2 plusThree listOfBool => fail;
 test3 = map2 plusThree maybeOfInts;
 
 
+import map3 :: {m} {a} {b} $Functor m => (a -> b) -> 'App m a -> 'App m b;
+
+rule   map3_on_lists
+match  app #appfn@(app #map@(var "map3") #fn) #arg
+check  #arg > {a} 'App 'List a
+script asym (merge [ #this ~ 'App 'List r, #appfn ~ 'App 'List e1 -> 'App 'List r, #map ])
+       asym "Argument type must be the list type"
+            e1 ~ e2
+       asym "First argument should be a function"
+            #fn ~ e2 -> r
+       merge [ #fn, #arg, #arg ~ 'App 'List e1 ];
+
+test0_ = map3 plusThree;
+test1_ = map3 plusThree listOfInts;
+test2_ = map3 plusThree listOfBool => fail;
+test3_ = map3 plusThree maybeOfInts;
+
+
 import bind   :: {m} {a} {b} $Monad m => 'App m a -> (a -> 'App m b) -> 'App m b;
 import return :: {a} {a} $Monad m => a -> 'App m a;
 
