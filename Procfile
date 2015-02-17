@@ -1,1 +1,1 @@
-web: cabal run cobalt -- serve $PORT
+web: cabal run cobalt-u -- serve $PORT
