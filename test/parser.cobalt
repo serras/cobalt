@@ -3,22 +3,22 @@ import star   :: {a} {b} {s} 'Parser s (a -> b) -> 'Parser s a -> 'Parser s b;
 
 rule app_parser
 match app #first@(app #dollar@(var "dollar") #fn) #arg
-script asym "Parser has an incorrect symbol type"
-            s1 ~ s2 "parser symbols must coincide"
-       asym "Function cannot be applied to parser's result"
-            a1 ~ a2 "function should be applied to parser's result"
-       asym "Parser has an incorrect result type"
-            b1 ~ b2 "the result type must be as expected"
-       asym "Context does not accept a parser"
-            #this ~ 'Parser s2 b2
-       asym "Right operand is not a parser"
-            #arg ~ 'Parser s1 a2 "right operand must be a parser"
-       asym #arg
+script     (merge [ #dollar ~ (a1 -> b1) -> 'Parser s1 a1 -> 'Parser s1 b1
+                  , #first  ~ 'Parser s1 a1 -> 'Parser s1 b1 ])
+       asym #fn
        asym "Left operand is not a function"
             #fn ~ a1 -> b1 "left operand must be a function"
-       asym #fn
-       merge [ #dollar ~ (a1 -> b1) -> 'Parser s1 a1 -> 'Parser s1 b1
-             , #first  ~ 'Parser s1 a1 -> 'Parser s1 b1 ];
+       asym #arg
+       asym "Right operand is not a parser"
+            #arg ~ 'Parser s1 a2 "right operand must be a parser"
+       asym "Context does not accept a parser"
+            #this ~ 'Parser s2 b2
+       asym "Parser has an incorrect result type"
+            b1 ~ b2 "the result type must be as expected"
+       asym "Function cannot be applied to parser's result"
+            a1 ~ a2 "function should be applied to parser's result"
+       asym "Parser has an incorrect symbol type"
+            s1 ~ s2 "parser symbols must coincide";
 
 import mapToUpper :: [a] -> [a];
 import helloWorld :: 'String;
@@ -45,9 +45,9 @@ match app #starsApp@(app #stars@(var "star2")
                [ app #dollarApp@(app #dollar@(var "dollar2") #fn) #arg
                | app #starsApp@(app #stars@(var "star2")   &k)  #arg ]*k )
           #arg
-script asym (merge "Arguments are not parsers" #arg > {x} {s} 'Parser x s)
+script (merge [ #fn, merge #arg, #dollar, #dollarApp, merge #stars, merge #starsApp ])
        asym "First operand is not a function"  #fn > {a} {b} a -> b
-       merge [ #fn, merge #arg, #dollar, #dollarApp, merge #stars, merge #starsApp ];
+       asym (merge "Arguments are not parsers" #arg > {x} {s} 'Parser x s);
 
 tast1 = star2 (dollar2 twoArgsFnOk  parser1) parser2;
 tast2 = star2 (dollar2 twoArgsFnNot parser1) parser2 => fail;

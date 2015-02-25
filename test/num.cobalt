@@ -20,11 +20,11 @@ rule   unsafe look_at_leaves
 match  app (var "execute") [ #ap1@(app #ap2@(app #op@(var "plus") &k) &k)
                            | #ap1@(app #ap2@(app #op@(var "mult") &k) &k)
                            | #ap1@(app #lit@(var "lit") #leaf) ]*k
-script asym #this ~ e
-       asym (merge [ merge #op, merge #lit ])
-       asym (merge [ merge #ap1 ~ 'Expr e, merge #ap2 ~ 'Expr e -> 'Expr e ])
-       asym "Literals must be of class Num"
-            $Num e
+script      (merge #leaf)
        asym "All literals must be of the same type"
             (merge #leaf ~ e)
-            merge #leaf;
+       asym "Literals must be of class Num"
+            $Num e
+       asym (merge [ merge #ap1 ~ 'Expr e, merge #ap2 ~ 'Expr e -> 'Expr e ])
+       asym (merge [ merge #op, merge #lit ])
+       asym #this ~ e;

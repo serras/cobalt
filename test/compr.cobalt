@@ -14,18 +14,18 @@ import map2 :: {m} {a} {b} $Functor m => (a -> b) -> 'App m a -> 'App m b;
 rule map2_on_lists
 match  app #app1@(app #map2@(var "map2") #fn) #arg
 check  #arg > {a} 'App 'List a
-script asym (merge [ a1 ~ a2, a2 ~ a3, b1 ~ b2, b ~ b2])
-       asym #this ~ 'App 'List b
-       asym "Parameters must coincide"
-            a3 ~ a4
-       asym "First argument should be a function"
-            #fn ~ a4 -> b
-       asym #fn
+script      (merge [ #map2 ~ (a2 -> b2) -> 'App 'List a2 -> 'App 'List b2
+                   , #app1 ~ 'App 'List a1 -> 'App 'List b1 ] )
+       asym #arg
        asym "Second should be a list"
             (#arg ~ 'App 'List a3)
-       asym #arg
-       merge [ #map2 ~ (a2 -> b2) -> 'App 'List a2 -> 'App 'List b2
-             , #app1 ~ 'App 'List a1 -> 'App 'List b1 ];
+       asym #fn
+       asym "First argument should be a function"
+            #fn ~ a4 -> b
+       asym "Parameters must coincide"
+            a3 ~ a4
+       asym #this ~ 'App 'List b
+       asym (merge [ a1 ~ a2, a2 ~ a3, b1 ~ b2, b ~ b2]);
 
 import maybeOfInts :: 'App 'Maybe 'Int;
 import listOfBool :: 'App 'List 'Bool;
@@ -41,12 +41,12 @@ import map3 :: {m} {a} {b} $Functor m => (a -> b) -> 'App m a -> 'App m b;
 rule   map3_on_lists
 match  app #appfn@(app #map@(var "map3") #fn) #arg
 check  #arg > {a} 'App 'List a
-script asym (merge [ #this ~ 'App 'List r, #appfn ~ 'App 'List e1 -> 'App 'List r, #map ])
-       asym "Argument type must be the list type"
-            e1 ~ e2
+script      (merge [ #fn, #arg, #arg ~ 'App 'List e1 ])
        asym "First argument should be a function"
             #fn ~ e2 -> r
-       merge [ #fn, #arg, #arg ~ 'App 'List e1 ];
+       asym "Argument type must be the list type"
+            e1 ~ e2
+       asym (merge [ #this ~ 'App 'List r, #appfn ~ 'App 'List e1 -> 'App 'List r, #map ]);
 
 test0_ = map3 plusThree;
 test1_ = map3 plusThree listOfInts;

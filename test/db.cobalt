@@ -36,13 +36,13 @@ import get :: {e} 'Key e -> 'Maybe e;
 
 rule   get
 match  app #get@(var "get") #key
-script asym  "The given value is not a key of the corresponding entity"
-             e1 ~ e2
-       asym  "Context does not expect an entity"
-             #this ~ 'Maybe e2
-       asym  "The given argument is not a key"
-             #key ~ 'Key e1
-       merge [ #get ~ 'Key e1 -> 'Maybe e2, #key ];
+script      (merge [ #get ~ 'Key e1 -> 'Maybe e2, #key ])
+       asym "The given argument is not a key"
+            #key ~ 'Key e1
+       asym "Context does not expect an entity"
+            #this ~ 'Maybe e2
+       asym "The given value is not a key of the corresponding entity"
+            e1 ~ e2;
 
 g1 = get (MkPersonKey 1);
 g2 = get 1 => fail;
@@ -51,10 +51,10 @@ import get2 :: {e} 'Key e -> 'Maybe e;
 
 rule   get2
 match  app #get@(var "get2") #key
-script asym (merge [ #get, #this ~ 'Maybe e ])
-       asym  "The given argument is not a key"
-             (#key ~ 'Key e)
-             #key;
+script      #key
+       asym "The given argument is not a key"
+            (#key ~ 'Key e)
+       asym (merge [ #get, #this ~ 'Maybe e ]);
 
 g1_ = get2 (MkPersonKey 1);
 g2_ = get2 1 => fail;
@@ -68,12 +68,12 @@ script _|_ "You should provide a raw value, not an entity,";
 
 rule   update
 match  app #first@(app #upd@(var "update") #key) #val
-script asym (merge [ #upd, #first ~ #val -> 'Result, #this ~ 'Result ])
-       asym  "Key and entity types are not equal"
-             s1 ~ #val "key and entity types must coincide"
-       asym  "The first argument is not a key"
-             #key ~ 'Key s1
-       merge [ #key, #val ];
+script      (merge [ #key, #val ])
+       asym "The first argument is not a key"
+            #key ~ 'Key s1
+       asym "Key and entity types are not equal"
+            s1 ~ #val "key and entity types must coincide"
+       asym (merge [ #upd, #first ~ #val -> 'Result, #this ~ 'Result ]);
 
 u1 = update (MkPersonKey 1) aPerson;
 u2 = update 1 aPerson => fail;

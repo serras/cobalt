@@ -6,8 +6,8 @@ import example :: 'Int -> 'Bool;
 
 rule   example_unsound_rule
 match  app (var "example") #thing
-script asym (#thing ~ 'Int "argument must be an Int")
-            #thing;
+script      #thing
+       asym (#thing ~ 'Int "argument must be an Int");
 
 f x y = x y (example 3);
 
@@ -41,28 +41,28 @@ match app #fn@(var "noRule") #arg
 script merge "The error is here!"
              [ #fn, #arg, #this ~ 'Int, #arg ~ 'Bool];
 
-z = noRule 3;
+z = noRule 3 => fail;
 
 
 import map :: {a} {b} (a -> b) -> [a] -> [b];
 
 rule   map
 match  app #intermediate@(app #map@(var "map") #fn) #list
-script asym (merge [ #intermediate ~ [e] -> [r], #this ~ [r] ])
-       asym "The function does not have the correct domain"
-            x ~ e
-       asym "First argument to map must be a function"
-            #fn ~ x -> r
+script      (merge [ #map, #fn, #list ])
        asym "Second argument to map must be a list"
             #list ~ [e]
-       merge [ #map, #fn, #list ];
+       asym "First argument to map must be a function"
+            #fn ~ x -> r
+       asym "The function does not have the correct domain"
+            x ~ e
+       asym (merge [ #intermediate ~ [e] -> [r], #this ~ [r] ]);
 
 import listOfInt  :: ['Int];
 import fnOfInt    :: 'Int -> 'IntResult;
 import listOfBool :: ['Bool];
 import fnOfBool   :: 'Bool -> 'BoolResult;
 
-example1 = map fnOfBool listOfInt;
+example1 = map fnOfBool listOfInt => fail;
 
 
 import by :: {a} $Fractional a => a -> a -> a;

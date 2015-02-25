@@ -21,7 +21,7 @@ jur  = field name aString;
 import get :: {a} {b} {r} ^Elem ('Field a b) r ~ 'Yes => 'Field a b -> 'Record r -> b;
 
 f1 = get age alex;
-f2 = get age jur;
+f2 = get age jur => fail;
 
 rule   field_not_found
 match  app (app (var "get") #field) #record
