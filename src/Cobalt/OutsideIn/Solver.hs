@@ -35,7 +35,7 @@ solve a g w t = runWriterT (runExceptT (runReaderT (evalStateT (solve' g w) t) a
 entails :: [Axiom] -> [Constraint] -> [Constraint] -> [TyVar] -> Bool
 entails a g w t = case runFreshM $ solve a g w t of
   (Left _, _) -> False
-  (Right (Solution _ rs ss _), _) -> 
+  (Right (Solution _ rs ss _), _) ->
     let tchSubst = filter (\(v,_) -> v `elem` t) (substitutionInTermsOf t ss)
      in null rs && null tchSubst -- No residual constraints
 
@@ -105,7 +105,7 @@ simpl given wanted =
                     return (interactedGU, apGC || apGU)) c
                   (interactedG,apGI) <- stepOverProductListDeleteBoth "interg" interact_ [] interactedGU
                   return (interactedG, apGIU || apGI)) ccTop
-                (reactedG, apRG) <- stepOverAxioms "topReact" (\ax _ -> topReact True defP ax) axioms [] interactedG2
+                (reactedG, apRG) <- stepOverAxioms "topReact" (\ax _ -> topReact True defP injP ax) axioms [] interactedG2
                 return (reactedG, apIG2 || apRG)) given
      (s,_) <- whileApplicable (\ccTop -> do
                 (simplified2,apS2) <- whileApplicable (\c -> do
@@ -118,7 +118,7 @@ simpl given wanted =
                     return (interacted2, apU || apI2)) c
                   (simplified,apS) <- stepOverTwoLists "simplw" (simplifies injP) g interacted
                   return (simplified, apI || apS)) ccTop
-                (reactedW, apRW) <- stepOverAxioms "topReact" (\ax _ -> topReact True defP ax) axioms g simplified2
+                (reactedW, apRW) <- stepOverAxioms "topReact" (\ax _ -> topReact True defP injP ax) axioms g simplified2
                 return (reactedW, apS2 || apRW)) wanted
      -- Output information
      v <- get
@@ -436,22 +436,29 @@ checkEquivalence ctx p1 p2 = do
     (_, NotApplicable) -> throwError (SolverError_Equiv p1 p2)
     (Applied a1, Applied a2) -> return $ Applied (a1 ++ a2)
 
-topReact :: Bool -> (String -> Bool) -> Axiom -> Constraint -> SMonad SolutionStep
-topReact _ deferP (Axiom_Unify _) (Constraint_Unify (MonoType_Fam f ms) (MonoType_Var v))
+topReact :: Bool -> (String -> Bool) -> (String -> Bool) -> Axiom -> Constraint -> SMonad SolutionStep
+topReact _ deferP _ (Axiom_Unify _) (Constraint_Unify (MonoType_Fam f ms) (MonoType_Var v))
   | deferP f, v `notElem` fv ms = return NotApplicable  -- deferred type family
-topReact _ _ ax@(Axiom_Unify b) (Constraint_Unify (MonoType_Fam f ms) t)
+topReact _ _ injP ax@(Axiom_Unify b) (Constraint_Unify fam@(MonoType_Fam f ms) t)
   | all isFamilyFree ms, isFamilyFree t = do
       (aes, (lhs, rhs)) <- unbind b
       case lhs of
         MonoType_Fam lF lMs | f == lF -> do
-          let bes = fv ax :: [TyVar]
-          Solution _ r s _ <- solveApartWithoutAxioms [] (zipWith Constraint_Unify ms lMs) (aes \\ bes)
+          Solution _ r s _ <- solveApartWithoutAxioms [] (zipWith Constraint_Unify ms lMs) (aes \\ (fv ax :: [TyVar]))
           case r of
             [] -> return $ Applied [Constraint_Unify (substs s rhs) t]
-            _  -> return NotApplicable  -- Could not match terms
-          `catchError` (\_ -> return NotApplicable)
+            _  -> injChance
+          `catchError` (\_ -> injChance)
+          where injChance = if injP f  -- second chance if f is injective
+                            then do
+                              Solution _ r2 s2 _ <- solveApartWithoutAxioms [] [Constraint_Unify t rhs] (aes \\ (fv ax :: [TyVar]))
+                              case r2 of
+                                [] -> return $ Applied [Constraint_Unify (substs s2 lhs) fam]
+                                _  -> return NotApplicable
+                              `catchError` (\_ -> return NotApplicable)
+                            else return NotApplicable
         _ -> return NotApplicable
-topReact _ _ ax@(Axiom_Class b) (Constraint_Class c ms)
+topReact _ _ _ ax@(Axiom_Class b) (Constraint_Class c ms)
   | all isFamilyFree ms = do
       (aes, (ctx, cls, args)) <- unbind b
       if cls == c
@@ -462,7 +469,7 @@ topReact _ _ ax@(Axiom_Class b) (Constraint_Class c ms)
                    _  -> return NotApplicable -- Could not match terms
                  `catchError` (\_ -> return NotApplicable)
          else return NotApplicable -- Not same class
-topReact _ _ _ _ = return NotApplicable
+topReact _ _ _ _ _ = return NotApplicable
 
 -- Phase 2b: convert to solution
 

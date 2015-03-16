@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  
+
   <title>Cobalt :: Constraint-Based Little Typechecker</title>
 
   <script src="jquery.min.js"></script>
@@ -20,12 +20,12 @@
 
   <script src="d3.min.js"></script>
   <script src="cola.v3.min.js"></script>
-  
+
   <style>
   #editor {
     height: 400px;
   }
-  
+
   #tc-button, #gather-button, #syntax-button, #dropdownie {
     width: 48%;
     margin-left: 0.5%;
@@ -34,7 +34,7 @@
     margin-top: 5px;
   }
 
-  #load-button { 
+  #load-button {
     width: 100%;
     margin-top: 5px;
   }
@@ -56,7 +56,7 @@
   #error-msg, .list-group {
     font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'source-code-pro', monospace;
   }
-  
+
   #result > .list-group {
     margin-bottom: 0;
   }
@@ -120,7 +120,7 @@
       </div>
     </div>
   </div>
-  
+
   <div class="container-fluid">
     <h1>Cobalt <small>:: Constraint-Based Little Typechecker</small></h1>
     <div class="row">
@@ -145,6 +145,7 @@
             <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('db.cobalt');">Database library</a></li>
             <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('compr.cobalt');">Monads versus lists</a></li>
             <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('record.cobalt');">Lightweight extensible records</a></li>
+            <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('persist-esqueleto.cobalt');">Persistent and Esqueleto</a></li>
           </ul>
         </div>
         <a class="btn btn-default" id="syntax-button" href="https://github.com/serras/cobalt/blob/master/README.md" target="_blank">Learn the syntax (<b>not anonymized</b>)</a>
@@ -167,7 +168,7 @@
       </div>
     </div>
   </div>
-  
+
   <script>
     var editor = ace.edit("editor");
     editor.setTheme("ace/theme/chrome");
@@ -216,7 +217,7 @@
       if (node.graph != undefined) {
         $("#graph-modal").modal({});
         var graph = node.graph;
-	
+
         // Remove everything
         var canvas = d3.select("#graph-canvas");
         canvas.selectAll("*").remove();

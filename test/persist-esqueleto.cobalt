@@ -1,0 +1,140 @@
+axiom $PersistField 'Int;
+axiom $PersistField 'Bool;
+import True  :: 'Bool;
+import False :: 'Bool;
+import nil   :: {a} [a];
+import cons  :: {a} a -> [a] -> [a];
+
+axiom injective ^Key;
+axiom injective ^EntityField;
+axiom injective ^Unique;
+
+data 'Entity e;
+import Entity :: {e} ^Key e -> e -> 'Entity e;
+
+
+import get       :: {val} ^Key val -> 'Maybe val;
+import insert    :: {val} val -> ^Key val;
+import insertKey :: {val} ^Key val -> val -> 'Unit;
+import repsert   :: {val} ^Key val -> val -> 'Unit;
+import replace   :: {val} ^Key val -> val -> 'Unit;
+import delete    :: {val} ^Key val -> 'Unit;
+import update    :: {val} ^Key val -> ['Update val] -> 'Unit;
+
+data 'Update v;
+import pAssign :: {v} {typ} $PersistField typ => ^EntityField v typ -> typ -> 'Update v;
+import pAdd    :: {v} {typ} $PersistField typ => ^EntityField v typ -> typ -> 'Update v;
+
+import getBy        :: {val} ^Unique val -> 'Maybe ('Entity val);
+import deleteBy     :: {val} ^Unique val -> 'Unit;
+import insertUnique :: {val} val -> 'Maybe (^Key val);
+import upsert       :: {val} val -> ['Update val] -> 'Entity val;
+
+import selectList     :: {val} ['Filter val] -> ['SelectOpt val] -> ['Entity val];
+import selectKeysList :: {val} ['Filter val] -> ['SelectOpt val] -> [^Key val];
+import updateWhere    :: {val} ['Filter val] -> ['Update val] -> 'Unit;
+import deleteWhere    :: {val} ['Filter val] -> 'Unit;
+import count          :: {val} ['Filter val] -> 'Int;
+
+data 'Filter v;
+import pEq  :: {v} {typ} $PersistField typ => ^EntityField v typ -> typ -> 'Filter v;
+import pNeq :: {v} {typ} $PersistField typ => ^EntityField v typ -> typ -> 'Filter v;
+import pIn_ :: {v} {typ} $PersistField typ => ^EntityField v typ -> [typ] -> 'Filter v;
+import pOr_ :: {v} ['Filter v] -> ['Filter v] -> ['Filter v];
+
+data 'SelectOpt v;
+import pAsc  :: {v} {typ} ^EntityField v typ -> 'SelectOpt v;
+import pDesc :: {v} {typ} ^EntityField v typ -> 'SelectOpt v;
+import pOffsetBy :: {v} 'Int -> 'SelectOpt v;
+import pLimitTo  :: {v} 'Int -> 'SelectOpt v;
+
+
+data 'SqlExpr  e;
+data 'SqlQuery e;
+
+import return :: {e} e -> 'SqlQuery e;
+import bind_  :: {a} {b} 'SqlQuery a -> 'SqlQuery (a -> 'SqlQuery b) -> 'SqlQuery b;
+import then_  :: {a} {b} 'SqlQuery a -> 'SqlQuery b -> 'SqlQuery b;
+
+data 'Value a;
+data 'ValueList a;
+data 'SomeValue;
+import someValue :: {a} 'SqlExpr ('Value a) -> 'SomeValue;
+
+import where_  :: 'SqlExpr ('Value 'Bool) -> 'SqlQuery 'Unit;
+import on      :: 'SqlExpr ('Value 'Bool) -> 'SqlQuery 'Unit;
+import exists  :: 'SqlQuery 'Unit -> 'SqlExpr ('Value 'Bool);
+
+import groupBy :: ['SomeValue] -> 'SqlQuery 'Unit;
+import having  :: 'SqlExpr ('Value 'Bool) -> 'SqlQuery 'Unit;
+
+data 'OrderBy;
+import asc     :: {a} $PersistField a => 'SqlQuery ('Value a) -> 'SqlExpr 'OrderBy;
+import desc    :: {a} $PersistField a => 'SqlQuery ('Value a) -> 'SqlExpr 'OrderBy;
+import orderBy :: ['SqlExpr 'OrderBy] -> 'SqlQuery 'Unit;
+
+import field :: {val} {typ} $PersistField typ => 'SqlExpr ('Entity val) -> ^EntityField val typ -> 'SqlExpr ('Value typ);
+import val :: {typ} $PersistField typ => typ -> 'SqlExpr ('Value typ);
+import valList :: {typ} $PersistField typ => [typ] -> 'SqlExpr ('ValueList typ);
+
+import not_ :: 'SqlExpr ('Value 'Bool) -> 'SqlExpr ('Value 'Bool);
+import and_ :: 'SqlExpr ('Value 'Bool) -> 'SqlExpr ('Value 'Bool) -> 'SqlExpr ('Value 'Bool);
+import or_  :: 'SqlExpr ('Value 'Bool) -> 'SqlExpr ('Value 'Bool) -> 'SqlExpr ('Value 'Bool);
+import eq   :: {typ} $PersistField typ => 'SqlExpr ('Value typ) -> 'SqlExpr ('Value typ) -> 'SqlExpr ('Value 'Bool);
+import neq  :: {typ} $PersistField typ => 'SqlExpr ('Value typ) -> 'SqlExpr ('Value typ) -> 'SqlExpr ('Value 'Bool);
+import geq  :: {typ} $PersistField typ => 'SqlExpr ('Value typ) -> 'SqlExpr ('Value typ) -> 'SqlExpr ('Value 'Bool);
+import leq  :: {typ} $PersistField typ => 'SqlExpr ('Value typ) -> 'SqlExpr ('Value typ) -> 'SqlExpr ('Value 'Bool);
+import in_  :: {typ} $PersistField typ => 'SqlExpr ('Value typ) -> 'SqlExpr ('ValueList typ) -> 'SqlExpr ('Value 'Bool);
+
+data 'EUpdate val;
+import set    :: {val} 'SqlExpr ('Entity val) -> ['SqlExpr ('EUpdate val)] -> 'SqlQuery 'Unit;
+import assign :: {val} {typ} $PersistField typ => ^EntityField val typ -> 'SqlExpr ('Value typ) -> 'SqlExpr ('EUpdate val);
+import add    :: {val} {typ} $PersistField typ => ^EntityField val typ -> 'SqlExpr ('Value typ) -> 'SqlExpr ('EUpdate val);
+
+
+axiom {a} $From ('SqlExpr ('Entity a));
+axiom {a} $From ('SqlExpr ('Maybe ('Entity a)));
+axiom {a} {b} $From a, $From b => $From ('Tuple a b);
+axiom {a} {b} $From a, $From b => $From ('InnerJoin a b);
+axiom {a} {b} $From a, $From b => $From ('OuterJoin a b);
+
+import Tuple     :: {a} {b} a -> b -> 'Tuple a b;
+import InnerJoin :: {a} {b} a -> b -> 'InnerJoin a b;
+import OuterJoin :: {a} {b} a -> b -> 'OuterJoin a b;
+
+import from :: {a} {b} $From a => (a -> 'SqlQuery b) -> 'SqlQuery b;
+
+axiom $SqlSelect 'Unit 'Unit;
+axiom {a} $SqlSelect ('SqlExpr a) a;
+axiom {a} {r} {b} {s} $SqlSelect a r, $SqlSelect b s => $SqlSelect ('Tuple a b) ('Tuple r s);
+
+import eSelect :: {a} {r} $SqlSelect a r => 'SqlQuery a -> [a];
+import eDelete :: 'SqlQuery 'Unit -> 'Unit;
+import eUpdate :: ('SqlExpr ('Entity val) -> 'SqlQuery 'Unit) -> 'Unit;
+
+
+crazyQ f = do let x = val 3,
+              let y = val 5,
+              where_ (eq x y),
+              orderBy (cons (asc f) nil),
+              where_ (exists (where_ (eq y x)));
+
+
+data 'Person;
+
+data 'PersonKey;
+axiom ^Key 'Person ~ 'PersonKey;
+import PersonKey :: 'Int -> 'PersonKey;
+
+data 'PersonField;
+axiom {r} ^EntityField 'Person r ~ 'PersonField r;
+import PersonFirstName :: 'PersonField 'String;
+import PersonLastName  :: 'PersonField 'String;
+import PersonAge       :: 'PersonField 'Int;
+
+data 'PersonUnique;
+axiom ^Unique 'Person ~ 'PersonUnique;
+import PersonUniqueName :: 'String -> 'String -> 'PersonUnique;
+
+q1 p = where_ (geq (field p PersonAge) (val 18));
+q2 = from (\p -> where_ (geq (field p PersonAge) (val 18)));

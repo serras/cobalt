@@ -81,6 +81,11 @@ parseAtom = -- Parenthesized expression
                             <*> parseDataName
                             <*> many parseCaseAlternative
                             <*> getPosition
+        <|> -- Do notation
+            (do reserved "do"
+                actions <- parseDoAction `sepBy1` comma
+                pos     <- getPosition
+                createTermDo actions pos)
         <|> -- Literal
             (\i n f -> Term_IntLiteral n (i,f)) <$> getPosition
                                                 <*> integer
@@ -119,6 +124,45 @@ createTermMatch i e t c f = Term_Match e t c (i,f)
 createCaseAlternative :: SourcePos -> String -> [String] -> RawTerm -> SourcePos
                       -> (RawTermVar, Bind [RawTermVar] RawTerm, (SourcePos, SourcePos))
 createCaseAlternative i con args e f = (string2Name con, bind (map string2Name args) e, (i,f))
+
+createTermDo :: [DoAction] -> SourcePos -> Parsec String s RawTerm
+createTermDo []                             _     = fail "empty do blocks not allowed"
+createTermDo [DoAction_Term _ t _]          _     = return t
+createTermDo [_]                            _     = fail "do blocks must end with a term"
+createTermDo ((DoAction_Term s t e)     : as) doEnd = do
+  rest <- createTermDo as doEnd
+  return $ Term_App
+             (Term_App (Term_Var (string2Name "then_") (s,e)) t (s,e))
+             rest (s,doEnd)
+createTermDo ((DoAction_Assign s v t e) : as) doEnd = do
+  rest <- createTermDo as doEnd
+  return $ Term_App
+             (Term_App (Term_Var (string2Name "bind_") (s,e)) t (s,e))
+             (Term_Abs (bind v rest) (e,e) (e,doEnd))
+             (s,doEnd)
+createTermDo ((DoAction_Let s v t _)    : as) doEnd = do
+  rest <- createTermDo as doEnd
+  return $ Term_Let (bind (v, embed t) rest) (s,doEnd)
+
+data DoAction = DoAction_Term   SourcePos RawTerm            SourcePos
+              | DoAction_Assign SourcePos RawTermVar RawTerm SourcePos
+              | DoAction_Let    SourcePos RawTermVar RawTerm SourcePos
+
+parseDoAction :: Parsec String s DoAction
+parseDoAction = try (DoAction_Assign <$> getPosition
+                                     <*> (string2Name <$> identifier)
+                                     <*  reservedOp "<-"
+                                     <*> parseTerm
+                                     <*> getPosition)
+            <|> try (DoAction_Let    <$> getPosition
+                                     <*  reserved "let"
+                                     <*> (string2Name <$> identifier)
+                                     <*  reservedOp "="
+                                     <*> parseTerm
+                                     <*> getPosition)
+            <|> try (DoAction_Term   <$> getPosition
+                                     <*> parseTerm
+                                     <*> getPosition)
 
 parsePolyType :: Parsec String s PolyType
 parsePolyType = nf <$> parsePolyType'
@@ -224,7 +268,7 @@ parseAxiom = id <$ reserved "axiom"
                                                <*  reservedOp "~"
                                                <*> parseMonoType)
                      <|> try (createAxiomClass <$> many (braces identifier)
-                                               <*> many parseConstraint
+                                               <*> parseConstraint `sepBy1` comma
                                                <*  reservedOp "=>"
                                                <*> parseClsName
                                                <*> many parseMonoType)
@@ -314,7 +358,7 @@ bindRuleScript s = let vars = filter (\x -> case name2String x of { '#':_ -> Fal
                     in bind vars s
 
 parseRuleScript :: Parsec String s RuleScript
-parseRuleScript = parseRuleScriptAtom `chainl1` 
+parseRuleScript = parseRuleScriptAtom `chainl1`
                     ((\m s2 s1 -> RuleScript_Asym s1 s2 m) <$ reserved "asym" <*> optionMaybe stringLiteral)
 
 parseRuleScriptAtom :: Parsec String s RuleScript
@@ -331,7 +375,7 @@ parseRuleScriptAtom = -- Parenthesized expression
 parseRuleScriptList :: Parsec String s RuleScriptList
 parseRuleScriptList = -- Parenthesized expression
                       parens parseRuleScriptList
-                  <|> RuleScriptList_List <$> brackets (commaSep1 parseRuleScript) 
+                  <|> RuleScriptList_List <$> brackets (commaSep1 parseRuleScript)
                   <|> try (RuleScriptList_PerItem <$> parseConstraint
                                                   <*> optionMaybe stringLiteral)
                   <|> RuleScriptList_Ref <$ char '#' <*> identifier
@@ -364,7 +408,7 @@ parseFile = buildProgram <$> many parseDecl
 -- Lexer for Haskell-like language
 
 lexer :: T.TokenParser t
-lexer = T.makeTokenParser $ haskellDef { T.reservedNames = "rule" : "strict" : "unsafe" 
+lexer = T.makeTokenParser $ haskellDef { T.reservedNames = "rule" : "strict" : "unsafe"
                                                            : "match" : "check" : "script"
                                                            : "merge" : "asym"
                                                            : "any" : "app" : "var" : "int"
