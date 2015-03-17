@@ -5,6 +5,10 @@ import False :: 'Bool;
 import nil   :: {a} [a];
 import cons  :: {a} a -> [a] -> [a];
 
+import Tuple3 :: {a} {b} {c} a -> b -> c -> 'Tuple3 a b c;
+broken f = Tuple3 (f 3) (f True) (f nil) => fail;
+
+
 axiom injective ^Key;
 axiom injective ^EntityField;
 axiom injective ^Unique;
@@ -138,3 +142,22 @@ import PersonUniqueName :: 'String -> 'String -> 'PersonUnique;
 
 q1 p = where_ (geq (field p PersonAge) (val 18));
 q2 = from (\p -> where_ (geq (field p PersonAge) (val 18)));
+
+
+data 'Task;
+data 'TaskKey;
+axiom ^Key 'Task ~ 'TaskKey;
+import TaskKey :: 'Int -> 'TaskKey;
+
+data 'TaskField;
+axiom {r} ^EntityField 'Task r ~ 'TaskField r;
+import TaskTitle :: ^EntityField 'Task 'String;
+import TaskDescr :: ^EntityField 'Task 'String;
+import TaskTime  :: ^EntityField 'Task 'Int;
+
+data 'TaskUnique;
+axiom ^Unique 'Task ~ 'TaskUnique;
+
+q3 = from (\p -> where_ (geq (field p TaskTime) (val 30)));
+q4 = from (\p -> do where_ (geq (field p TaskTime) (val 30)),
+                    where_ (geq (field p PersonAge) (val 18)) );
