@@ -5,7 +5,7 @@ author:              Alejandro Serrano
 maintainer:          A.SerranoMena@uu.nl
 category:            Language
 build-type:          Simple
--- extra-source-files:  
+-- extra-source-files:
 cabal-version:       >=1.10
 
 library

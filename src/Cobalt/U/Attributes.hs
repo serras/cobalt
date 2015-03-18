@@ -14,14 +14,13 @@ module Cobalt.U.Attributes (
 , theTouchables
 , Syn(..)
 , Gathered
+, GatherTermInfo(..)
 , GatherCaseInfo(..)
 , _Error
 , _Term
 , given
-, wanted
 , ty
-, custom
-, customVars
+, wanted
 , _Case
 , TypeRule
 ) where
@@ -31,6 +30,7 @@ import Data.List (union)
 import Data.Monoid
 import Data.Regex.MultiGenerics hiding (var)
 import qualified Data.Regex.MultiRules as Rx
+import Unbound.LocallyNameless (FreshM)
 
 import Cobalt.Core
 import Cobalt.Language
@@ -39,16 +39,19 @@ import Cobalt.U.Script
 type Errors = [String]
 data Syn (ix :: Ix) where
   Error      :: Errors -> Syn ix
-  GatherTerm :: [Constraint] -> [TyScript] -> [TyVar] -> [Constraint] -> [TyVar] -> Syn IsATerm
+  GatherTerm :: [Constraint] -> [TyVar] -> FreshM GatherTermInfo -> Syn IsATerm
   GatherCase :: [GatherCaseInfo] -> Syn IsACaseAlternative
+
+data GatherTermInfo = GatherTermInfo { tree :: [TyScript]
+                                     , custom :: [Constraint]
+                                     , customVars :: [TyVar]
+                                     }
 
 data GatherCaseInfo = GatherCaseInfo { _extraConstraints :: [Constraint]
                                      , _hiddenVars :: [TyVar]
                                      , _konQ :: [Constraint]
                                      , _konT :: MonoType
-                                     , _script :: TyScript
-                                     , _customChecks :: [Constraint]
-                                     , _customVars :: [TyVar]
+                                     , _script :: FreshM (TyScript, [Constraint], [TyVar])
                                      , _thisVar :: TyVar
                                      }
 
@@ -59,31 +62,23 @@ _Error = prism Error (\x -> case x of
                               Error e -> Right e
                               _       -> Left x)
 
-_Term :: Prism' (Syn IsATerm) ([Constraint], [TyScript], [TyVar],[Constraint],[TyVar])
-_Term = prism (\(g,w,t,c,cv) -> GatherTerm g w t c cv)
+_Term :: Prism' (Syn IsATerm) ([Constraint], [TyVar], FreshM GatherTermInfo)
+_Term = prism (\(g,v,i) -> GatherTerm g v i)
               (\x -> case x of
-                       GatherTerm g w t c cv -> Right (g,w,t,c,cv)
-                       _                     -> Left x)
+                       GatherTerm g v i -> Right (g,v,i)
+                       _                -> Left x)
 
 given :: Functor f => ([Constraint] -> f [Constraint])
-      -> ([Constraint],[TyScript],[TyVar],[Constraint],[TyVar]) -> f ([Constraint],[TyScript],[TyVar],[Constraint],[TyVar])
+      -> ([Constraint], [TyVar], FreshM GatherTermInfo) -> f ([Constraint], [TyVar], FreshM GatherTermInfo)
 given = _1
 
-wanted :: Functor f => ([TyScript] -> f [TyScript])
-       -> ([Constraint],[TyScript],[TyVar],[Constraint],[TyVar]) -> f ([Constraint],[TyScript],[TyVar],[Constraint],[TyVar])
-wanted = _2
-
 ty :: Functor f => ([TyVar] -> f [TyVar])
-   -> ([Constraint],[TyScript],[TyVar],[Constraint],[TyVar]) -> f ([Constraint],[TyScript],[TyVar],[Constraint],[TyVar])
-ty = _3
+   -> ([Constraint], [TyVar], FreshM GatherTermInfo) -> f ([Constraint], [TyVar], FreshM GatherTermInfo)
+ty = _2
 
-custom :: Functor f => ([Constraint] -> f [Constraint])
-       -> ([Constraint],[TyScript],[TyVar],[Constraint],[TyVar]) -> f ([Constraint],[TyScript],[TyVar],[Constraint],[TyVar])
-custom = _4
-
-customVars :: Functor f => ([TyVar] -> f [TyVar])
-           -> ([Constraint],[TyScript],[TyVar],[Constraint],[TyVar]) -> f ([Constraint],[TyScript],[TyVar],[Constraint],[TyVar])
-customVars = _5
+wanted :: Functor f => (FreshM GatherTermInfo -> f (FreshM GatherTermInfo))
+       -> ([Constraint], [TyVar], FreshM GatherTermInfo) -> f ([Constraint], [TyVar], FreshM GatherTermInfo)
+wanted = _3
 
 _Case :: Prism' (Syn IsACaseAlternative) [GatherCaseInfo]
 _Case = prism GatherCase
@@ -92,12 +87,14 @@ _Case = prism GatherCase
                        _            -> Left x)
 
 instance Monoid (Syn IsATerm) where
-  mempty = GatherTerm [] [] [] [] []
+  mempty = GatherTerm [] [] $ return (GatherTermInfo [] [] [])
   (Error e1) `mappend` (Error e2) = Error (e1 `union` e2)
   e@(Error _) `mappend` _ = e
   _ `mappend` e@(Error _) = e
-  (GatherTerm g1 w1 v1 c1 cv1) `mappend` (GatherTerm g2 w2 v2 c2 cv2)
-    = GatherTerm (g1 ++ g2) (w1 ++ w2) (v1 ++ v2) (c1 ++ c2) (cv1 `union` cv2)
+  (GatherTerm g1 v1 i1) `mappend` (GatherTerm g2 v2 i2) = GatherTerm (g1 ++ g2) (v1 ++ v2) $ do
+    GatherTermInfo w1 c1 cv1 <- i1
+    GatherTermInfo w2 c2 cv2 <- i2
+    return $ GatherTermInfo (w1 ++ w2) (c1 ++ c2) (cv1 `union` cv2)
 
 instance Monoid (Syn IsACaseAlternative) where
   mempty = GatherCase []
@@ -120,4 +117,4 @@ theTouchables :: Functor f => ([TyVar] -> f [TyVar])
               -> (Env, [Constraint], [TyVar]) -> f (Env, [Constraint], [TyVar])
 theTouchables = _3
 
-type TypeRule = Rx.Rule (Wrap Integer) (UTerm_ ((SourcePos,SourcePos),TyVar,[TyVar])) Inh Syn
+type TypeRule = Rx.Rule (Wrap Integer) (UTerm_ ((SourcePos,SourcePos),TyVar)) Inh Syn

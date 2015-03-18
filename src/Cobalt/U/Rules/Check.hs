@@ -34,6 +34,13 @@ import System.IO.Unsafe
 import Unsafe.Coerce
 
 check :: String -> RuleStrictness -> Sy.Env -> TypeRule -> Either String TypeRule
+check _ _ _ rule = Right rule
+
+checkEnv :: Sy.Env -> Either [String] Sy.Env
+checkEnv env = Right env
+
+{-
+check :: String -> RuleStrictness -> Sy.Env -> TypeRule -> Either String TypeRule
 check _ RuleStrictness_Unsafe _ rule = Right rule
 check name strictness env rule@(Rx.Rule rx _) =
   let samples = unsafePerformIO $ replicateM 20 $
@@ -55,7 +62,7 @@ checkEnv env@(Sy.Env _ _ ax rules) = case checkEnv_ rules (1 :: Integer) of
             (Left a, _     ) -> Just [a]
             (_,      Just b) -> Just b
             _                -> Nothing
-        
+
 
 astGenerator :: Rx.Regex (Rx.Wrap Integer) (UTerm_ ((SourcePos,SourcePos),TyVar,[TyVar])) IsATerm
              -> Gen (AnnUTerm TyVar)
@@ -140,3 +147,4 @@ residualSubstitution tch ((v1, MonoType_Var v2) : rest)
 residualSubstitution tch ((v1, m2) : rest)
   | v1 `notElem` tch = residualSubstitution tch rest
   | otherwise        = Constraint_Unify (var v1) m2 : residualSubstitution tch rest
+-}

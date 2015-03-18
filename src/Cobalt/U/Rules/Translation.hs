@@ -22,6 +22,10 @@ import Cobalt.U.Attributes
 
 import Unsafe.Coerce
 
+syntaxRuleToScriptRule :: [Axiom] -> Rule -> TypeRule
+syntaxRuleToScriptRule = undefined
+
+{-
 -- Internal accessors
 termWanted :: Gathered -> [TyScript]
 termWanted (GatherTerm _ w _ _ _) = w
@@ -187,3 +191,4 @@ syntaxPolyTypeToScript (PolyType_Mono cs m) this capVars captures =
               m2  <- syntaxMonoTypeToScript m this capVars captures
               return $ PolyType_Mono cs2 m2
 syntaxPolyTypeToScript PolyType_Bottom _ _ _ = return $ return PolyType_Bottom
+-}

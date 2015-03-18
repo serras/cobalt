@@ -112,7 +112,7 @@ showU (UCaseAlternative k vs _ e a) =
   ("| " ++ intercalate " " (map show (k:vs)) ++ " => " ++ show a) : map ("  " ++) (showL e)
 showU _ = error "You should never get here"
 
-type AnnUTerm t = Fix (UTerm_ ((SourcePos,SourcePos),t,[TyVar])) IsATerm
+type AnnUTerm t = Fix (UTerm_ ((SourcePos,SourcePos),t)) IsATerm
 type AnnUTermVar t = Name (AnnUTerm t)
 
 pattern UTerm_IntLiteral n        a = Fix (UTerm_IntLiteral_ n a)
@@ -186,7 +186,7 @@ unbindCase (v,b,a) nv dv = do (vs, inner) <- unbind b
                                       Just p  -> Just <$> splitNormaal p
                               return $ UCaseAlternative (translate v) (map translate vs) p_ inner_ a
 
-tyvared :: (Applicative m, Fresh m, Rep t) => UTerm t -> m (UTerm (t,TyVar,[TyVar]))
+tyvared :: (Applicative m, Fresh m, Rep t) => UTerm t -> m (UTerm (t,TyVar))
 tyvared (UTerm_IntLiteral n a)     = UTerm_IntLiteral <$> pure n <*> upgrade a
 tyvared (UTerm_Var v a)            = UTerm_Var <$> pure (translate v) <*> upgrade a
 tyvared (UTerm_Abs v i e a)        = UTerm_Abs <$> pure (translate v) <*> upgrade i
@@ -209,16 +209,8 @@ tyvared (UTerm_Match e k dt us a)  = UTerm_Match <$> tyvared e <*> pure k <*> pu
         caseTyvared _ = error "You should never get here"
 tyvared _ = error "You should never get here"
 
-nUMBER_OF_SPEC_RULES_VARS :: Int
-nUMBER_OF_SPEC_RULES_VARS = 20
-
-upgrade :: (Applicative m, Fresh m) => t -> m (t,TyVar,[TyVar])
-upgrade t = (,,) <$> pure t <*> fresh (s2n "t") <*> generateNFresh nUMBER_OF_SPEC_RULES_VARS
-
-generateNFresh :: (Applicative m, Fresh m) => Int -> m [TyVar]
-generateNFresh n
-  | n <= 0    = return []
-  | otherwise = (:) <$> fresh (s2n "i") <*> generateNFresh (n-1)
+upgrade :: (Applicative m, Fresh m) => t -> m (t,TyVar)
+upgrade t = (,) <$> pure t <*> fresh (s2n "t")
 
 ann :: UTerm t -> t
 ann (UTerm_IntLiteral _ a)   = a

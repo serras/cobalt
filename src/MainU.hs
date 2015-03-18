@@ -57,7 +57,7 @@ mainServe = do
       case parse parseFile "code" code of
        Left ep -> json $ object [ "status"  .= ("error" :: String)
                                 , "message" .= show ep ]
-       Right (env, defns) -> 
+       Right (env, defns) ->
          let env' = env & dataE %~ (++ initialDataEnv)
           in case checkEnv env' of
               Left rulesErr -> json $ object [ "status"  .= ("error" :: String)
@@ -103,8 +103,8 @@ solveDefns env defns = do
   let sols = tcDefns env defns
   mapM_ showSolved (zip defns sols)
 
-showGathered :: ((RawDefn,Bool), (Gathered, AnnUTerm TyVar, [TyVar], [Constraint])) -> IO ()
-showGathered (((n,_,_),_), (Error errors, _, _, _)) = do
+showGathered :: ((RawDefn,Bool), (Either Errors ([Constraint], [TyVar], GatherTermInfo), AnnUTerm TyVar, [TyVar], [Constraint])) -> IO ()
+showGathered (((n,_,_),_), (Left errors, _, _, _)) = do
   setSGR [SetColor Foreground Vivid Blue]
   putStr (name2String n)
   setSGR [Reset]
@@ -114,7 +114,7 @@ showGathered (((n,_,_),_), (Error errors, _, _, _)) = do
   setSGR [Reset]
   mapM_ putStrLn errors
   putStrLn ""
-showGathered (((n,_,_),_), (GatherTerm _ [w] _ _ _, _, _, _)) = do
+showGathered (((n,_,_),_), (Right (_, _, GatherTermInfo [w] _ _), _, _, _)) = do
   setSGR [SetColor Foreground Vivid Blue]
   putStrLn (name2String n)
   setSGR [Reset]
@@ -137,14 +137,14 @@ showSolved (((n,_,_),_), sol) = do
   putStrLn ""
 
 -- JSON PART
-jsonScript :: (RawDefn,Bool) -> (Gathered, AnnUTerm TyVar, [TyVar], [Constraint]) -> Value
-jsonScript ((n,_,_),_) (Error e, _, _, _) =
+jsonScript :: (RawDefn,Bool) -> (Either Errors ([Constraint], [TyVar], GatherTermInfo), AnnUTerm TyVar, [TyVar], [Constraint]) -> Value
+jsonScript ((n,_,_),_) (Left e, _, _, _) =
   object [ "text" .= name2String n
          -- , "tags" .= [withGreek e]
          , "nodes" .= map justText e
          , "color" .= ("white" :: String)
          , "backColor" .= ("#F58471" :: String) ] -- red
-jsonScript ((n,_,_),_) (GatherTerm g w _ _ _, term, _, extra) =
+jsonScript ((n,_,_),_) (Right (g, _, GatherTermInfo w _ _), term, _, extra) =
   object [ "text" .= name2String n
          -- , "tags" .= [showWithGreek t]
          , "color" .= ("white" :: String)
@@ -216,37 +216,40 @@ textJsonConstraint Constraint_Inconsistent  = "⊥"
 
 
 showAnnTermJson :: Show t => AnnUTerm t -> [Value]
-showAnnTermJson (UTerm_IntLiteral n (_,t,_)) =
+showAnnTermJson (UTerm_IntLiteral n (_,t)) =
   [ object [ "text"  .= show n
            , "tags"  .= [showWithGreek t] ] ]
-showAnnTermJson (UTerm_Var v (_,t,_)) =
+showAnnTermJson (UTerm_StrLiteral n (_,t)) =
+  [ object [ "text"  .= show n
+           , "tags"  .= [showWithGreek t] ] ]
+showAnnTermJson (UTerm_Var v (_,t)) =
   [ object [ "text"  .= show v
            , "tags"  .= [showWithGreek t] ] ]
-showAnnTermJson (UTerm_Abs x _ e (_,t,_)) =
+showAnnTermJson (UTerm_Abs x _ e (_,t)) =
   [ object [ "text"  .= ("λ " ++ show x ++ " →")
            , "tags"  .= [showWithGreek t]
            , "nodes" .= showAnnTermJson e ] ]
-showAnnTermJson (UTerm_AbsAnn x _ e (p,_) (_,t,_)) =
+showAnnTermJson (UTerm_AbsAnn x _ e (p,_) (_,t)) =
   [ object [ "text"  .= ("λ (" ++ show x ++ " :: " ++ showWithGreek p ++ ") →")
            , "tags"  .= [showWithGreek t]
            , "nodes" .= showAnnTermJson e ] ]
-showAnnTermJson (UTerm_App a b (_,t,_)) =
+showAnnTermJson (UTerm_App a b (_,t)) =
   [ object [ "text"  .= ("@" :: String)
            , "tags"  .= [showWithGreek t]
            , "nodes" .= (showAnnTermJson a ++ showAnnTermJson b) ] ]
-showAnnTermJson (UTerm_Let x e1 e2 (_,t,_)) =
+showAnnTermJson (UTerm_Let x e1 e2 (_,t)) =
   [ object [ "text"  .= ("let " ++ show x ++ " =")
            , "nodes" .= showAnnTermJson e1 ]
   , object [ "text"  .= ("in" :: String)
            , "tags"  .= [showWithGreek t]
            , "nodes" .= showAnnTermJson e2 ] ]
-showAnnTermJson (UTerm_LetAnn x e1 e2 (p,_) (_,t,_)) =
+showAnnTermJson (UTerm_LetAnn x e1 e2 (p,_) (_,t)) =
   [ object [ "text"  .= ("let " ++ show x ++ " :: " ++ showWithGreek p ++ " =")
            , "nodes" .= showAnnTermJson e1 ]
   , object [ "text"  .= ("in" :: String)
            , "tags"  .= [showWithGreek t]
            , "nodes" .= showAnnTermJson e2 ] ]
-showAnnTermJson (UTerm_Match e c _k bs (_,t,_)) =
+showAnnTermJson (UTerm_Match e c _k bs (_,t)) =
   let bs' = map (\(UCaseAlternative d xs _casep es _) ->
                     object [ "text"  .= ("| " ++ intercalate " " (map show (d:xs)) ++ " →")
                            -- , "tags"  .= case casep of
