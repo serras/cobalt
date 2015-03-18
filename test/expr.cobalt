@@ -41,10 +41,10 @@ factorial = fix (\f -> \n -> match n with 'Int
                              | succ x -> mult (plus x 1) (f x));
 
 eval :: 'Expr 'Int -> 'Int
-  = fix (\e -> \expr -> match expr with 'Expr
+  = fix (\e -> \exp -> match exp with 'Expr
                         | intLit x -> x
                         | ifteE b x y -> ifte (evalBool b) (e x) (e y));
 evalWithoutSignature 
-  = fix (\e -> \expr -> match expr with 'Expr
+  = fix (\e -> \exp -> match exp with 'Expr
                         | intLit x -> x
                         | ifteE b x y -> ifte (evalBool b) (e x) (e y)) => fail;
