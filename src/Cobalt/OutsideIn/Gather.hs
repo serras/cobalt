@@ -45,6 +45,8 @@ data UseHigherRanks = UseHigherRanks | NoHigherRanks
 gather :: UseHigherRanks -> RawTerm -> GMonad Gathered
 gather _ (Term_IntLiteral n _) =
   return $ Gathered MonoType_Int (Term_IntLiteral n MonoType_Int) [] []
+gather _ (Term_StrLiteral s _) =
+  return $ Gathered MonoType_String (Term_StrLiteral s MonoType_String) [] []
 gather _ (Term_Var x _) =
   do sigma <- lookupFail fnE x
      tau <- var <$> fresh (string2Name "tau")

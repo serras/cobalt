@@ -26,8 +26,10 @@ module Cobalt.Language.Syntax (
 , RuleStrictness(..)
 , RuleRegexVar
 , RuleRegex(..)
-, RuleScript(..)
-, RuleScriptList(..)
+, RuleCheck
+, RuleScript
+, RuleScriptStatement(..)
+, RuleScriptMessage(..)
   -- * Whole program structure
   -- ** Environment
 , FnEnv
@@ -68,6 +70,7 @@ data Term t = Term_IntLiteral Integer t
             | Term_Let    (Bind (TermVar t, Embed (Term t)) (Term t)) t
             | Term_LetAnn (Bind (TermVar t, Embed (Term t)) (Term t)) PolyType t
             | Term_Match  (Term t) String [(TermVar t, Bind [TermVar t] (Term t), t)] t
+            | Term_StrLiteral String t
 
 atAnn :: (Alpha a, Alpha b) => (a -> b) -> Term a -> Term b
 atAnn f = runFreshM . atAnn' f
@@ -103,6 +106,7 @@ atAnn' f (Term_Match e c bs t) = do
                                expr' <- atAnn' f expr
                                return (translate d, bind (map translate xs) expr', f ann)) bs
   return $ Term_Match e' c b' (f t)
+atAnn' f (Term_StrLiteral n t) = return $ Term_StrLiteral n (f t)
 
 getAnn :: Term t -> t
 getAnn (Term_IntLiteral _ t) = t
@@ -113,33 +117,43 @@ getAnn (Term_App _ _ t)      = t
 getAnn (Term_Let _ t)        = t
 getAnn (Term_LetAnn _ _ t)   = t
 getAnn (Term_Match _ _ _ t)  = t
+getAnn (Term_StrLiteral _ t) = t
 
-data Rule = Rule RuleStrictness String RuleRegex RuleCheck (Bind [TyVar] RuleScript) deriving Show
+data Rule = Rule RuleStrictness String (Bind [TyVar] (RuleRegex, RuleCheck, RuleScript)) deriving Show
 
 data RuleStrictness = RuleStrictness_NonStrict | RuleStrictness_Strict | RuleStrictness_Unsafe deriving Show
 
 type RuleRegexVar = Name RuleRegex
-data RuleRegex = RuleRegex_Square RuleRegexVar
-               | RuleRegex_Iter (Bind RuleRegexVar RuleRegex)
+data RuleRegex = RuleRegex_Square  RuleRegexVar
+               | RuleRegex_Iter    (Bind RuleRegexVar RuleRegex)
                | RuleRegex_Any
-               | RuleRegex_Choice RuleRegex RuleRegex
-               | RuleRegex_App RuleRegex RuleRegex
-               | RuleRegex_Var String
-               | RuleRegex_Int Integer
-               | RuleRegex_Capture String (Maybe RuleRegex)
+               | RuleRegex_Choice  RuleRegex RuleRegex
+               | RuleRegex_App     RuleRegex RuleRegex
+               | RuleRegex_Var     RawTermVar
+               | RuleRegex_Int     Integer
+               | RuleRegex_Capture TyVar (Maybe RuleRegex)
                deriving Show
 
 type RuleCheck = [Constraint]
 
-data RuleScript = RuleScript_Merge RuleScriptList (Maybe String)
-                | RuleScript_Asym RuleScript RuleScript (Maybe String)
-                | RuleScript_Singleton Constraint (Maybe String)
-                | RuleScript_Ref String
-                deriving Show
-data RuleScriptList = RuleScriptList_List [RuleScript]
-                    | RuleScriptList_PerItem Constraint (Maybe String)
-                    | RuleScriptList_Ref String
-                    deriving Show
+type RuleScript = Bind [TyVar] [RuleScriptStatement]
+data RuleScriptStatement = RuleScriptStatement_Ref            TyVar
+                         | RuleScriptStatement_Constraint     Constraint (Maybe RuleScriptMessage)
+                         | RuleScriptStatement_Merge          (Maybe Integer)
+                         | RuleScriptStatement_MergeBlameLast (Maybe Integer)
+                         | RuleScriptStatement_Message        RuleScriptMessage
+                         | RuleScriptStatement_ForEach        [TyVar] (Bind [TyVar] RuleScript)
+                         | RuleScriptStatement_Update         TyVar MonoType
+                         deriving Show
+
+data RuleScriptMessage = RuleScriptMessage_Literal    String
+                       | RuleScriptMessage_Type       TyVar
+                       | RuleScriptMessage_Expression TyVar
+                       | RuleScriptMessage_VConcat    TyVar (Bind TyVar RuleScriptMessage) RuleScriptMessage
+                       | RuleScriptMessage_HConcat    TyVar (Bind TyVar RuleScriptMessage)
+                       | RuleScriptMessage_Vertical   RuleScriptMessage RuleScriptMessage
+                       | RuleScriptMessage_Horizontal RuleScriptMessage RuleScriptMessage
+                       deriving Show
 
 type FnEnv    = [(RawTermVar, PolyType)]
 type DataEnv  = [(String, [TyVar])]
@@ -162,6 +176,7 @@ type TyDefn  = (TyTermVar,  TyTerm,  PolyType)
 
 initialDataEnv :: DataEnv
 initialDataEnv = [("Int",     [])
+                 ,("Char",    [])
                  ,("List",    [string2Name "a"])
                  ,("Tuple2",  [string2Name "a", string2Name "b"])]
 
@@ -182,6 +197,7 @@ instance Rep t => Rep (Term t) where
              , Con rTermMatch  ((rep :: R (Term t)) :+: (rep :: R String)
                                 :+: (rep :: R [(TermVar t, Bind [TermVar t] (Term t), t)])
                                 :+: (rep :: R t) :+: MNil)
+             , Con rStrLiteral ((rep :: R String) :+: (rep :: R t) :+: MNil)
              ]
 
 instance ( Rep t, Sat (ctx t), Sat (ctx (Term t)), Sat (ctx (TermVar t))
@@ -205,6 +221,7 @@ rAnnTerm1 ct ctt ctv ci cs cp cb1 cb2 cbl =
         , Con rTermLet    (cb2 :+: ct :+: MNil)
         , Con rTermLetAnn (cb2 :+: cp :+: ct :+: MNil)
         , Con rTermMatch  (ctt :+: cs :+: cbl :+: ct :+: MNil)
+        , Con rStrLiteral (cs  :+: ct :+: MNil)
         ]
 
 rIntLiteral :: Emb (Integer :*: t :*: Nil) (Term t)
@@ -287,6 +304,16 @@ rTermMatch = Emb { to = \(e :*: c :*: alts :*: t :*: Nil) -> Term_Match e c alts
                  , fixity = Nonfix
                  }
 
+rStrLiteral :: Emb (String :*: t :*: Nil) (Term t)
+rStrLiteral = Emb { to = \(n :*: t :*: Nil) -> Term_StrLiteral n t
+                  , from = \x -> case x of
+                                   Term_StrLiteral n t -> Just (n :*: t :*: Nil)
+                                   _                   -> Nothing
+                  , labels = Nothing
+                  , name = "Term_StrLiteral"
+                  , fixity = Nonfix
+                  }
+
 instance Alpha t => Alpha (Term t)
 instance (Alpha t, Subst (Term t) t, Subst t Constraint, Subst t MonoType, Subst t PolyType) => Subst (Term t) (Term t) where
   isvar (Term_Var v _) = Just (SubstName v)
@@ -312,16 +339,16 @@ rSourcePos = Emb { to = \(fn :*: i :*: f :*: Nil) -> newPos fn i f
                  , name = "SourcePos"
                  , fixity = Nonfix
                  }
-          
+
 instance Alpha SourcePos
 
-$(derive [''RuleRegex, ''RuleScript, ''RuleScriptList])
+$(derive [''RuleRegex, ''RuleScriptStatement, ''RuleScriptMessage])
 instance Alpha RuleRegex
-instance Alpha RuleScript
-instance Alpha RuleScriptList
+instance Alpha RuleScriptStatement
+instance Alpha RuleScriptMessage
 
-instance Subst MonoType RuleScript
-instance Subst MonoType RuleScriptList
+instance Subst MonoType RuleScriptStatement
+instance Subst MonoType RuleScriptMessage
 
 -- Show instances
 
@@ -374,5 +401,6 @@ showAnnTerm' f (Term_Match e c bs t) = do
       line2      = "with " ++ c ++ " ==> " ++ show (f t)
       secondPart = line2 : concat bs'
   return $ firstPart ++ secondPart
+showAnnTerm' f (Term_StrLiteral n t) = return ["\"" ++ show n ++ "\" ==> " ++ show (f t)]
 
 deriving instance Show Env

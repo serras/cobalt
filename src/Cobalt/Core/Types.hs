@@ -14,6 +14,8 @@ module Cobalt.Core.Types (
 , MonoType(..)
 , MonoTypes
 , pattern MonoType_Int
+, pattern MonoType_Char
+, pattern MonoType_String
 , pattern MonoType_List
 , pattern MonoType_Tuple
 , pattern (:-->:)
@@ -126,8 +128,10 @@ data MonoType = MonoType_Fam   String [MonoType]
 
 type MonoTypes = [MonoType]
 
-pattern MonoType_Int       = MonoType_Con   "Int" []
-pattern MonoType_List  t   = MonoType_Con   "List" [t]
+pattern MonoType_Int       = MonoType_Con   "Int"    []
+pattern MonoType_Char      = MonoType_Con   "Char"   []
+pattern MonoType_String    = MonoType_List  MonoType_Char
+pattern MonoType_List  t   = MonoType_Con   "List"   [t]
 pattern MonoType_Tuple a b = MonoType_Con   "Tuple2" [a,b]
 pattern s :-->: r          = MonoType_Arrow s r
 
@@ -236,7 +240,7 @@ instance Subst MonoType Constraint
 instance Alpha Axiom
 instance Subst MonoType Axiom
 
--- Derive `Show` instances  
+-- Derive `Show` instances
 instance Show PolyType where
   show = runFreshM . showPolyType'
 

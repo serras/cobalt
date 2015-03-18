@@ -13,7 +13,7 @@ module Cobalt.Language.Parser (
 ) where
 
 import Control.Applicative hiding (many)
-import Data.List (nub)
+import Data.List ((\\))
 import Text.Parsec hiding ((<|>))
 import Text.Parsec.Language
 import qualified Text.Parsec.Token as T
@@ -86,9 +86,13 @@ parseAtom = -- Parenthesized expression
                 actions <- parseDoAction `sepBy1` comma
                 pos     <- getPosition
                 createTermDo actions pos)
-        <|> -- Literal
+        <|> -- Integer literal
             (\i n f -> Term_IntLiteral n (i,f)) <$> getPosition
                                                 <*> integer
+                                                <*> getPosition
+        <|> -- String literal
+            (\i n f -> Term_StrLiteral n (i,f)) <$> getPosition
+                                                <*> stringLiteral
                                                 <*> getPosition
         <|> -- Variable
             (\i v f -> Term_Var (string2Name v) (i,f)) <$> getPosition
@@ -312,47 +316,126 @@ parseExpected = try (id <$ reservedOp "=>" <*> (    const True  <$> reservedOp "
             <|> pure True
 
 parseRule :: Parsec String s Rule
-parseRule = Rule <$  reserved "rule"
-                 <*> (   id <$  reserved "strict"
-                            <*> pure RuleStrictness_Strict
-                     <|> id <$  reserved "unsafe"
-                            <*> pure RuleStrictness_Unsafe
-                     <|> pure RuleStrictness_NonStrict)
-                 <*> identifier
-                 <*  reserved "match"
-                 <*> parseRuleRegex
-                 <*> (   id <$  reserved "check"
-                            <*> commaSep1 parseConstraint
-                     <|> pure [])
-                 <*  reserved "script"
-                 <*> (bindRuleScript <$> parseRuleScript)
-                 <*  reservedOp ";"
+parseRule = do reserved "rule"
+               st <-  id <$  reserved "strict"
+                         <*> pure RuleStrictness_Strict
+                  <|> id <$  reserved "unsafe"
+                         <*> pure RuleStrictness_Unsafe
+                  <|> pure RuleStrictness_NonStrict
+               nm <- identifier
+               reserved "match"
+               rx <- parseRuleRegex
+               ch <-  id <$  reserved "check"
+                         <*> commaSep1 parseConstraint
+                  <|> pure []
+               reserved "script"
+               sc <- parseRuleScript
+               reservedOp ";"
+               createRule st nm rx ch sc
+
+createRule :: RuleStrictness -> String -> RuleRegex -> [Constraint] -> RuleScript -> Parsec String s Rule
+createRule st nm rx ch sc = do
+  let rxVars = fv rx
+      chVars = fv ch \\ rxVars
+      scVars = fv sc \\ rxVars
+  case (chVars, scVars) of
+    (_:_, _:_) -> fail "Neither check nor script blocks may have unbound variables"
+    (_:_, [])  -> fail "`check` blocks may not have unbound variables"
+    ([] , _:_) -> fail "`script` blocks may not have unbound variables (use `var`)"
+    ([] , [])  -> return $ Rule st nm (bind rxVars (rx, ch, sc))
+
+parseRuleCapture :: Parsec String s TyVar
+parseRuleCapture = s2n <$ char '#' <*> identifier
 
 parseRuleRegex :: Parsec String s RuleRegex
-parseRuleRegex = parseRuleRegexAtom `chainl1` (RuleRegex_Choice <$ reservedOp "|")
+parseRuleRegex = parseRuleRegexApp `chainl1` (RuleRegex_Choice <$ reservedOp "|")
+
+parseRuleRegexApp :: Parsec String s RuleRegex
+parseRuleRegexApp = parseRuleRegexAtom `chainl1` (pure RuleRegex_App)
 
 parseRuleRegexAtom :: Parsec String s RuleRegex
 parseRuleRegexAtom = -- Parenthesized expression
                      parens parseRuleRegex
-                 <|> createRegexIter <$> brackets parseRuleRegex
-                                     <*  reservedOp "*"
-                                     <*> identifier
+                 <|> (\rx v -> RuleRegex_Iter $ bind (string2Name v) rx)
+                                   <$> brackets parseRuleRegex
+                                   <*  reservedOp "*"
+                                   <*> identifier
                  <|> RuleRegex_Any <$ reserved "any"
-                 <|> RuleRegex_App <$  reserved "app"
-                                   <*> parseRuleRegex
-                                   <*> parseRuleRegex
-                 <|> RuleRegex_Var <$  reserved "var"
-                                   <*> stringLiteral
-                 <|> RuleRegex_Int <$  reserved "int"
-                                   <*> integer
-                 <|> RuleRegex_Square . s2n <$ char '&' <*> identifier
-                 <|> try (RuleRegex_Capture <$ char '#' <*> identifier <* char '@'
+                 <|> RuleRegex_Square <$ char '&' <*> (s2n <$> identifier)
+                 <|> try (RuleRegex_Capture <$> parseRuleCapture <* char '@'
                                             <*> (Just <$> parens parseRuleRegex) )
-                 <|> RuleRegex_Capture <$ char '#' <*> identifier <*> pure Nothing
+                 <|> RuleRegex_Capture <$> parseRuleCapture <*> pure Nothing
+                 <|> RuleRegex_Int <$> integer
+                 <|> RuleRegex_Var <$> (s2n <$> identifier)
 
-createRegexIter :: RuleRegex -> String -> RuleRegex
-createRegexIter rx v = RuleRegex_Iter $ bind (string2Name v) rx
+parseRuleScript :: Parsec String s RuleScript
+parseRuleScript = (\vs st -> bind vs (concat st))
+                     <$> (    id <$ reserved "var" <*> commaSep1 parseRuleCapture <* comma
+                          <|> pure [])
+                     <*> commaSep1 parseRuleStatement
 
+parseRuleStatement :: Parsec String s [RuleScriptStatement]
+parseRuleStatement = (\r -> [RuleScriptStatement_Ref r])
+                          <$  reserved "constraints"
+                          <*> parseRuleCapture
+                 <|> try ((\n msg -> (RuleScriptStatement_MergeBlameLast n)
+                                     : maybe [] (\m -> [RuleScriptStatement_Message m]) msg)
+                          <$  reserved "merge"
+                          <*> optionMaybe integer
+                          <*  reserved "blame"
+                          <*  reserved "last"
+                          <*> optionMaybe (braces parseRuleMessage))
+                 <|> (\n msg -> (RuleScriptStatement_Merge n)
+                                : maybe [] (\m -> [RuleScriptStatement_Message m]) msg)
+                          <$  reserved "merge"
+                          <*> optionMaybe integer
+                          <*> optionMaybe (braces parseRuleMessage)
+                 <|> (\msg -> [RuleScriptStatement_Message msg])
+                          <$  reserved "message"
+                          <*> braces parseRuleMessage
+                 <|> (\elts lsts sc -> [RuleScriptStatement_ForEach lsts (bind elts sc)])
+                          <$  reserved "foreach"
+                          <*> commaSep1 parseRuleCapture
+                          <*  reservedOp "<-"
+                          <*> commaSep1 parseRuleCapture
+                          <*> braces parseRuleScript
+                 <|> (\v m -> [RuleScriptStatement_Update v m])
+                          <$  reserved "update"
+                          <*> parseRuleCapture
+                          <*  reservedOp "<-"
+                          <*> parseMonoType
+                 <|> (\msg -> [ RuleScriptStatement_Constraint Constraint_Inconsistent Nothing
+                              , RuleScriptStatement_Message msg ])
+                          <$  reserved "repair"
+                          <*> braces parseRuleMessage
+                 <|> (\c msg -> [RuleScriptStatement_Constraint c msg])
+                          <$> parseConstraint
+                          <*> optionMaybe (braces parseRuleMessage)
+
+parseRuleMessage :: Parsec String s RuleScriptMessage
+parseRuleMessage = parseRuleMessageAtom `chainl1` (   RuleScriptMessage_Vertical   <$ reservedOp "<|>"
+                                                  <|> RuleScriptMessage_Horizontal <$ reservedOp "<->")
+
+parseRuleMessageAtom :: Parsec String s RuleScriptMessage
+parseRuleMessageAtom = parens parseRuleMessage
+                   <|> RuleScriptMessage_Literal    <$> stringLiteral
+                   <|> RuleScriptMessage_Type       <$  reserved "type" <*> parseRuleCapture
+                   <|> RuleScriptMessage_Expression <$  reserved "expr" <*> parseRuleCapture
+                   <|> (\x xs s sep -> RuleScriptMessage_VConcat xs (bind x s) sep)
+                                                    <$  reserved "vcat"
+                                                    <*> parseRuleCapture
+                                                    <*  reservedOp "<-"
+                                                    <*> parseRuleCapture
+                                                    <*> parseRuleMessage
+                                                    <*> parseRuleMessage
+                   <|> (\x xs s -> RuleScriptMessage_HConcat xs (bind x s))
+                                                    <$  reserved "hcat"
+                                                    <*> parseRuleCapture
+                                                    <*  reservedOp "<-"
+                                                    <*> parseRuleCapture
+                                                    <*> parseRuleMessage
+
+{-
 bindRuleScript :: RuleScript -> Bind [TyVar] RuleScript
 bindRuleScript s = let vars = filter (\x -> case name2String x of { '#':_ -> False; _ -> True } ) $ nub $ fv s
                     in bind vars s
@@ -379,6 +462,7 @@ parseRuleScriptList = -- Parenthesized expression
                   <|> try (RuleScriptList_PerItem <$> parseConstraint
                                                   <*> optionMaybe stringLiteral)
                   <|> RuleScriptList_Ref <$ char '#' <*> identifier
+-}
 
 data DeclType = AData   (String, [TyVar])
               | AnAxiom [Axiom]
@@ -409,9 +493,10 @@ parseFile = buildProgram <$> many parseDecl
 
 lexer :: T.TokenParser t
 lexer = T.makeTokenParser $ haskellDef { T.reservedNames = "rule" : "strict" : "unsafe"
-                                                           : "match" : "check" : "script"
-                                                           : "merge" : "asym"
-                                                           : "any" : "app" : "var" : "int"
+                                                           : "match" : "check" : "script" : "any"
+                                                           : "type" : "expr" : "vcat" : "hcat"
+                                                           : "var" : "constraints" : "merge" : "blame" : "last"
+                                                           : "message" : "foreach" : "repair" : "update"
                                                            : "injective" : "defer" : "synonym"
                                                            : "with" : T.reservedNames haskellDef }
 

@@ -23,6 +23,7 @@ import Util.ExceptTIsFresh ()
 
 mainTypeRules :: [TypeRule]
 mainTypeRules = [ intLiteralRule
+                , strLiteralRule
                 , varRule
                 , absRule
                 , absAnnRule
@@ -45,6 +46,15 @@ intLiteralRule = rule0 $
   inj (UTerm_IntLiteral_ __ __) ->>> \(UTerm_IntLiteral _ (p,thisTy,_)) -> do
     this.syn._Term.given  .= []
     this.syn._Term.wanted .= [SingUnifyC (var thisTy) MonoType_Int p]
+    this.syn._Term.ty     .= [thisTy]
+    this.syn._Term.custom .= []
+    this.syn._Term.customVars .= []
+
+strLiteralRule :: TypeRule
+strLiteralRule = rule0 $
+  inj (UTerm_StrLiteral_ __ __) ->>> \(UTerm_StrLiteral _ (p,thisTy,_)) -> do
+    this.syn._Term.given  .= []
+    this.syn._Term.wanted .= [SingUnifyC (var thisTy) MonoType_String p]
     this.syn._Term.ty     .= [thisTy]
     this.syn._Term.custom .= []
     this.syn._Term.customVars .= []
@@ -250,6 +260,6 @@ caseRule = rule $ \e ->
               betaVars = boundvars \\ fv convars
            in GatherCase [GatherCaseInfo g betaVars q (MonoType_Con dname convars) w c cv eTy]
         _ -> thisIsNotOk
-    
+
 thisIsNotOk :: a
 thisIsNotOk = error "This should never happen"
