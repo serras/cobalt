@@ -103,7 +103,10 @@ solveDefns env defns = do
   let sols = tcDefns env defns
   mapM_ showSolved (zip defns sols)
 
-showGathered :: ((RawDefn,Bool), (Either Errors ([Constraint], [TyVar], GatherTermInfo), AnnUTerm TyVar, [TyVar], [Constraint])) -> IO ()
+showGathered :: ( (RawDefn,Bool)
+                , ( Either Errors ([Constraint], [a], GatherTermInfo)
+                  , AnnUTerm TyVar, [TyVar], [Constraint] ) )
+             -> IO ()
 showGathered (((n,_,_),_), (Left errors, _, _, _)) = do
   setSGR [SetColor Foreground Vivid Blue]
   putStr (name2String n)
@@ -132,7 +135,10 @@ showSolved (((n,_,_),_), sol) = do
   putStrLn ""
 
 -- JSON PART
-jsonScript :: (RawDefn,Bool) -> (Either Errors ([Constraint], [TyVar], GatherTermInfo), AnnUTerm TyVar, [TyVar], [Constraint]) -> Value
+jsonScript :: (RawDefn,Bool)
+           -> ( Either Errors ([Constraint], [a], GatherTermInfo)
+              , AnnUTerm TyVar, [TyVar], [Constraint] )
+           -> Value
 jsonScript ((n,_,_),_) (Left e, _, _, _) =
   object [ "text" .= name2String n
          -- , "tags" .= [withGreek e]

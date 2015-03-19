@@ -19,7 +19,7 @@ module Cobalt.U.Attributes (
 , _Error
 , _Term
 , given
-, ty
+, me
 , wanted
 , _Case
 , TypeRule
@@ -39,7 +39,7 @@ import Cobalt.U.Script
 type Errors = [String]
 data Syn (ix :: Ix) where
   Error      :: Errors -> Syn ix
-  GatherTerm :: [Constraint] -> [TyVar] -> [FreshM GatherTermInfo] -> Syn IsATerm
+  GatherTerm :: [Constraint] -> [UTerm ((SourcePos,SourcePos),TyVar)] -> [FreshM GatherTermInfo] -> Syn IsATerm
   GatherCase :: [GatherCaseInfo] -> Syn IsACaseAlternative
 
 data GatherTermInfo = GatherTermInfo { tree :: TyScript
@@ -62,22 +62,25 @@ _Error = prism Error (\x -> case x of
                               Error e -> Right e
                               _       -> Left x)
 
-_Term :: Prism' (Syn IsATerm) ([Constraint], [TyVar], [FreshM GatherTermInfo])
+_Term :: Prism' (Syn IsATerm) ([Constraint], [UTerm ((SourcePos,SourcePos),TyVar)], [FreshM GatherTermInfo])
 _Term = prism (\(g,v,i) -> GatherTerm g v i)
               (\x -> case x of
                        GatherTerm g v i -> Right (g,v,i)
                        _                -> Left x)
 
 given :: Functor f => ([Constraint] -> f [Constraint])
-      -> ([Constraint], [TyVar], [FreshM GatherTermInfo]) -> f ([Constraint], [TyVar], [FreshM GatherTermInfo])
+      -> ([Constraint], [UTerm ((SourcePos,SourcePos),TyVar)], [FreshM GatherTermInfo])
+      -> f ([Constraint], [UTerm ((SourcePos,SourcePos),TyVar)], [FreshM GatherTermInfo])
 given = _1
 
-ty :: Functor f => ([TyVar] -> f [TyVar])
-   -> ([Constraint], [TyVar], [FreshM GatherTermInfo]) -> f ([Constraint], [TyVar], [FreshM GatherTermInfo])
-ty = _2
+me :: Functor f => ([UTerm ((SourcePos,SourcePos),TyVar)] -> f [UTerm ((SourcePos,SourcePos),TyVar)])
+   -> ([Constraint], [UTerm ((SourcePos,SourcePos),TyVar)], [FreshM GatherTermInfo])
+   -> f ([Constraint], [UTerm ((SourcePos,SourcePos),TyVar)], [FreshM GatherTermInfo])
+me = _2
 
 wanted :: Functor f => ([FreshM GatherTermInfo] -> f [FreshM GatherTermInfo])
-       -> ([Constraint], [TyVar], [FreshM GatherTermInfo]) -> f ([Constraint], [TyVar], [FreshM GatherTermInfo])
+       -> ([Constraint], [UTerm ((SourcePos,SourcePos),TyVar)], [FreshM GatherTermInfo])
+       -> f ([Constraint], [UTerm ((SourcePos,SourcePos),TyVar)], [FreshM GatherTermInfo])
 wanted = _3
 
 _Case :: Prism' (Syn IsACaseAlternative) [GatherCaseInfo]

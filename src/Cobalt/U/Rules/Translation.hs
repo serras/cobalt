@@ -27,7 +27,7 @@ type UTermWithPos = UTerm_ ((SourcePos,SourcePos),TyVar)
 
 type CaptureVarList = [TyVar]
 type TranslationTypeEnv = [(TyVar, [MonoType])]
-type TranslationExprEnv = [(TyVar, [()])] -- [(TyVar, [a])]
+type TranslationExprEnv = [(TyVar, [UTerm ((SourcePos,SourcePos),TyVar)])]
 type TranslationConsEnv = [(TyVar, [FreshM GatherTermInfo])]
 
 (!!!) :: Eq a => [(a, b)] -> a -> b
@@ -45,11 +45,11 @@ syntaxRuleToScriptRule ax (Rule _ _ i) = runFreshM $ do
                          rightSyns   = filter (is _Term . snd) childrenMap
                          (initialTy, exprs, constraints) = explodeMap vars rightSyns
                          checkW      = syntaxConstraintListToScript check thisTy initialTy
-                         wanteds     = undefined -- syntaxBindScriptToScript script p thisTy vars rightSyns
+                         wanteds     = syntaxBindScriptToScript p thisTy initialTy exprs constraints script
                       in ( null check || entails ax sat checkW tchs
                          , [Rx.Child (Wrap n) [envAndSat] | n <- [0 .. (toEnum $ length vars)]]
                          , case initialSyn of
-                             GatherTerm g _ _ -> GatherTerm g [thisTy] wanteds
+                             GatherTerm g _ _ -> GatherTerm g [term] [wanteds]
                              _ -> initialSyn  -- Float errors upwards
                          ) )
 
@@ -58,12 +58,14 @@ syntaxSynToMap [] = []
 syntaxSynToMap (Rx.Child (Wrap n) info : rest) =
   (n, fold (unsafeCoerce info :: [Gathered])) : syntaxSynToMap rest
 
-explodeMap :: CaptureVarList -> [(Integer, Gathered)] -> (TranslationTypeEnv, TranslationExprEnv, TranslationConsEnv)
+explodeMap :: CaptureVarList -> [(Integer, Gathered)]
+           -> (TranslationTypeEnv, TranslationExprEnv, TranslationConsEnv)
 explodeMap tyvars [] = ([], [], [])
-explodeMap tyvars ((n, GatherTerm _ assignedV i):rest) =
+explodeMap tyvars ((n, GatherTerm _ exprs i):rest) =
   let (t, e, c) = explodeMap tyvars rest
       v = tyvars !! fromEnum n
-   in ( (v, map var assignedV) : t, (v, [()]) : e, (v, i) : c)
+   in ( (v, map (var . snd . ann) exprs) : t, (v, exprs) : e, (v, i) : c)
+explodeMap _ _ = error "This should never happen"
 
 -- Translation of "match" block
 syntaxRegexToScriptRegex :: RuleRegex -> [(RuleRegexVar, c IsATerm)]
@@ -89,6 +91,29 @@ syntaxRegexToScriptRegex (RuleRegex_Capture n (Just r)) capturevars tyvars =
   (Wrap $ toEnum $ fromJust $ elemIndex n tyvars) <<- syntaxRegexToScriptRegex r capturevars tyvars
 
 -- Translation of "script" block
+syntaxBindScriptToScript :: (SourcePos, SourcePos)
+                         -> TyVar -> TranslationTypeEnv -> TranslationExprEnv -> TranslationConsEnv
+                         -> RuleScript -> FreshM GatherTermInfo
+syntaxBindScriptToScript p this typeEnv exprEnv consEnv script = do
+  (vars, statements) <- unbind script
+  -- TODO: introduce new customs for the new vars into typeEnv and add to the result
+  syntaxBindStatementsToScript p this typeEnv exprEnv consEnv [] statements
+
+syntaxBindStatementsToScript :: (SourcePos, SourcePos)
+                             -> TyVar -> TranslationTypeEnv -> TranslationExprEnv -> TranslationConsEnv
+                             -> [TyScript] -> [RuleScriptStatement] -> FreshM GatherTermInfo
+syntaxBindStatementsToScript _ _ _ _ _ []  [] = fail "Empty stack at the end"
+syntaxBindStatementsToScript _ _ _ _ _ [s] [] = return $ GatherTermInfo s [] []
+syntaxBindStatementsToScript p _ _ _ _ xs  [] = return $ GatherTermInfo (Merge xs (Just p,Nothing)) [] []
+syntaxBindStatementsToScript p this typeEnv exprEnv consEnv stack (RuleScriptStatement_Ref v : rest) =
+  case lookup v consEnv of
+    Just [i] -> do GatherTermInfo treeThis customThis customVarsThis <- i
+                   GatherTermInfo r customR customVarsR <-
+                     syntaxBindStatementsToScript p this typeEnv exprEnv consEnv
+                                                  (treeThis : stack) rest
+                   return $ GatherTermInfo r (customThis ++ customR) (customVarsThis `union` customVarsR)
+    Just _   -> fail $ show v ++ " is not a single constraint"
+    Nothing  -> fail $ "Cannot find " ++ show v
 
 -- Translation of types and constraints -- used in "check" block
 syntaxConstraintListToScript :: [Constraint] -> TyVar -> TranslationTypeEnv -> [Constraint]

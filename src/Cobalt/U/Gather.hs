@@ -50,11 +50,14 @@ infix 4 .=.
 (.=.) :: MonadState s m => ASetter s s a [t] -> t -> m ()
 l .=. r = l .= [r]
 
+ty :: UTerm ((SourcePos,SourcePos),TyVar) -> TyVar
+ty = snd . ann
+
 intLiteralRule :: TypeRule
 intLiteralRule = rule0 $
-  inj (UTerm_IntLiteral_ __ __) ->>> \(UTerm_IntLiteral _ (p,thisTy)) -> do
+  inj (UTerm_IntLiteral_ __ __) ->>> \theThing@(UTerm_IntLiteral _ (p,thisTy)) -> do
     this.syn._Term.given  .= []
-    this.syn._Term.ty     .= [thisTy]
+    this.syn._Term.me     .= [theThing]
     this.syn._Term.wanted .=! GatherTermInfo { tree = SingUnifyC (var thisTy) MonoType_Int p
                                              , custom = []
                                              , customVars = []
@@ -62,9 +65,9 @@ intLiteralRule = rule0 $
 
 strLiteralRule :: TypeRule
 strLiteralRule = rule0 $
-  inj (UTerm_StrLiteral_ __ __) ->>> \(UTerm_StrLiteral _ (p,thisTy)) -> do
+  inj (UTerm_StrLiteral_ __ __) ->>> \theThing@(UTerm_StrLiteral _ (p,thisTy)) -> do
     this.syn._Term.given  .= []
-    this.syn._Term.ty     .= [thisTy]
+    this.syn._Term.me     .= [theThing]
     this.syn._Term.wanted .=! GatherTermInfo { tree = SingUnifyC (var thisTy) MonoType_String p
                                              , custom = []
                                              , customVars = []
@@ -72,12 +75,12 @@ strLiteralRule = rule0 $
 
 varRule :: TypeRule
 varRule = rule0 $
-  inj (UTerm_Var_ __ __) ->>> \(UTerm_Var v (p,thisTy)) -> do
+  inj (UTerm_Var_ __ __) ->>> \theThing@(UTerm_Var v (p,thisTy)) -> do
     env <- use (this.inh_.theEnv.fnE)
     case lookup (translate v) env of
       Nothing    -> this.syn .= Error ["Cannot find " ++ show v]
       Just sigma -> do this.syn._Term.given  .= []
-                       this.syn._Term.ty     .= [thisTy]
+                       this.syn._Term.me     .= [theThing]
                        this.syn._Term.wanted .=! GatherTermInfo { tree = SingInstC (var thisTy) sigma p
                                                                 , custom = []
                                                                 , customVars = []
@@ -85,48 +88,48 @@ varRule = rule0 $
 
 absRule :: TypeRule
 absRule = rule $ \inner ->
-  inj (UTerm_Abs_ __ __ (inner <<- any_) __) ->>> \(UTerm_Abs v (_,vty) _ (p,thisTy)) -> do
+  inj (UTerm_Abs_ __ __ (inner <<- any_) __) ->>> \theThing@(UTerm_Abs v (_,vty) _ (p,thisTy)) -> do
     copy [inner]
     at inner . inh_ . theEnv . fnE %= ((translate v, var vty) : ) -- Add to environment
     innerSyn <- use (at inner . syn)
     this.syn .= innerSyn
-    this.syn._Term.ty .= [thisTy]
+    this.syn._Term.me .= [theThing]
     this.syn._Term.wanted .=. case innerSyn of
       GatherTerm _g [ity] [i] -> do
         gg@(GatherTermInfo w _ _ ) <- i
-        return $ gg { tree = AsymC (SingUnifyC (var thisTy) (var vty :-->: var ity) p) w p }
+        return $ gg { tree = AsymC (SingUnifyC (var thisTy) (var vty :-->: var (ty ity)) p) w p }
       _ -> thisIsNotOk
 
 absAnnRule :: TypeRule
 absAnnRule = rule $ \inner ->
-  inj (UTerm_AbsAnn_ __ __ (inner <<- any_) __ __) ->>> \(UTerm_AbsAnn v (vpos,vty) _ (tyAnn,_) (p,thisTy)) -> do
+  inj (UTerm_AbsAnn_ __ __ (inner <<- any_) __ __) ->>> \theThing@(UTerm_AbsAnn v (vpos,vty) _ (tyAnn,_) (p,thisTy)) -> do
     copy [inner]
     at inner . inh_ . theEnv . fnE %= ((translate v, tyAnn) : ) -- Add to environment
     innerSyn <- use (at inner . syn)
     this.syn .= innerSyn
-    this.syn._Term.ty .= [thisTy]
+    this.syn._Term.me .= [theThing]
     this.syn._Term.wanted .=. case innerSyn of
       GatherTerm _g [ity] [i] -> do
         gg@(GatherTermInfo w _ _ ) <- i
         return $ gg { tree = case tyAnn of
-                        PolyType_Mono [] m -> AsymC (SingUnifyC (var thisTy) (m :-->: var ity) p) w p
-                        _ -> AsymC (MergeC [ SingUnifyC (var thisTy) (var vty :-->: var ity) p
+                        PolyType_Mono [] m -> AsymC (SingUnifyC (var thisTy) (m :-->: var (ty ity)) p) w p
+                        _ -> AsymC (MergeC [ SingUnifyC (var thisTy) (var vty :-->: var (ty ity)) p
                                            , SingEqualC (var vty) tyAnn vpos ] p) w p }
       _ -> thisIsNotOk
 
 appRule :: TypeRule
 appRule = rule $ \(e1, e2) ->
-  inj (UTerm_App_ (e1 <<- any_) (e2 <<- any_) __) ->>> \(UTerm_App _ _ (p,thisTy)) -> do
+  inj (UTerm_App_ (e1 <<- any_) (e2 <<- any_) __) ->>> \theThing@(UTerm_App _ _ (p,thisTy)) -> do
     copy [e1, e2]
     e1Syn <- use (at e1 . syn)
     e2Syn <- use (at e2 . syn)
     this.syn .= mappend e1Syn e2Syn
-    this.syn._Term.ty .= [thisTy]
+    this.syn._Term.me .= [theThing]
     this.syn._Term.wanted .=. case (e1Syn, e2Syn) of
       (GatherTerm _g1 [ity1] [i1], GatherTerm _g2 [ity2] [i2]) -> do
          GatherTermInfo w1 c1 cv1 <- i1
          GatherTermInfo w2 c2 cv2 <- i2
-         return $ GatherTermInfo { tree = AsymC (SingUnifyC (var ity1) (var ity2 :-->: var thisTy) p) (MergeC [w1,w2] p) p
+         return $ GatherTermInfo { tree = AsymC (SingUnifyC (var (ty ity1)) (var (ty ity2) :-->: var thisTy) p) (MergeC [w1,w2] p) p
                                  , custom = c1 ++ c2
                                  , customVars = cv1 `union` cv2
                                  }
@@ -134,21 +137,21 @@ appRule = rule $ \(e1, e2) ->
 
 letRule :: TypeRule
 letRule = rule $ \(e1, e2) ->
-  inj (UTerm_Let_ __ (e1 <<- any_) (e2 <<- any_) __) ->>> \(UTerm_Let x _ _ (p,thisTy)) -> do
+  inj (UTerm_Let_ __ (e1 <<- any_) (e2 <<- any_) __) ->>> \theThing@(UTerm_Let x _ _ (p,thisTy)) -> do
     copy [e1, e2]
     e1Syn <- use (at e1 . syn)
     -- Change second part environment
     at e2 . inh_ . theEnv . fnE %= case e1Syn of
-      GatherTerm _ [ity1] _ -> ((translate x, var ity1) : )
+      GatherTerm _ [ity1] _ -> ((translate x, var (ty ity1)) : )
       _                     -> id
     e2Syn <- use (at e2 . syn)
     this.syn .= mappend e1Syn e2Syn
-    this.syn._Term.ty .= [thisTy]
+    this.syn._Term.me .= [theThing]
     this.syn._Term.wanted .=. case (e1Syn, e2Syn) of
       (GatherTerm _g1 _ity1 [i1], GatherTerm _g2 [ity2] [i2]) -> do
         GatherTermInfo w1 c1 cv1 <- i1
         GatherTermInfo w2 c2 cv2 <- i2
-        return $ GatherTermInfo { tree = MergeC [w1, w2, SingUnifyC (var thisTy) (var ity2) p] p
+        return $ GatherTermInfo { tree = MergeC [w1, w2, SingUnifyC (var thisTy) (var (ty ity2)) p] p
                                 , custom = c1 ++ c2
                                 , customVars = cv1 `union` cv2
                                 }
@@ -157,7 +160,7 @@ letRule = rule $ \(e1, e2) ->
 letAnnRule :: TypeRule
 letAnnRule = rule $ \(e1, e2) ->
   inj (UTerm_LetAnn_ __ (e1 <<- any_) (e2 <<- any_) __ __) ->>>
-    \(UTerm_LetAnn x _ _ (tyAnn,(q1,t1,_)) (p,thisTy)) -> do
+    \theThing@(UTerm_LetAnn x _ _ (tyAnn,(q1,t1,_)) (p,thisTy)) -> do
       let isMono = case tyAnn of
                      PolyType_Mono [] m -> Just m
                      _                  -> Nothing
@@ -174,16 +177,16 @@ letAnnRule = rule $ \(e1, e2) ->
         (Just _,  GatherTerm g1 _ _, GatherTerm g2 _ _) -> g1 ++ g2
         (Nothing, _                , GatherTerm g2 _ _) -> g2
         _ -> thisIsNotOk
-      this.syn._Term.ty .= [thisTy]
+      this.syn._Term.me .= [theThing]
       this.syn._Term.wanted .=. case (e1Syn, e2Syn) of
         (GatherTerm g1 [ity1] [i1], GatherTerm _g2 [ity2] [i2]) -> do
           GatherTermInfo w1 c1 cv1 <- i1
           GatherTermInfo w2 c2 cv2 <- i2
           return $ GatherTermInfo { tree = case isMono of
-                                      Just m  -> MergeC [ w1, SingUnifyC (var ity1) m p, w2, SingUnifyC (var thisTy) (var ity2) p ] p
-                                      Nothing -> let vars = insert ity1 (fvScript w1) \\ nub (fv env)
-                                                  in MergeC [ Exists vars (q1 ++ g1) (MergeC [ w1, SingUnifyC (var ity1) t1 p ] p)
-                                                            , w2, SingUnifyC (var thisTy) (var ity2) p ] p
+                                      Just m  -> MergeC [ w1, SingUnifyC (var (ty ity1)) m p, w2, SingUnifyC (var thisTy) (var (ty ity2)) p ] p
+                                      Nothing -> let vars = insert (ty ity1) (fvScript w1) \\ nub (fv env)
+                                                  in MergeC [ Exists vars (q1 ++ g1) (MergeC [ w1, SingUnifyC (var (ty ity1)) t1 p ] p)
+                                                            , w2, SingUnifyC (var thisTy) (var (ty ity2)) p ] p
                                   , custom = c1 ++ c2
                                   , customVars = cv1 `union` cv2
                                   }
@@ -191,7 +194,7 @@ letAnnRule = rule $ \(e1, e2) ->
 
 matchRule :: TypeRule
 matchRule = rule $ \(e, branches) ->
-  inj (UTerm_Match_ (e <<- any_) __ __ [branches <<- any_] __) ->>> \(UTerm_Match _ k mk _ (p,thisTy)) -> do
+  inj (UTerm_Match_ (e <<- any_) __ __ [branches <<- any_] __) ->>> \theThing@(UTerm_Match _ k mk _ (p,thisTy)) -> do
         copy [e]
         copy [branches]
         env <- use (this.inh_.theEnv.fnE)
@@ -215,7 +218,7 @@ matchRule = rule $ \(e, branches) ->
               [] -> g ++ concatMap (fst . fromJust) caseInfos
               _ -> thisIsNotOk
           _ -> thisIsNotOk
-        this.syn._Term.ty .= [thisTy]
+        this.syn._Term.me .= [theThing]
         -- And now the wanted part
         this.syn._Term.wanted .=. case (einfo, binfo, mk) of
           (GatherTerm _ [te] [i], GatherCase cases, Just mko) ->
@@ -224,7 +227,7 @@ matchRule = rule $ \(e, branches) ->
               [] -> do GatherTermInfo we c cv <- i
                        caseInfosJust <- sequence $ map (snd . fromJust) caseInfos
                        let (caseWs, caseCs, caseCVs) = unzip3 caseInfosJust
-                       return $ GatherTermInfo { tree = AsymC (SingUnifyC (var te) mko p)
+                       return $ GatherTermInfo { tree = AsymC (SingUnifyC (var (ty te)) mko p)
                                                               (MergeC (we : caseWs) p) p
                                                , custom = c ++ concat caseCs
                                                , customVars = cv ++ concat caseCVs
@@ -274,7 +277,7 @@ caseRule = rule $ \e ->
           let -- resultC = Singleton (Constraint_Unify (var thisTy) (var eTy)) (Just p, Nothing)
               betaVars    = boundvars \\ fv convars
               freshScript = do { GatherTermInfo w c cv <- i ; return (GatherTermInfo w c cv) }
-           in GatherCase [GatherCaseInfo g betaVars q (MonoType_Con dname convars) freshScript eTy]
+           in GatherCase [GatherCaseInfo g betaVars q (MonoType_Con dname convars) freshScript (ty eTy)]
         _ -> thisIsNotOk
 
 thisIsNotOk :: a
