@@ -12,3 +12,4 @@ cabal.sandbox.config
 cabal.config
 *_flymake.hs
 .anvil
+.idea
