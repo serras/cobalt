@@ -49,20 +49,21 @@ gDefn_ :: [Constraint] -> [TyVar] -> Env -> RawUnboundDefn -> FreshM (GDefnGathe
 gDefn_ sat tchs env@(Env _ _ ax rules) (_name,tyv,_,Nothing) =
   case eval (map (syntaxRuleToScriptRule ax) rules ++ mainTypeRules) (IndexIndependent (env,sat,tchs)) tyv of
     Error err -> return (Left err, tyv, [])
-    GatherTerm g v i -> do GatherTermInfo [w] c cv <- i
-                           -- Chose whether to apply exists removal or not
-                           let simplifiedW = simplifyScript w
-                           return (Right (g, v, GatherTermInfo [simplifiedW] c cv), tyv, v ++ fvScript simplifiedW)
+    GatherTerm g v [i] -> do GatherTermInfo w c cv <- i
+                             -- Chose whether to apply exists removal or not
+                             let simplifiedW = simplifyScript w
+                             return (Right (g, v, GatherTermInfo simplifiedW c cv), tyv, v ++ fvScript simplifiedW)
+    _ -> error "This should never happen"
 gDefn_ sat tchs (Env fn dat ax rules) (name,tyv,Just declaredType,Just (q1,t1,_)) = do
   let env' = Env ((name,declaredType) : fn) dat ax rules
   case eval (map (syntaxRuleToScriptRule ax) rules ++ mainTypeRules) (IndexIndependent (env',sat,tchs)) tyv of
     Error err -> return (Left err, tyv, [])
-    GatherTerm g [v] i -> do GatherTermInfo [w] c cv <- i
-                             let extra = Constraint_Unify (var v) t1
-                                 simplifiedW = simplifyScript w
-                                 withExtra = Asym (Singleton extra (Nothing,Nothing)) simplifiedW (Nothing,Nothing)
-                             -- Chose whether to apply exists removal or not -> look above
-                             return (Right (g ++ q1, [v], GatherTermInfo [withExtra] c cv), tyv, v : fvScript simplifiedW)
+    GatherTerm g [v] [i] -> do GatherTermInfo w c cv <- i
+                               let extra = Constraint_Unify (var v) t1
+                                   simplifiedW = simplifyScript w
+                                   withExtra = Asym (Singleton extra (Nothing,Nothing)) simplifiedW (Nothing,Nothing)
+                               -- Chose whether to apply exists removal or not -> look above
+                               return (Right (g ++ q1, [v], GatherTermInfo withExtra c cv), tyv, v : fvScript simplifiedW)
     _ -> error "This should never happen"
 gDefn_ _ _ _ _ = error "This should never happen"
 
@@ -87,7 +88,7 @@ tcDefn_ extra tchs env@(Env _ _ ax _) defn@(_,_,annotation,_) = do
     Left errs -> return ( (Solution [] [] [] [], map errorFromPreviousPhase errs, emptyGraph)
                          , atUAnn (\(pos, m) -> (pos, var m)) term
                          , Nothing )
-    Right (g, [v], GatherTermInfo [w] _ _) -> do
+    Right (g, [v], GatherTermInfo w _ _) -> do
       -- reuse implementation of obtaining substitution
       s@(inn@(Solution smallG rs subst' tch'),errs,graph) <- solve ax g tch w
       let newTerm = atUAnn (\(pos, m) -> (pos, getFromSubst m subst')) term

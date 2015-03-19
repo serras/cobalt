@@ -131,6 +131,7 @@ data RuleRegex = RuleRegex_Square  RuleRegexVar
                | RuleRegex_App     RuleRegex RuleRegex
                | RuleRegex_Var     RawTermVar
                | RuleRegex_Int     Integer
+               | RuleRegex_Str     String
                | RuleRegex_Capture TyVar (Maybe RuleRegex)
                deriving Show
 
@@ -139,9 +140,8 @@ type RuleCheck = [Constraint]
 type RuleScript = Bind [TyVar] [RuleScriptStatement]
 data RuleScriptStatement = RuleScriptStatement_Ref            TyVar
                          | RuleScriptStatement_Constraint     Constraint (Maybe RuleScriptMessage)
-                         | RuleScriptStatement_Merge          (Maybe Integer)
-                         | RuleScriptStatement_MergeBlameLast (Maybe Integer)
-                         | RuleScriptStatement_Message        RuleScriptMessage
+                         | RuleScriptStatement_Merge          (Maybe Integer) (Maybe RuleScriptMessage)
+                         | RuleScriptStatement_MergeBlameLast (Maybe Integer) (Maybe RuleScriptMessage)
                          | RuleScriptStatement_ForEach        [TyVar] (Bind [TyVar] RuleScript)
                          | RuleScriptStatement_Update         TyVar MonoType
                          deriving Show

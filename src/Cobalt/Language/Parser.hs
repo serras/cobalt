@@ -345,7 +345,7 @@ createRule st nm rx ch sc = do
     ([] , [])  -> return $ Rule st nm (bind rxVars (rx, ch, sc))
 
 parseRuleCapture :: Parsec String s TyVar
-parseRuleCapture = s2n <$ char '#' <*> identifier
+parseRuleCapture = s2n . ('#' :) <$ char '#' <*> identifier
 
 parseRuleRegex :: Parsec String s RuleRegex
 parseRuleRegex = parseRuleRegexApp `chainl1` (RuleRegex_Choice <$ reservedOp "|")
@@ -366,6 +366,7 @@ parseRuleRegexAtom = -- Parenthesized expression
                                             <*> (Just <$> parens parseRuleRegex) )
                  <|> RuleRegex_Capture <$> parseRuleCapture <*> pure Nothing
                  <|> RuleRegex_Int <$> integer
+                 <|> RuleRegex_Str <$> stringLiteral
                  <|> RuleRegex_Var <$> (s2n <$> identifier)
 
 parseRuleScript :: Parsec String s RuleScript
@@ -378,21 +379,16 @@ parseRuleStatement :: Parsec String s [RuleScriptStatement]
 parseRuleStatement = (\r -> [RuleScriptStatement_Ref r])
                           <$  reserved "constraints"
                           <*> parseRuleCapture
-                 <|> try ((\n msg -> (RuleScriptStatement_MergeBlameLast n)
-                                     : maybe [] (\m -> [RuleScriptStatement_Message m]) msg)
+                 <|> try ((\n msg -> [RuleScriptStatement_MergeBlameLast n msg])
                           <$  reserved "merge"
                           <*> optionMaybe integer
                           <*  reserved "blame"
                           <*  reserved "last"
                           <*> optionMaybe (braces parseRuleMessage))
-                 <|> (\n msg -> (RuleScriptStatement_Merge n)
-                                : maybe [] (\m -> [RuleScriptStatement_Message m]) msg)
+                 <|> (\n msg -> [RuleScriptStatement_Merge n msg])
                           <$  reserved "merge"
                           <*> optionMaybe integer
                           <*> optionMaybe (braces parseRuleMessage)
-                 <|> (\msg -> [RuleScriptStatement_Message msg])
-                          <$  reserved "message"
-                          <*> braces parseRuleMessage
                  <|> (\elts lsts sc -> [RuleScriptStatement_ForEach lsts (bind elts sc)])
                           <$  reserved "foreach"
                           <*> commaSep1 parseRuleCapture
@@ -404,8 +400,7 @@ parseRuleStatement = (\r -> [RuleScriptStatement_Ref r])
                           <*> parseRuleCapture
                           <*  reservedOp "<-"
                           <*> parseMonoType
-                 <|> (\msg -> [ RuleScriptStatement_Constraint Constraint_Inconsistent Nothing
-                              , RuleScriptStatement_Message msg ])
+                 <|> (\msg -> [RuleScriptStatement_Constraint Constraint_Inconsistent (Just msg)])
                           <$  reserved "repair"
                           <*> braces parseRuleMessage
                  <|> (\c msg -> [RuleScriptStatement_Constraint c msg])
@@ -434,35 +429,6 @@ parseRuleMessageAtom = parens parseRuleMessage
                                                     <*  reservedOp "<-"
                                                     <*> parseRuleCapture
                                                     <*> parseRuleMessage
-
-{-
-bindRuleScript :: RuleScript -> Bind [TyVar] RuleScript
-bindRuleScript s = let vars = filter (\x -> case name2String x of { '#':_ -> False; _ -> True } ) $ nub $ fv s
-                    in bind vars s
-
-parseRuleScript :: Parsec String s RuleScript
-parseRuleScript = parseRuleScriptAtom `chainl1`
-                    ((\m s2 s1 -> RuleScript_Asym s1 s2 m) <$ reserved "asym" <*> optionMaybe stringLiteral)
-
-parseRuleScriptAtom :: Parsec String s RuleScript
-parseRuleScriptAtom = -- Parenthesized expression
-                      parens parseRuleScript
-                  <|> flip RuleScript_Merge
-                                       <$  reserved "merge"
-                                       <*> optionMaybe stringLiteral
-                                       <*> parseRuleScriptList
-                  <|> try (RuleScript_Singleton <$> parseConstraint
-                                                <*> optionMaybe stringLiteral)
-                  <|> RuleScript_Ref <$ char '#' <*> identifier
-
-parseRuleScriptList :: Parsec String s RuleScriptList
-parseRuleScriptList = -- Parenthesized expression
-                      parens parseRuleScriptList
-                  <|> RuleScriptList_List <$> brackets (commaSep1 parseRuleScript)
-                  <|> try (RuleScriptList_PerItem <$> parseConstraint
-                                                  <*> optionMaybe stringLiteral)
-                  <|> RuleScriptList_Ref <$ char '#' <*> identifier
--}
 
 data DeclType = AData   (String, [TyVar])
               | AnAxiom [Axiom]

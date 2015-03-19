@@ -101,8 +101,8 @@ okRule name strictness (Env fn dat ax _) (Rx.Rule rx action) term =
                                                      , "residual:",     show rss
                                                      , "errors:",       show errs ]
    in case (evalWith, evalWithout) of
-        (GatherTerm gW _tW iW, GatherTerm gO _tO iO) ->
-           let (GatherTermInfo [wW] customW customWVars, GatherTermInfo [wO] _ _) = runFreshM $ (,) <$> iW <*> iO
+        (GatherTerm gW _tW [iW], GatherTerm gO _tO [iO]) ->
+           let (GatherTermInfo wW customW customWVars, GatherTermInfo wO _ _) = runFreshM $ (,) <$> iW <*> iO
             in if Constraint_Inconsistent `elem` toConstraintList' wW
                then -- It is always sound, but never complete
                     case strictness of

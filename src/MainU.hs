@@ -114,16 +114,11 @@ showGathered (((n,_,_),_), (Left errors, _, _, _)) = do
   setSGR [Reset]
   mapM_ putStrLn errors
   putStrLn ""
-showGathered (((n,_,_),_), (Right (_, _, GatherTermInfo [w] _ _), _, _, _)) = do
+showGathered (((n,_,_),_), (Right (_, _, GatherTermInfo w _ _), _, _, _)) = do
   setSGR [SetColor Foreground Vivid Blue]
   putStrLn (name2String n)
   setSGR [Reset]
   print w
-  putStrLn ""
-showGathered _ = do
-  setSGR [SetColor Foreground Vivid Blue]
-  putStrLn "ERROR: the grammar returned more than one result"
-  setSGR [Reset]
   putStrLn ""
 
 showSolved :: Show a => ((RawDefn,Bool), a) -> IO ()
@@ -154,7 +149,7 @@ jsonScript ((n,_,_),_) (Right (g, _, GatherTermInfo w _ _), term, _, extra) =
                       , object [ "text"  .= ("given" :: String)
                                , "nodes" .= map (justText . textJsonConstraint) g ]
                       , object [ "text"  .= ("wanted" :: String)
-                               , "nodes" .= map showJsonScript w ]
+                               , "nodes" .= showJsonScript w ]
                       , object [ "text"  .= ("extra" :: String)
                                , "nodes" .= map (justText . textJsonConstraint) extra ] ] ]
 
