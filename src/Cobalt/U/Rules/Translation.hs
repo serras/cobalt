@@ -126,13 +126,20 @@ syntaxBindStatementsToScript p this typeEnv exprEnv consEnv stack (RuleScriptSta
 syntaxBindStatementsToScript p this typeEnv exprEnv consEnv stack (RuleScriptStatement_Merge (Just n) msg : rest) =
   let newStack = (Merge (take n stack) (Just p, syntaxMessageToScript <$> msg)) : drop n stack
    in syntaxBindStatementsToScript p this typeEnv exprEnv consEnv newStack rest
-syntaxBindStatementsToScript p this typeEnv exprEnv consEnv stack (RuleScriptStatement_MergeBlameLast Nothing msg : rest) =
-  let newStack = [Asym (head stack) (Merge (tail stack) (Just p, Nothing)) (Just p, syntaxMessageToScript <$> msg)]
+syntaxBindStatementsToScript p this typeEnv exprEnv consEnv stack (RuleScriptStatement_MergeBlameLast Nothing howMany msg : rest) =
+  let upper = take howMany stack
+      lower = drop howMany stack
+      asym1 = case upper of { [x] -> x ; _ -> Merge upper (Just p, Nothing) }
+      asym2 = case lower of { [x] -> x ; _ -> Merge lower (Just p, Nothing) }
+      newStack = [Asym asym1 asym2 (Just p, syntaxMessageToScript <$> msg)]
    in syntaxBindStatementsToScript p this typeEnv exprEnv consEnv newStack rest
-syntaxBindStatementsToScript p this typeEnv exprEnv consEnv stack (RuleScriptStatement_MergeBlameLast (Just n) msg : rest) =
+syntaxBindStatementsToScript p this typeEnv exprEnv consEnv stack (RuleScriptStatement_MergeBlameLast (Just n) howMany msg : rest) =
   let firstN = take n stack
-      newStackElt = Asym (head firstN) (Merge (tail firstN) (Just p, Nothing)) (Just p, syntaxMessageToScript <$> msg)
-      newStack = newStackElt : drop n stack
+      upper  = take howMany firstN
+      lower  = drop howMany firstN
+      asym1  = case upper of { [x] -> x ; _ -> Merge upper (Just p, Nothing) }
+      asym2  = case lower of { [x] -> x ; _ -> Merge lower (Just p, Nothing) }
+      newStack = Asym asym1 asym2 (Just p, syntaxMessageToScript <$> msg) : drop n stack
    in syntaxBindStatementsToScript p this typeEnv exprEnv consEnv newStack rest
 
 -- Translation of types and constraints -- used in "check" block

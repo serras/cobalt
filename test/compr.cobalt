@@ -11,21 +11,29 @@ g = map plusThree listOfInts;
 
 import map2 :: {m} {a} {b} $Functor m => (a -> b) -> 'App m a -> 'App m b;
 
-rule map2_on_lists
-match  app #app1@(app #map2@(var "map2") #fn) #arg
+rule   map2_on_lists
+match  #app1@(#map2@(map2) #fn) #arg
 check  #arg > {a} 'App 'List a
-script      (merge [ #map2 ~ (a2 -> b2) -> 'App 'List a2 -> 'App 'List b2
-                   , #app1 ~ 'App 'List a1 -> 'App 'List b1 ] )
-       asym #arg
-       asym "Second should be a list"
-            (#arg ~ 'App 'List a3)
-       asym #fn
-       asym "First argument should be a function"
-            #fn ~ a4 -> b
-       asym "Parameters must coincide"
-            a3 ~ a4
-       asym #this ~ 'App 'List b
-       asym (merge [ a1 ~ a2, a2 ~ a3, b1 ~ b2, b ~ b2]);
+script var #a1 #a2 #a3 #a4 #b1 #b2 #b3,
+       #map2 ~ (#a2 -> #b2) -> 'App 'List #a2 -> 'App 'List #b2,
+       #app1 ~ 'App 'List #a1 -> 'App 'List #b1,
+       constraints #arg,
+       merge blame last,
+       #arg ~ 'App 'List #a3,
+       merge blame last { "Second should be a list" },
+       constraints #fn,
+       merge blame last,
+       #fn ~ #a4 -> #b3,
+       merge blame last { "First argument should be a function" },
+       #a3 ~ #a4,
+       merge blame last { "Parameters must coincide" },
+       #this ~ 'App 'List #b3,
+       merge blame last,
+       #a1 ~ #a2,
+       #a2 ~ #a3,
+       #b1 ~ #b2,
+       #b2 ~ #b3,
+       merge blame last 4;
 
 import maybeOfInts :: 'App 'Maybe 'Int;
 import listOfBool :: 'App 'List 'Bool;
@@ -39,14 +47,21 @@ test3 = map2 plusThree maybeOfInts;
 import map3 :: {m} {a} {b} $Functor m => (a -> b) -> 'App m a -> 'App m b;
 
 rule   map3_on_lists
-match  app #appfn@(app #map@(var "map3") #fn) #arg
+match  #appfn@(#map@(map3) #fn) #arg
 check  #arg > {a} 'App 'List a
-script      (merge [ #fn, #arg, #arg ~ 'App 'List e1 ])
-       asym "First argument should be a function"
-            #fn ~ e2 -> r
-       asym "Argument type must be the list type"
-            e1 ~ e2
-       asym (merge [ #this ~ 'App 'List r, #appfn ~ 'App 'List e1 -> 'App 'List r, #map ]);
+script var #e1 #e2 #r,
+       constraints #fn,
+       constraints #arg,
+       #arg ~ 'App 'List #e1,
+       merge,
+       #fn ~ #e2 -> #r,
+       merge blame last { "First argument should be a function" },
+       #e1 ~ #e2,
+       merge blame last { "Argument type must be the list type" },
+       #this  ~ 'App 'List #r,
+       #appfn ~ 'App 'List #e1 -> 'App 'List #r,
+       constraints #map,
+       merge blame last 3;
 
 test0_ = map3 plusThree;
 test1_ = map3 plusThree listOfInts;
@@ -64,4 +79,4 @@ import aListOfInts :: 'App 'List 'Int;
 import sum :: 'Int -> 'Int -> 'Int;
 
 bind1 = bind aListOfInts (\x -> bind aListOfInts (\y -> return (sum x y)));
-bind2 = bind aListOfInts (\x -> bind 3 (\y -> return (sum x y)));
+bind2 = bind aListOfInts (\x -> bind 3 (\y -> return (sum x y))) => fail;

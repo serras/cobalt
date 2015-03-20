@@ -1,24 +1,27 @@
-import dollar :: {a} {b} {s} (a -> b) -> 'Parser s a -> 'Parser s b;
+import dullar :: {a} {b} {s} (a -> b) -> 'Parser s a -> 'Parser s b;
 import star   :: {a} {b} {s} 'Parser s (a -> b) -> 'Parser s a -> 'Parser s b;
 
 rule app_parser
-match app #first@(app #dollar@(var "dollar") #fn) #arg
-script     (merge [ #dollar ~ (a1 -> b1) -> 'Parser s1 a1 -> 'Parser s1 b1
-                  , #first  ~ 'Parser s1 a1 -> 'Parser s1 b1 ])
-       asym #fn
-       asym "Left operand is not a function"
-            #fn ~ a1 -> b1 "left operand must be a function"
-       asym #arg
-       asym "Right operand is not a parser"
-            #arg ~ 'Parser s1 a2 "right operand must be a parser"
-       asym "Context does not accept a parser"
-            #this ~ 'Parser s2 b2
-       asym "Parser has an incorrect result type"
-            b1 ~ b2 "the result type must be as expected"
-       asym "Function cannot be applied to parser's result"
-            a1 ~ a2 "function should be applied to parser's result"
-       asym "Parser has an incorrect symbol type"
-            s1 ~ s2 "parser symbols must coincide";
+match  #first@(#dollar@(dullar) #fn) #arg
+script var #a1 #a2 #b1 #b2 #s1 #s2,
+       #dollar ~ (#a1 -> #b1) -> 'Parser #s1 #a1 -> 'Parser #s1 #b1,
+       #first  ~ 'Parser #s1 #a1 -> 'Parser #s1 #b1,
+       constraints #fn,
+       merge blame last,
+       #fn ~ #a1 -> #b1 { "left operand must be a function" },
+       merge blame last { "Left operand is not a function" },
+       constraints #arg,
+       merge blame last,
+       #arg ~ 'Parser #s1 #a2 { "right operand must be a parser" },
+       merge blame last { "Right operand is not a parser" },
+       #this ~ 'Parser #s2 #b2,
+       merge blame last { "Context does not accept a parser" },
+       #b1 ~ #b2 { "the result type must be as expected" },
+       merge blame last { "Parser has an incorrect result type" },
+       #a1 ~ #a2 { "function should be applied to parser's result" },
+       merge blame last { "Function cannot be applied to parser's result" },
+       #s1 ~ #s2 { "parser symbols must coincide" },
+       merge blame last { "Parser has an incorrect symbol type" };
 
 import mapToUpper :: [a] -> [a];
 import helloWorld :: 'String;
@@ -27,28 +30,8 @@ import definitelyNotAFunction :: 'Bool;
 import parser1 :: 'Parser 'String ['Int];
 import parser2 :: 'Parser 'String 'Bool;
 
-test1 = dollar mapToUpper helloWorld => fail;
-test2 = dollar definitelyNotAFunction parser1 => fail;
-test3 = dollar definitelyNotAFunction helloWorld => fail;
-test4 = dollar mapToUpper parser1;
-test5 = dollar mapToUpper parser2 => fail;
-
-{- Not working from here
-import dollar2 :: {a} {b} {s} (a -> b) -> 'Parser s a -> 'Parser s b;
-import star2   :: {a} {b} {s} 'Parser s (a -> b) -> 'Parser s a -> 'Parser s b;
-
-import twoArgsFnOk  :: ['Int] -> 'Bool -> 'String;
-import twoArgsFnNot :: ['Int] -> 'Int  -> 'String;
-
-rule unsafe app_parser2
-match app #starsApp@(app #stars@(var "star2")
-               [ app #dollarApp@(app #dollar@(var "dollar2") #fn) #arg
-               | app #starsApp@(app #stars@(var "star2")   &k)  #arg ]*k )
-          #arg
-script (merge [ #fn, merge #arg, #dollar, #dollarApp, merge #stars, merge #starsApp ])
-       asym "First operand is not a function"  #fn > {a} {b} a -> b
-       asym (merge "Arguments are not parsers" #arg > {x} {s} 'Parser x s);
-
-tast1 = star2 (dollar2 twoArgsFnOk  parser1) parser2;
-tast2 = star2 (dollar2 twoArgsFnNot parser1) parser2 => fail;
--}
+test1 = dullar mapToUpper helloWorld => fail;
+test2 = dullar definitelyNotAFunction parser1 => fail;
+test3 = dullar definitelyNotAFunction helloWorld => fail;
+test4 = dullar mapToUpper parser1;
+test5 = dullar mapToUpper parser2 => fail;

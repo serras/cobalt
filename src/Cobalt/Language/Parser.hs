@@ -379,11 +379,12 @@ parseRuleStatement :: Parsec String s [RuleScriptStatement]
 parseRuleStatement = (\r -> [RuleScriptStatement_Ref r])
                           <$  reserved "constraints"
                           <*> parseRuleCapture
-                 <|> try ((\n msg -> [RuleScriptStatement_MergeBlameLast n msg])
+                 <|> try ((\n m msg -> [RuleScriptStatement_MergeBlameLast n m msg])
                           <$  reserved "merge"
                           <*> optionMaybe (fromEnum <$> integer)
                           <*  reserved "blame"
                           <*  reserved "last"
+                          <*> (fromEnum <$> integer <|> pure 1)
                           <*> optionMaybe (braces parseRuleMessage))
                  <|> (\n msg -> [RuleScriptStatement_Merge n msg])
                           <$  reserved "merge"
@@ -463,7 +464,7 @@ lexer = T.makeTokenParser $ haskellDef { T.reservedNames = "rule" : "strict" : "
                                                            : "type" : "expr" : "vcat" : "hcat"
                                                            : "var" : "constraints" : "merge" : "blame" : "last"
                                                            : "message" : "foreach" : "repair" : "update"
-                                                           : "injective" : "defer" : "synonym"
+                                                           : "injective" : "defer" : "synonym" : "do"
                                                            : "with" : T.reservedNames haskellDef }
 
 parens :: Parsec String s a -> Parsec String s a

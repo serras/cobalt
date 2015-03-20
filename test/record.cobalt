@@ -24,6 +24,6 @@ f1 = get age alex;
 f2 = get age jur => fail;
 
 rule   field_not_found
-match  app (app (var "get") #field) #record
+match  get #field #record
 check  ^ElemR #field #record ~ 'No
-script _|_ "Cannot find field";
+script repair { "Cannot find field" };
