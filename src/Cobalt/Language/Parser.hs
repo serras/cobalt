@@ -13,7 +13,7 @@ module Cobalt.Language.Parser (
 ) where
 
 import Control.Applicative hiding (many)
-import Data.List ((\\))
+import Data.List ((\\), nub)
 import Text.Parsec hiding ((<|>))
 import Text.Parsec.Language
 import qualified Text.Parsec.Token as T
@@ -335,13 +335,13 @@ parseRule = do reserved "rule"
 
 createRule :: RuleStrictness -> String -> RuleRegex -> [Constraint] -> RuleScript -> Parsec String s Rule
 createRule st nm rx ch sc = do
-  let rxVars = fv rx
-      chVars = fv ch \\ rxVars
-      scVars = fv sc \\ rxVars
+  let rxVars = s2n "#this" : nub (fv rx)
+      chVars = nub (fv ch) \\ rxVars
+      scVars = nub (fv sc) \\ rxVars
   case (chVars, scVars) of
-    (_:_, _:_) -> fail "Neither check nor script blocks may have unbound variables"
-    (_:_, [])  -> fail "`check` blocks may not have unbound variables"
-    ([] , _:_) -> fail "`script` blocks may not have unbound variables (use `var`)"
+    (_:_, _:_) -> fail ("Neither check nor script blocks may have unbound variables" ++ show (chVars `union` scVars))
+    (_:_, [])  -> fail ("`check` blocks may not have unbound variables: " ++ show chVars)
+    ([] , _:_) -> fail ("`script` blocks may not have unbound variables (use `var`): " ++ show scVars)
     ([] , [])  -> return $ Rule st nm (bind rxVars (rx, ch, sc))
 
 parseRuleCapture :: Parsec String s TyVar
@@ -371,7 +371,7 @@ parseRuleRegexAtom = -- Parenthesized expression
 
 parseRuleScript :: Parsec String s RuleScript
 parseRuleScript = (\vs st -> bind vs (concat st))
-                     <$> (    id <$ reserved "var" <*> commaSep1 parseRuleCapture <* comma
+                     <$> (    id <$ reserved "var" <*> many1 parseRuleCapture <* comma
                           <|> pure [])
                      <*> commaSep1 parseRuleStatement
 
@@ -381,13 +381,13 @@ parseRuleStatement = (\r -> [RuleScriptStatement_Ref r])
                           <*> parseRuleCapture
                  <|> try ((\n msg -> [RuleScriptStatement_MergeBlameLast n msg])
                           <$  reserved "merge"
-                          <*> optionMaybe integer
+                          <*> optionMaybe (fromEnum <$> integer)
                           <*  reserved "blame"
                           <*  reserved "last"
                           <*> optionMaybe (braces parseRuleMessage))
                  <|> (\n msg -> [RuleScriptStatement_Merge n msg])
                           <$  reserved "merge"
-                          <*> optionMaybe integer
+                          <*> optionMaybe (fromEnum <$> integer)
                           <*> optionMaybe (braces parseRuleMessage)
                  <|> (\elts lsts sc -> [RuleScriptStatement_ForEach lsts (bind elts sc)])
                           <$  reserved "foreach"

@@ -1,13 +1,14 @@
-rule three_is_integer
-match  int 3
-script #this ~ 'Int "3 is a number";
+rule   three_is_integer
+match  3
+script #this ~ 'Int { "3 is a number" };
 
 import example :: 'Int -> 'Bool;
 
 rule   example_unsound_rule
-match  app (var "example") #thing
-script      #thing
-       asym (#thing ~ 'Int "argument must be an Int");
+match  example #thing
+script constraints #thing,
+       #thing ~ 'Int { "argument must be an Int" },
+       merge blame last;
 
 f x y = x y (example 3);
 
@@ -19,11 +20,12 @@ h x = 3 x => fail;
 import singleton :: {a} a -> [a];
 
 rule strict singleton_on_eq
-match  app #singl@(var "singleton") #thing
+match  #singl@(singleton) #thing
 check  $Eq #thing
-script merge [ #this ~ [#thing] "singleton on Eq"
-             , #thing
-             , #singl ];
+script #this ~ [#thing] { "singleton on Eq" },
+       constraints #thing,
+       constraints #singl,
+       merge;
 
 axiom $Eq 'Int;
 
@@ -36,10 +38,13 @@ t = singleton aNonEq;
 
 import noRule :: 'Bool -> 'Int;
 
-rule  make_rule
-match app #fn@(var "noRule") #arg
-script merge "The error is here!"
-             [ #fn, #arg, #this ~ 'Int, #arg ~ 'Bool];
+rule   make_rule
+match  #fn@(noRule) #arg
+script constraints #fn,
+       constraints #arg,
+       #this ~ 'Int,
+       #arg ~ 'Bool,
+       merge { "The error is here!" };
 
 z = noRule 3 => fail;
 
@@ -47,15 +52,21 @@ z = noRule 3 => fail;
 import map :: {a} {b} (a -> b) -> [a] -> [b];
 
 rule   map
-match  app #intermediate@(app #map@(var "map") #fn) #list
-script      (merge [ #map, #fn, #list ])
-       asym "Second argument to map must be a list"
-            #list ~ [e]
-       asym "First argument to map must be a function"
-            #fn ~ x -> r
-       asym "The function does not have the correct domain"
-            x ~ e
-       asym (merge [ #intermediate ~ [e] -> [r], #this ~ [r] ]);
+match  #intermediate@(#map@(map) #fn) #list
+script var #e #x #r,
+       constraints #map,
+       constraints #fn,
+       constraints #list,
+       merge,
+       #list ~ [#e],
+       merge blame last { "Second argument to map must be a list" },
+       #fn ~ #x -> #r,
+       merge blame last { "First argument to map must be a function" },
+       #x ~ #e,
+       merge blame last { "The function does not have the correct domain" },
+       #intermediate ~ [#e] -> [#r],
+       #this ~ [#r],
+       merge;
 
 import listOfInt  :: ['Int];
 import fnOfInt    :: 'Int -> 'IntResult;
@@ -70,8 +81,8 @@ axiom $Fractional 'Float;
 axiom $Integral   'Int;
 
 rule   divide_integers
-match  app (app (var "by") #n) #m
+match  by #n #m
 check  $Integral #n, $Integral #m
-script _|_ "Use `div' or `quot' to divide integers";
+script repair { "Use `div' or `quot' to divide integers" };
 
 by1 = by 3 2 => fail;

@@ -6,6 +6,7 @@ module Cobalt.U.Rules.Translation (
 , syntaxRuleToScriptRule
 ) where
 
+import Control.Applicative
 import Control.Lens.Extras (is)
 import Data.Foldable (fold)
 import Data.List (elemIndex, union, insert)
@@ -60,7 +61,7 @@ syntaxSynToMap (Rx.Child (Wrap n) info : rest) =
 
 explodeMap :: CaptureVarList -> [(Integer, Gathered)]
            -> (TranslationTypeEnv, TranslationExprEnv, TranslationConsEnv)
-explodeMap tyvars [] = ([], [], [])
+explodeMap _tyvars [] = ([], [], [])
 explodeMap tyvars ((n, GatherTerm _ exprs i):rest) =
   let (t, e, c) = explodeMap tyvars rest
       v = tyvars !! fromEnum n
@@ -96,8 +97,10 @@ syntaxBindScriptToScript :: (SourcePos, SourcePos)
                          -> RuleScript -> FreshM GatherTermInfo
 syntaxBindScriptToScript p this typeEnv exprEnv consEnv script = do
   (vars, statements) <- unbind script
-  -- TODO: introduce new customs for the new vars into typeEnv and add to the result
-  syntaxBindStatementsToScript p this typeEnv exprEnv consEnv [] statements
+  freshed <- mapM (fresh . s2n . tail . name2String) vars -- new var dropping '#'
+  let varsFreshed = zipWith (\v f -> (v, [var f])) vars freshed
+  GatherTermInfo sc c cv <- syntaxBindStatementsToScript p this (varsFreshed ++ typeEnv) exprEnv consEnv [] statements
+  return $ GatherTermInfo sc c (freshed `union` cv)
 
 syntaxBindStatementsToScript :: (SourcePos, SourcePos)
                              -> TyVar -> TranslationTypeEnv -> TranslationExprEnv -> TranslationConsEnv
@@ -114,6 +117,23 @@ syntaxBindStatementsToScript p this typeEnv exprEnv consEnv stack (RuleScriptSta
                    return $ GatherTermInfo r (customThis ++ customR) (customVarsThis `union` customVarsR)
     Just _   -> fail $ show v ++ " is not a single constraint"
     Nothing  -> fail $ "Cannot find " ++ show v
+syntaxBindStatementsToScript p this typeEnv exprEnv consEnv stack (RuleScriptStatement_Constraint r msg : rest) =
+  let newStackElt = Singleton (syntaxConstraintToScript r this typeEnv) (Just p, syntaxMessageToScript <$> msg)
+   in syntaxBindStatementsToScript p this typeEnv exprEnv consEnv (newStackElt:stack) rest
+syntaxBindStatementsToScript p this typeEnv exprEnv consEnv stack (RuleScriptStatement_Merge Nothing msg : rest) =
+  let newStack = [Merge stack (Just p, syntaxMessageToScript <$> msg)]
+   in syntaxBindStatementsToScript p this typeEnv exprEnv consEnv newStack rest
+syntaxBindStatementsToScript p this typeEnv exprEnv consEnv stack (RuleScriptStatement_Merge (Just n) msg : rest) =
+  let newStack = (Merge (take n stack) (Just p, syntaxMessageToScript <$> msg)) : drop n stack
+   in syntaxBindStatementsToScript p this typeEnv exprEnv consEnv newStack rest
+syntaxBindStatementsToScript p this typeEnv exprEnv consEnv stack (RuleScriptStatement_MergeBlameLast Nothing msg : rest) =
+  let newStack = [Asym (head stack) (Merge (tail stack) (Just p, Nothing)) (Just p, syntaxMessageToScript <$> msg)]
+   in syntaxBindStatementsToScript p this typeEnv exprEnv consEnv newStack rest
+syntaxBindStatementsToScript p this typeEnv exprEnv consEnv stack (RuleScriptStatement_MergeBlameLast (Just n) msg : rest) =
+  let firstN = take n stack
+      newStackElt = Asym (head firstN) (Merge (tail firstN) (Just p, Nothing)) (Just p, syntaxMessageToScript <$> msg)
+      newStack = newStackElt : drop n stack
+   in syntaxBindStatementsToScript p this typeEnv exprEnv consEnv newStack rest
 
 -- Translation of types and constraints -- used in "check" block
 syntaxConstraintListToScript :: [Constraint] -> TyVar -> TranslationTypeEnv -> [Constraint]
@@ -167,3 +187,8 @@ syntaxPolyTypeToScript (PolyType_Mono cs m) this captures =
   return $ PolyType_Mono (map (\c -> syntaxConstraintToScript c this captures) cs)
                          (syntaxMonoTypeToScript m this captures)
 syntaxPolyTypeToScript PolyType_Bottom _ _ = return PolyType_Bottom
+
+-- Translation of messages
+syntaxMessageToScript :: RuleScriptMessage -> String
+syntaxMessageToScript (RuleScriptMessage_Literal l) = l
+syntaxMessageToScript _                             = error "Only literals are supported"

@@ -140,8 +140,8 @@ type RuleCheck = [Constraint]
 type RuleScript = Bind [TyVar] [RuleScriptStatement]
 data RuleScriptStatement = RuleScriptStatement_Ref            TyVar
                          | RuleScriptStatement_Constraint     Constraint (Maybe RuleScriptMessage)
-                         | RuleScriptStatement_Merge          (Maybe Integer) (Maybe RuleScriptMessage)
-                         | RuleScriptStatement_MergeBlameLast (Maybe Integer) (Maybe RuleScriptMessage)
+                         | RuleScriptStatement_Merge          (Maybe Int) (Maybe RuleScriptMessage)
+                         | RuleScriptStatement_MergeBlameLast (Maybe Int) (Maybe RuleScriptMessage)
                          | RuleScriptStatement_ForEach        [TyVar] (Bind [TyVar] RuleScript)
                          | RuleScriptStatement_Update         TyVar MonoType
                          deriving Show
