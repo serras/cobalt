@@ -17,14 +17,28 @@ f3 = execute (plus (mult (lit 3) (lit 2)) (lit aFloat));
 f4 = execute (plus (mult (lit true) (lit 2)) (lit true));
 
 rule   unsafe look_at_leaves
-match  app (var "execute") [ #ap1@(app #ap2@(app #op@(var "plus") &k) &k)
-                           | #ap1@(app #ap2@(app #op@(var "mult") &k) &k)
-                           | #ap1@(app #lit@(var "lit") #leaf) ]*k
-script      (merge #leaf)
-       asym "All literals must be of the same type"
-            (merge #leaf ~ e)
-       asym "Literals must be of class Num"
-            $Num e
-       asym (merge [ merge #ap1 ~ 'Expr e, merge #ap2 ~ 'Expr e -> 'Expr e ])
-       asym (merge [ merge #op, merge #lit ])
-       asym #this ~ e;
+match  execute [ #ap1@(#ap2@(#op@(plus) &k) &k)
+               | #ap1@(#ap2@(#op@(mult) &k) &k)
+               | #ap1@(#lit@(lit) #leaves) ]*k
+script var #e,
+       foreach #leaf <- #leaves { constraints #leaf },
+       merge,
+       empty,
+       foreach #leaf <- #leaves { #leaf ~ #e, merge 2 },
+       merge blame last { "All literals must be of the same type" },
+       $Num #e,
+       merge blame last { "Literals must be of class Num" },
+       empty,
+       foreach #a1 <- #ap1 { #a1 ~ 'Expr #e, merge 2 },
+       merge blame last,
+       empty,
+       foreach #a2 <- #ap2 { #a2 ~ 'Expr #e -> 'Expr #e, merge },
+       merge blame last,
+       empty,
+       foreach #o  <- #op  { constraints #o, merge 2 },
+       merge blame last,
+       empty,
+       foreach #l  <- #lit { constraints #l, merge 2 },
+       merge blame last,
+       #this ~ #e,
+       merge blame last;

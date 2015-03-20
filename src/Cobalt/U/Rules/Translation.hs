@@ -7,10 +7,12 @@ module Cobalt.U.Rules.Translation (
 ) where
 
 import Control.Applicative
+import Control.Lens
 import Control.Lens.Extras (is)
+import Control.Monad.State
 import Data.Foldable (fold)
-import Data.List (elemIndex, union, insert)
-import Data.Maybe (fromJust)
+import Data.List (elemIndex, union, transpose)
+import Data.Maybe (fromJust, fromMaybe, catMaybes)
 import Data.Monoid
 import Data.Regex.MultiGenerics hiding (var)
 import qualified Data.Regex.MultiRules as Rx
@@ -46,7 +48,8 @@ syntaxRuleToScriptRule ax (Rule _ _ i) = runFreshM $ do
                          rightSyns   = filter (is _Term . snd) childrenMap
                          (initialTy, exprs, constraints) = explodeMap vars rightSyns
                          checkW      = syntaxConstraintListToScript check thisTy initialTy
-                         wanteds     = syntaxBindScriptToScript p thisTy initialTy exprs constraints script
+                         initialEnv  = (p, thisTy, initialTy, exprs, constraints, [], [], [])
+                         wanteds     = evalStateT (syntaxBindScriptToScript script) initialEnv
                       in ( null check || entails ax sat checkW tchs
                          , [Rx.Child (Wrap n) [envAndSat] | n <- [0 .. (toEnum $ length vars)]]
                          , case initialSyn of
@@ -92,55 +95,120 @@ syntaxRegexToScriptRegex (RuleRegex_Capture n (Just r)) capturevars tyvars =
   (Wrap $ toEnum $ fromJust $ elemIndex n tyvars) <<- syntaxRegexToScriptRegex r capturevars tyvars
 
 -- Translation of "script" block
-syntaxBindScriptToScript :: (SourcePos, SourcePos)
-                         -> TyVar -> TranslationTypeEnv -> TranslationExprEnv -> TranslationConsEnv
-                         -> RuleScript -> FreshM GatherTermInfo
-syntaxBindScriptToScript p this typeEnv exprEnv consEnv script = do
-  (vars, statements) <- unbind script
-  freshed <- mapM (fresh . s2n . tail . name2String) vars -- new var dropping '#'
-  let varsFreshed = zipWith (\v f -> (v, [var f])) vars freshed
-  GatherTermInfo sc c cv <- syntaxBindStatementsToScript p this (varsFreshed ++ typeEnv) exprEnv consEnv [] statements
-  return $ GatherTermInfo sc c (freshed `union` cv)
+type TranslationEnv = ( (SourcePos, SourcePos)
+                      , TyVar         -- #this
+                      , TranslationTypeEnv
+                      , TranslationExprEnv
+                      , TranslationConsEnv
+                      , [TyScript]     -- the stack
+                      , [Constraint]   -- extra custom
+                      , [TyVar] )      -- customVars
 
-syntaxBindStatementsToScript :: (SourcePos, SourcePos)
-                             -> TyVar -> TranslationTypeEnv -> TranslationExprEnv -> TranslationConsEnv
-                             -> [TyScript] -> [RuleScriptStatement] -> FreshM GatherTermInfo
-syntaxBindStatementsToScript _ _ _ _ _ []  [] = fail "Empty stack at the end"
-syntaxBindStatementsToScript _ _ _ _ _ [s] [] = return $ GatherTermInfo s [] []
-syntaxBindStatementsToScript p _ _ _ _ xs  [] = return $ GatherTermInfo (Merge xs (Just p,Nothing)) [] []
-syntaxBindStatementsToScript p this typeEnv exprEnv consEnv stack (RuleScriptStatement_Ref v : rest) =
-  case lookup v consEnv of
-    Just [i] -> do GatherTermInfo treeThis customThis customVarsThis <- i
-                   GatherTermInfo r customR customVarsR <-
-                     syntaxBindStatementsToScript p this typeEnv exprEnv consEnv
-                                                  (treeThis : stack) rest
-                   return $ GatherTermInfo r (customThis ++ customR) (customVarsThis `union` customVarsR)
+syntaxBindScriptToScript :: RuleScript -> StateT TranslationEnv FreshM GatherTermInfo
+syntaxBindScriptToScript script = do
+  syntaxBindScriptToScript' script
+  p <- use _1
+  tree_ <- use _6
+  custom_ <- use _7
+  customVars_ <- use _8
+  case tree_ of
+    []  -> fail "Empty stack at the end"
+    [s] -> return $ GatherTermInfo s custom_ customVars_
+    _   -> return $ GatherTermInfo (Merge tree_ (Just p, Nothing)) custom_ customVars_
+
+-- After this is executed, local variables are deleted
+syntaxBindScriptToScript' :: RuleScript -> StateT TranslationEnv FreshM ()
+syntaxBindScriptToScript' script = do
+  (vars, statements) <- unbind script
+  freshed <- mapM (fresh . s2n . tail . name2String) vars
+  let varsFreshed = zipWith (\v f -> (v, [var f])) vars freshed
+  _3 %= (varsFreshed ++)
+  _8 %= (union freshed)
+  syntaxBindStatementsToScript statements
+  _3 %= (filter (\(v,_) -> v `notElem` vars))
+
+syntaxBindStatementsToScript :: [RuleScriptStatement] -> StateT TranslationEnv FreshM ()
+syntaxBindStatementsToScript [] = return ()
+syntaxBindStatementsToScript (RuleScriptStatement_Empty : rest) = do
+  _6 %= (Empty :)
+  syntaxBindStatementsToScript rest
+syntaxBindStatementsToScript (RuleScriptStatement_Ref v : rest) = do
+  constr <- uses _5 (lookup v)
+  case constr of
+    Just [i] -> do GatherTermInfo treeThis customThis customVarsThis <- lift i
+                   _6 %= (treeThis :)
+                   _7 %= (union customThis)
+                   _8 %= (union customVarsThis)
+                   syntaxBindStatementsToScript rest
     Just _   -> fail $ show v ++ " is not a single constraint"
     Nothing  -> fail $ "Cannot find " ++ show v
-syntaxBindStatementsToScript p this typeEnv exprEnv consEnv stack (RuleScriptStatement_Constraint r msg : rest) =
-  let newStackElt = Singleton (syntaxConstraintToScript r this typeEnv) (Just p, syntaxMessageToScript <$> msg)
-   in syntaxBindStatementsToScript p this typeEnv exprEnv consEnv (newStackElt:stack) rest
-syntaxBindStatementsToScript p this typeEnv exprEnv consEnv stack (RuleScriptStatement_Merge Nothing msg : rest) =
-  let newStack = [Merge stack (Just p, syntaxMessageToScript <$> msg)]
-   in syntaxBindStatementsToScript p this typeEnv exprEnv consEnv newStack rest
-syntaxBindStatementsToScript p this typeEnv exprEnv consEnv stack (RuleScriptStatement_Merge (Just n) msg : rest) =
-  let newStack = (Merge (take n stack) (Just p, syntaxMessageToScript <$> msg)) : drop n stack
-   in syntaxBindStatementsToScript p this typeEnv exprEnv consEnv newStack rest
-syntaxBindStatementsToScript p this typeEnv exprEnv consEnv stack (RuleScriptStatement_MergeBlameLast Nothing howMany msg : rest) =
-  let upper = take howMany stack
-      lower = drop howMany stack
-      asym1 = case upper of { [x] -> x ; _ -> Merge upper (Just p, Nothing) }
-      asym2 = case lower of { [x] -> x ; _ -> Merge lower (Just p, Nothing) }
-      newStack = [Asym asym1 asym2 (Just p, syntaxMessageToScript <$> msg)]
-   in syntaxBindStatementsToScript p this typeEnv exprEnv consEnv newStack rest
-syntaxBindStatementsToScript p this typeEnv exprEnv consEnv stack (RuleScriptStatement_MergeBlameLast (Just n) howMany msg : rest) =
-  let firstN = take n stack
-      upper  = take howMany firstN
-      lower  = drop howMany firstN
+syntaxBindStatementsToScript (RuleScriptStatement_Constraint r msg : rest) = do
+  p     <- use _1
+  this  <- use _2
+  tyEnv <- use _3
+  let c = syntaxConstraintToScript r this tyEnv
+  _6 %= (Singleton c (Just p, syntaxMessageToScript <$> msg) :)
+  syntaxBindStatementsToScript rest
+syntaxBindStatementsToScript (RuleScriptStatement_Merge howMany msg : rest) = do
+  p     <- use _1
+  stack <- use _6
+  let toTake = fromMaybe (length stack) howMany
+  _6 .= Merge (take toTake stack) (Just p, syntaxMessageToScript <$> msg) : drop toTake stack
+  syntaxBindStatementsToScript rest
+syntaxBindStatementsToScript (RuleScriptStatement_MergeBlameLast howMany howManyToBlame msg : rest) = do
+  p     <- use _1
+  stack <- use _6
+  let toTake = fromMaybe (length stack) howMany
+      firstN = take toTake stack
+      upper  = take howManyToBlame firstN
+      lower  = drop howManyToBlame firstN
       asym1  = case upper of { [x] -> x ; _ -> Merge upper (Just p, Nothing) }
       asym2  = case lower of { [x] -> x ; _ -> Merge lower (Just p, Nothing) }
-      newStack = Asym asym1 asym2 (Just p, syntaxMessageToScript <$> msg) : drop n stack
-   in syntaxBindStatementsToScript p this typeEnv exprEnv consEnv newStack rest
+  _6 .= Asym asym1 asym2 (Just p, syntaxMessageToScript <$> msg) : drop toTake stack
+  syntaxBindStatementsToScript rest
+syntaxBindStatementsToScript (RuleScriptStatement_Update v m : rest) = do
+  this  <- use _2
+  tyEnv <- use _3
+  let m_ = syntaxMonoTypeToScript m this tyEnv
+  _3 %= replaceElt v [m_]
+  _4 %= filter (\(k,_) -> k /= v)
+  _5 %= filter (\(k,_) -> k /= v)
+  syntaxBindStatementsToScript rest
+syntaxBindStatementsToScript (RuleScriptStatement_ForEach vars loop : rest) = do
+  -- Compute the lists to iterate over
+  tyEnv <- use _3
+  exEnv <- use _4
+  coEnv <- use _5
+  let typeThings = map (fromJust . flip lookup tyEnv) vars
+      smallestLength = minimum (map length typeThings)
+      exprThings = map (maybe (replicate smallestLength Nothing) (map Just) . flip lookup exEnv) vars
+      consThings = map (maybe (replicate smallestLength Nothing) (map Just) . flip lookup coEnv) vars
+      iterateOver = take smallestLength $ transpose typeThings
+  -- Unbind inner loop
+  (innervars, innerloop) <- lift $ unbind loop
+  -- Run over each element
+  syntaxBindStatementsToScriptForEach innervars innerloop iterateOver (transpose exprThings) (transpose consThings)
+  syntaxBindStatementsToScript rest
+
+syntaxBindStatementsToScriptForEach :: [TyVar] -> RuleScript
+                                    -> [[MonoType]] -> [[Maybe (UTerm ((SourcePos,SourcePos),TyVar))]]
+                                    -> [[Maybe (FreshM GatherTermInfo)]] -> StateT TranslationEnv FreshM ()
+syntaxBindStatementsToScriptForEach _ _ [] _ _ = return ()
+syntaxBindStatementsToScriptForEach vars loop (m : ms) (e : es) (c : cs) = do
+  _3 %= (zipWith (\v m_ -> (v, [m_])) vars m ++)
+  _4 %= (catMaybes (zipWith (\v e_ -> maybe Nothing (\e__ -> Just (v, [e__])) e_) vars e) ++)
+  _5 %= (catMaybes (zipWith (\v c_ -> maybe Nothing (\c__ -> Just (v, [c__])) c_) vars c) ++)
+  syntaxBindScriptToScript' loop
+  _3 %= (filter (\(v,_) -> v `notElem` vars))
+  _4 %= (filter (\(v,_) -> v `notElem` vars))
+  _5 %= (filter (\(v,_) -> v `notElem` vars))
+  syntaxBindStatementsToScriptForEach vars loop ms es cs
+syntaxBindStatementsToScriptForEach _ _ (_:_) _ _ = error "This should never happen"
+
+replaceElt :: Eq a => a -> b -> [(a,b)] -> [(a,b)]
+replaceElt _  _  [] = []
+replaceElt x1 v1 ((x2, v2) : rs) | x1 == x2  = (x1, v2) : rs
+                                 | otherwise = (x2, v2) : replaceElt x1 v1 rs
 
 -- Translation of types and constraints -- used in "check" block
 syntaxConstraintListToScript :: [Constraint] -> TyVar -> TranslationTypeEnv -> [Constraint]

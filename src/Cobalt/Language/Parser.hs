@@ -376,7 +376,8 @@ parseRuleScript = (\vs st -> bind vs (concat st))
                      <*> commaSep1 parseRuleStatement
 
 parseRuleStatement :: Parsec String s [RuleScriptStatement]
-parseRuleStatement = (\r -> [RuleScriptStatement_Ref r])
+parseRuleStatement = [RuleScriptStatement_Empty] <$ reserved "empty"
+                 <|> (\r -> [RuleScriptStatement_Ref r])
                           <$  reserved "constraints"
                           <*> parseRuleCapture
                  <|> try ((\n m msg -> [RuleScriptStatement_MergeBlameLast n m msg])
@@ -392,9 +393,9 @@ parseRuleStatement = (\r -> [RuleScriptStatement_Ref r])
                           <*> optionMaybe (braces parseRuleMessage)
                  <|> (\elts lsts sc -> [RuleScriptStatement_ForEach lsts (bind elts sc)])
                           <$  reserved "foreach"
-                          <*> commaSep1 parseRuleCapture
+                          <*> many1 parseRuleCapture
                           <*  reservedOp "<-"
-                          <*> commaSep1 parseRuleCapture
+                          <*> many1 parseRuleCapture
                           <*> braces parseRuleScript
                  <|> (\v m -> [RuleScriptStatement_Update v m])
                           <$  reserved "update"
@@ -463,7 +464,7 @@ lexer = T.makeTokenParser $ haskellDef { T.reservedNames = "rule" : "strict" : "
                                                            : "match" : "check" : "script" : "any"
                                                            : "type" : "expr" : "vcat" : "hcat"
                                                            : "var" : "constraints" : "merge" : "blame" : "last"
-                                                           : "message" : "foreach" : "repair" : "update"
+                                                           : "message" : "foreach" : "empty" : "repair" : "update"
                                                            : "injective" : "defer" : "synonym" : "do"
                                                            : "with" : T.reservedNames haskellDef }
 

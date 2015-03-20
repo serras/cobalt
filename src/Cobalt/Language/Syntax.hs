@@ -138,7 +138,8 @@ data RuleRegex = RuleRegex_Square  RuleRegexVar
 type RuleCheck = [Constraint]
 
 type RuleScript = Bind [TyVar] [RuleScriptStatement]
-data RuleScriptStatement = RuleScriptStatement_Ref            TyVar
+data RuleScriptStatement = RuleScriptStatement_Empty
+                         | RuleScriptStatement_Ref            TyVar
                          | RuleScriptStatement_Constraint     Constraint (Maybe RuleScriptMessage)
                          | RuleScriptStatement_Merge          (Maybe Int) (Maybe RuleScriptMessage)
                          | RuleScriptStatement_MergeBlameLast (Maybe Int) Int (Maybe RuleScriptMessage)
