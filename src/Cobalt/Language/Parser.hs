@@ -370,42 +370,44 @@ parseRuleRegexAtom = -- Parenthesized expression
                  <|> RuleRegex_Var <$> (s2n <$> identifier)
 
 parseRuleScript :: Parsec String s RuleScript
-parseRuleScript = (\vs st -> bind vs (concat st))
-                     <$> (    id <$ reserved "var" <*> many1 parseRuleCapture <* comma
-                          <|> pure [])
-                     <*> commaSep1 parseRuleStatement
+parseRuleScript = bind <$> (    id <$ reserved "var" <*> many1 parseRuleCapture <* comma
+                            <|> pure [])
+                       <*> commaSep1 parseRuleStatement
 
-parseRuleStatement :: Parsec String s [RuleScriptStatement]
-parseRuleStatement = [RuleScriptStatement_Empty] <$ reserved "empty"
-                 <|> (\r -> [RuleScriptStatement_Ref r])
+parseRuleStatement :: Parsec String s RuleScriptStatement
+parseRuleStatement = RuleScriptStatement_Empty <$ reserved "empty"
+                 <|> RuleScriptStatement_LocalStack
+                          <$  reserved "localstack"
+                          <*> braces parseRuleScript
+                 <|> RuleScriptStatement_Ref
                           <$  reserved "constraints"
                           <*> parseRuleCapture
-                 <|> try ((\n m msg -> [RuleScriptStatement_MergeBlameLast n m msg])
+                 <|> try (RuleScriptStatement_MergeBlameLast
                           <$  reserved "merge"
                           <*> optionMaybe (fromEnum <$> integer)
                           <*  reserved "blame"
                           <*  reserved "last"
                           <*> (fromEnum <$> integer <|> pure 1)
                           <*> optionMaybe (braces parseRuleMessage))
-                 <|> (\n msg -> [RuleScriptStatement_Merge n msg])
+                 <|> RuleScriptStatement_Merge
                           <$  reserved "merge"
                           <*> optionMaybe (fromEnum <$> integer)
                           <*> optionMaybe (braces parseRuleMessage)
-                 <|> (\elts lsts sc -> [RuleScriptStatement_ForEach lsts (bind elts sc)])
+                 <|> (\elts lsts sc -> RuleScriptStatement_ForEach lsts (bind elts sc))
                           <$  reserved "foreach"
                           <*> many1 parseRuleCapture
                           <*  reservedOp "<-"
                           <*> many1 parseRuleCapture
                           <*> braces parseRuleScript
-                 <|> (\v m -> [RuleScriptStatement_Update v m])
+                 <|> RuleScriptStatement_Update
                           <$  reserved "update"
                           <*> parseRuleCapture
                           <*  reservedOp "<-"
                           <*> parseMonoType
-                 <|> (\msg -> [RuleScriptStatement_Constraint Constraint_Inconsistent (Just msg)])
+                 <|> (\msg -> RuleScriptStatement_Constraint Constraint_Inconsistent (Just msg))
                           <$  reserved "repair"
                           <*> braces parseRuleMessage
-                 <|> (\c msg -> [RuleScriptStatement_Constraint c msg])
+                 <|> RuleScriptStatement_Constraint
                           <$> parseConstraint
                           <*> optionMaybe (braces parseRuleMessage)
 
@@ -462,7 +464,7 @@ parseFile = buildProgram <$> many parseDecl
 lexer :: T.TokenParser t
 lexer = T.makeTokenParser $ haskellDef { T.reservedNames = "rule" : "strict" : "unsafe"
                                                            : "match" : "check" : "script" : "any"
-                                                           : "type" : "expr" : "vcat" : "hcat"
+                                                           : "type" : "expr" : "vcat" : "hcat" : "localstack"
                                                            : "var" : "constraints" : "merge" : "blame" : "last"
                                                            : "message" : "foreach" : "empty" : "repair" : "update"
                                                            : "injective" : "defer" : "synonym" : "do"

@@ -155,7 +155,7 @@ jsonScript ((n,_,_),_) (Right (g, _, GatherTermInfo w _ _), term, _, extra) =
                       , object [ "text"  .= ("given" :: String)
                                , "nodes" .= map (justText . textJsonConstraint) g ]
                       , object [ "text"  .= ("wanted" :: String)
-                               , "nodes" .= showJsonScript w ]
+                               , "nodes" .= [ showJsonScript w ] ]
                       , object [ "text"  .= ("extra" :: String)
                                , "nodes" .= map (justText . textJsonConstraint) extra ] ] ]
 

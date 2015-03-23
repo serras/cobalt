@@ -143,6 +143,7 @@ data RuleScriptStatement = RuleScriptStatement_Empty
                          | RuleScriptStatement_Constraint     Constraint (Maybe RuleScriptMessage)
                          | RuleScriptStatement_Merge          (Maybe Int) (Maybe RuleScriptMessage)
                          | RuleScriptStatement_MergeBlameLast (Maybe Int) Int (Maybe RuleScriptMessage)
+                         | RuleScriptStatement_LocalStack     RuleScript
                          | RuleScriptStatement_ForEach        [TyVar] (Bind [TyVar] RuleScript)
                          | RuleScriptStatement_Update         TyVar MonoType
                          deriving Show

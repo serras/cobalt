@@ -174,6 +174,20 @@ syntaxBindStatementsToScript (RuleScriptStatement_Update v m : rest) = do
   _4 %= filter (\(k,_) -> k /= v)
   _5 %= filter (\(k,_) -> k /= v)
   syntaxBindStatementsToScript rest
+syntaxBindStatementsToScript (RuleScriptStatement_LocalStack s : rest) = do
+  p <- use _1
+  previousStack <- use _6
+  _6 .= []  -- new stack
+  syntaxBindScriptToScript' s
+  -- merge everything in the new stack
+  left     <- use _6
+  stackTop <- case left of
+    []  -> fail "Empty stack at the end"
+    [l] -> return l
+    _   -> return (Merge left (Just p, Nothing))
+  -- take the previous stack back
+  _6 .= stackTop : previousStack
+  syntaxBindStatementsToScript rest
 syntaxBindStatementsToScript (RuleScriptStatement_ForEach vars loop : rest) = do
   -- Compute the lists to iterate over
   tyEnv <- use _3
