@@ -276,8 +276,7 @@ caseRule = rule $ \e ->
         GatherTerm g [eTy] [i] ->
           let -- resultC = Singleton (Constraint_Unify (var thisTy) (var eTy)) (Just p, Nothing)
               betaVars    = boundvars \\ fv convars
-              freshScript = do { GatherTermInfo w c cv <- i ; return (GatherTermInfo w c cv) }
-           in GatherCase [GatherCaseInfo g betaVars q (MonoType_Con dname convars) freshScript (ty eTy)]
+           in GatherCase [GatherCaseInfo g betaVars q (MonoType_Con dname convars) i (ty eTy)]
         _ -> thisIsNotOk
 
 thisIsNotOk :: a

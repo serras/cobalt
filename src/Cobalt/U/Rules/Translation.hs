@@ -11,12 +11,13 @@ import Control.Lens
 import Control.Lens.Extras (is)
 import Control.Monad.State
 import Data.Foldable (fold)
-import Data.List (elemIndex, union, transpose)
+import Data.Function
+import Data.List (elemIndex, union, transpose, sortBy)
 import Data.Maybe (fromJust, fromMaybe, catMaybes)
 import Data.Monoid
 import Data.Regex.MultiGenerics hiding (var)
 import qualified Data.Regex.MultiRules as Rx
-import Unbound.LocallyNameless hiding (union)
+import Unbound.LocallyNameless hiding (union, GT)
 
 import Cobalt.Core
 import Cobalt.Language
@@ -32,9 +33,6 @@ type CaptureVarList = [TyVar]
 type TranslationTypeEnv = [(TyVar, [MonoType])]
 type TranslationExprEnv = [(TyVar, [UTerm ((SourcePos,SourcePos),TyVar)])]
 type TranslationConsEnv = [(TyVar, [FreshM GatherTermInfo])]
-
-(!!!) :: Eq a => [(a, b)] -> a -> b
-(!!!) mp k = fromJust $ lookup k mp
 
 -- Translation
 syntaxRuleToScriptRule :: [Axiom] -> Rule -> TypeRule
@@ -68,8 +66,16 @@ explodeMap _tyvars [] = ([], [], [])
 explodeMap tyvars ((n, GatherTerm _ exprs i):rest) =
   let (t, e, c) = explodeMap tyvars rest
       v = tyvars !! fromEnum n
-   in ( (v, map (var . snd . ann) exprs) : t, (v, exprs) : e, (v, i) : c)
+   in ( (v, map (var . snd . ann) exprs) : t
+      , (v, exprs) : e
+      , (v, i) : c )
 explodeMap _ _ = error "This should never happen"
+
+compareSourcePos :: (SourcePos,SourcePos) -> (SourcePos,SourcePos) -> Ordering
+compareSourcePos (xi, xe) (yi, ye)
+  | xi < yi   = LT
+  | yi < xi   = GT
+  | otherwise = compare ye xe  -- compare ends in the converse order
 
 -- Translation of "match" block
 syntaxRegexToScriptRegex :: RuleRegex -> [(RuleRegexVar, c IsATerm)]
@@ -193,7 +199,7 @@ syntaxBindStatementsToScript (RuleScriptStatement_ForEach vars loop : rest) = do
   tyEnv <- use _3
   exEnv <- use _4
   coEnv <- use _5
-  let typeThings = map (fromJust . flip lookup tyEnv) vars
+  let typeThings = map (fromMaybe [] . flip lookup tyEnv) vars
       smallestLength = minimum (map length typeThings)
       exprThings = map (maybe (replicate smallestLength Nothing) (map Just) . flip lookup exEnv) vars
       consThings = map (maybe (replicate smallestLength Nothing) (map Just) . flip lookup coEnv) vars
@@ -221,7 +227,7 @@ syntaxBindStatementsToScriptForEach _ _ (_:_) _ _ = error "This should never hap
 
 replaceElt :: Eq a => a -> b -> [(a,b)] -> [(a,b)]
 replaceElt _  _  [] = []
-replaceElt x1 v1 ((x2, v2) : rs) | x1 == x2  = (x1, v2) : rs
+replaceElt x1 v1 ((x2, v2) : rs) | x1 == x2  = (x1, v1) : rs
                                  | otherwise = (x2, v2) : replaceElt x1 v1 rs
 
 -- Translation of types and constraints -- used in "check" block
@@ -257,9 +263,10 @@ syntaxMonoTypeToScript (MonoType_Var v) this captures =
   case name2String v of
     -- Variables starting with # refer to captured variables
     "#this" -> MonoType_Var this
-    '#':_   -> case captures !!! v of
-                 [m] -> m
-                 _   -> error "Using multiple types where only one is expected"
+    '#':_   -> case lookup v captures of
+                 Nothing  -> error $ (show v) ++ " does not contain any type"
+                 Just [m] -> m
+                 Just _   -> error $ (show v) ++ " has multiple types, whereas only one is expected"
     _       -> MonoType_Var v
 syntaxMonoTypeToScript (MonoType_Arrow t1 t2) this captures = do
   MonoType_Arrow (syntaxMonoTypeToScript t1 this captures)
