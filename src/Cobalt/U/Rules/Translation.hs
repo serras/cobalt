@@ -30,9 +30,8 @@ type WI           = Wrap Integer
 type UTermWithPos = UTerm_ ((SourcePos,SourcePos),TyVar)
 
 type CaptureVarList = [TyVar]
+type TranslationEnv = [(TyVar, Gathered)]
 type TranslationTypeEnv = [(TyVar, [MonoType])]
-type TranslationExprEnv = [(TyVar, [UTerm ((SourcePos,SourcePos),TyVar)])]
-type TranslationConsEnv = [(TyVar, [FreshM GatherTermInfo])]
 
 -- Translation
 syntaxRuleToScriptRule :: [Axiom] -> Rule -> TypeRule
@@ -41,13 +40,12 @@ syntaxRuleToScriptRule ax (Rule _ _ i) = runFreshM $ do
   return $ Rx.Rule (Regex $ syntaxRegexToScriptRegex rx [] vars)
                    (\term envAndSat@(Rx.IndexIndependent (_,sat,tchs)) synChildren ->
                      let (p,thisTy)  = ann term
-                         childrenMap = syntaxSynToMap synChildren
+                         childrenMap = syntaxSynToMap vars synChildren
                          initialSyn  = foldr (mappend . snd) mempty childrenMap
                          rightSyns   = filter (is _Term . snd) childrenMap
-                         (initialTy, exprs, constraints) = explodeMap vars rightSyns
+                         initialTy   = map (\(v, GatherTerm _ exprs _) -> (v, map (var . snd . ann) exprs)) rightSyns
                          checkW      = syntaxConstraintListToScript check thisTy initialTy
-                         initialEnv  = (p, thisTy, initialTy, exprs, constraints, [], [], [])
-                         wanteds     = evalStateT (syntaxBindScriptToScript script) initialEnv
+                         wanteds     = undefined
                       in ( null check || entails ax sat checkW tchs
                          , [Rx.Child (Wrap n) [envAndSat] | n <- [0 .. (toEnum $ length vars)]]
                          , case initialSyn of
@@ -55,27 +53,9 @@ syntaxRuleToScriptRule ax (Rule _ _ i) = runFreshM $ do
                              _ -> initialSyn  -- Float errors upwards
                          ) )
 
-syntaxSynToMap :: Rx.Children WI Syn -> [(Integer, Gathered)]
-syntaxSynToMap [] = []
-syntaxSynToMap (Rx.Child (Wrap n) info : rest) =
-  (n, fold (unsafeCoerce info :: [Gathered])) : syntaxSynToMap rest
-
-explodeMap :: CaptureVarList -> [(Integer, Gathered)]
-           -> (TranslationTypeEnv, TranslationExprEnv, TranslationConsEnv)
-explodeMap _tyvars [] = ([], [], [])
-explodeMap tyvars ((n, GatherTerm _ exprs i):rest) =
-  let (t, e, c) = explodeMap tyvars rest
-      v = tyvars !! fromEnum n
-   in ( (v, map (var . snd . ann) exprs) : t
-      , (v, exprs) : e
-      , (v, i) : c )
-explodeMap _ _ = error "This should never happen"
-
-compareSourcePos :: (SourcePos,SourcePos) -> (SourcePos,SourcePos) -> Ordering
-compareSourcePos (xi, xe) (yi, ye)
-  | xi < yi   = LT
-  | yi < xi   = GT
-  | otherwise = compare ye xe  -- compare ends in the converse order
+syntaxSynToMap :: CaptureVarList -> Rx.Children WI Syn -> [(TyVar, Gathered)]
+syntaxSynToMap tyvars = map (\(Rx.Child (Wrap n) info) ->
+  (tyvars !! fromEnum n, fold (unsafeCoerce info :: [Gathered])) )
 
 -- Translation of "match" block
 syntaxRegexToScriptRegex :: RuleRegex -> [(RuleRegexVar, c IsATerm)]
@@ -100,6 +80,25 @@ syntaxRegexToScriptRegex (RuleRegex_Capture n Nothing) _ tyvars =
 syntaxRegexToScriptRegex (RuleRegex_Capture n (Just r)) capturevars tyvars =
   (Wrap $ toEnum $ fromJust $ elemIndex n tyvars) <<- syntaxRegexToScriptRegex r capturevars tyvars
 
+-- Translation of "script" block
+syntaxBindScriptToScript :: (Rep a, Alpha a)
+                         => (SourcePos,SourcePos) -> TyVar -> TranslationEnv
+                         -> (TyScript -> a -> TyScript)  -- what to do with msg
+                         -> ([TyScript] -> TyScript)     -- how to merge everything together
+                         -> RuleScript a -> FreshM GatherTermInfo
+syntaxBindScriptToScript p thisTy env msgFn mergeFn script = do
+  (vars, instrs) <- unbind script
+  instrScripts <- mapM (\(instr, msg) -> do GatherTermInfo s custom customVars <- syntaxScriptTreeToScript p thisTy env instr
+                                            return $ ((s, msg), custom, customVars)) instrs
+  let (allSMsg, allCustom, allCustomVars) = unzip3 instrScripts
+  return $ GatherTermInfo (mergeFn (map (uncurry msgFn) allSMsg)) (concat allCustom) (concat allCustomVars)
+
+
+syntaxScriptTreeToScript :: (SourcePos,SourcePos) -> TyVar -> TranslationEnv
+                         -> RuleScriptTree -> FreshM GatherTermInfo
+syntaxScriptTreeToScript = undefined
+
+{-
 -- Translation of "script" block
 type TranslationEnv = ( (SourcePos, SourcePos)
                       , TyVar         -- #this
@@ -229,6 +228,7 @@ replaceElt :: Eq a => a -> b -> [(a,b)] -> [(a,b)]
 replaceElt _  _  [] = []
 replaceElt x1 v1 ((x2, v2) : rs) | x1 == x2  = (x1, v1) : rs
                                  | otherwise = (x2, v2) : replaceElt x1 v1 rs
+-}
 
 -- Translation of types and constraints -- used in "check" block
 syntaxConstraintListToScript :: [Constraint] -> TyVar -> TranslationTypeEnv -> [Constraint]
