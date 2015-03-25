@@ -333,7 +333,7 @@ parseRule = do reserved "rule"
                reservedOp ";"
                createRule st nm rx ch sc
 
-createRule :: RuleStrictness -> String -> RuleRegex -> [Constraint] -> RuleScript (Maybe RuleScriptMessage) -> Parsec String s Rule
+createRule :: RuleStrictness -> String -> RuleRegex -> [Constraint] -> RuleScript (Maybe RuleScriptMessage) () -> Parsec String s Rule
 createRule st nm rx ch sc = do
   let rxVars = s2n "#this" : nub (fv rx)
       chVars = nub (fv ch) \\ rxVars
@@ -341,7 +341,7 @@ createRule st nm rx ch sc = do
   case (chVars, scVars) of
     (_:_, _:_) -> fail ("Neither check nor script blocks may have unbound variables" ++ show (chVars `union` scVars))
     (_:_, [])  -> fail ("`check` blocks may not have unbound variables: " ++ show chVars)
-    ([] , _:_) -> fail ("`script` blocks may not have unbound variables (use `var`): " ++ show scVars)
+    ([] , _:_) -> fail ("`script` blocks may not have unbound variables (use `fresh`): " ++ show scVars)
     ([] , [])  -> return $ Rule st nm (bind rxVars (rx, ch, sc))
 
 parseRuleCapture :: Parsec String s TyVar
@@ -369,8 +369,24 @@ parseRuleRegexAtom = -- Parenthesized expression
                  <|> RuleRegex_Str <$> stringLiteral
                  <|> RuleRegex_Var <$> (s2n <$> identifier)
 
-parseRuleScript :: (Rep a, Alpha a) => Parsec String s ([(RuleScriptTree, a)], [TyVar]) -> Parsec String s (RuleScript a)
-parseRuleScript p = (\lst -> let (trees, vars) = unzip lst in bind (concat vars) (concat trees)) <$> commaSep p
+parseRuleScript :: (Rep a, Alpha a) => Parsec String s ([(RuleScriptTree, a)], [TyVar])
+                -> Parsec String s (RuleScript a ())
+parseRuleScript p = (\lst -> let (trees, vars) = unzip lst in bind (concat vars) (concat trees, ())) <$> commaSep1 p
+
+parseRuleScriptNext :: (Rep a, Alpha a) => Parsec String s ([(RuleScriptTree, a)], [TyVar])
+                    -> Parsec String s (RuleScript a MonoType)
+parseRuleScriptNext p = (\lst next -> let (trees, vars) = unzip lst in bind (concat vars) (concat trees, next))
+                          <$> braces (commaSep1 p)
+                          <*  reserved "next"
+                          <*> parseMonoType
+
+parseRuleScriptNextMsg :: (Rep a, Alpha a) => Parsec String s ([(RuleScriptTree, a)], [TyVar])
+                       -> Parsec String s (RuleScript a (MonoType, Maybe RuleScriptMessage))
+parseRuleScriptNextMsg p = (\lst msg next -> let (trees, vars) = unzip lst in bind (concat vars) (concat trees, (next, msg)))
+                             <$> braces (commaSep1 p)
+                             <*> optionMaybe (id <$ reserved "error" <*> braces parseRuleMessage)
+                             <*  reserved "next"
+                             <*> parseMonoType
 
 parseRuleTreeMsg :: Parsec String s ([(RuleScriptTree, Maybe RuleScriptMessage)], [TyVar])
 parseRuleTreeMsg = (\msg -> ([(RuleScriptTree_Constraint Constraint_Inconsistent, Just msg)], []))
@@ -388,6 +404,29 @@ parseRuleTree = ([(RuleScriptTree_Empty, ())], []) <$ reserved "empty"
             <|> (\tyvars -> ([], tyvars))
                      <$  reserved "fresh"
                      <*> many1 parseRuleCapture
+            <|> try ((\foldOver acc initial next -> let (inner, outer) = unzip foldOver in
+                   ([(RuleScriptTree_AFold outer acc initial (bind inner next), ())], [acc]))
+                     <$  reserved "asym"
+                     <*  reserved "fold"
+                     <*> ((,) <$> parseRuleCapture
+                              <*  reservedOp "<-"
+                              <*> parseVarWithOrdering) `sepBy1` (reservedOp "|")
+                     <*  reserved "init"
+                     <*> parseRuleCapture
+                     <*  reservedOp "<-"
+                     <*> parseMonoType
+                     <*> parseRuleScriptNextMsg parseRuleTree)
+            <|> (\foldOver acc initial next -> let (inner, outer) = unzip foldOver in
+                   ([(RuleScriptTree_Fold outer acc initial (bind inner next), ())], [acc]))
+                     <$  reserved "fold"
+                     <*> ((,) <$> parseRuleCapture
+                              <*  reservedOp "<-"
+                              <*> parseVarWithOrdering) `sepBy1` (reservedOp "|")
+                     <*  reserved "init"
+                     <*> parseRuleCapture
+                     <*  reservedOp "<-"
+                     <*> parseMonoType
+                     <*> parseRuleScriptNext parseRuleTree
             <|> (\(c, vars) -> let (inner, outer) = unzip vars
                                 in ([(RuleScriptTree_Asym outer (bind inner c), ())], []))
                      <$  reserved "asym"
@@ -403,19 +442,6 @@ parseRuleTree = ([(RuleScriptTree_Empty, ())], []) <$ reserved "empty"
                                                      <*> parseRuleCapture
                                                      <*  reservedOp "<-"
                                                      <*> parseVarWithOrdering ) )
-            <|> (\inner outer acc initial sc next ->
-                   ([(RuleScriptTree_Fold outer acc initial (bind inner (sc, next)), ())], [acc]))
-                     <$  reserved "fold"
-                     <*> parseRuleCapture
-                     <*  reservedOp "<-"
-                     <*> parseVarWithOrdering
-                     <*  reserved "init"
-                     <*> parseRuleCapture
-                     <*  reservedOp "<-"
-                     <*> parseMonoType
-                     <*> parseRuleScript parseRuleTree
-                     <*  reserved "next"
-                     <*> parseMonoType
             <|> (\c -> ([(RuleScriptTree_Constraint c, ())], []))
                      <$> parseConstraint
 
@@ -498,8 +524,8 @@ brackets = T.brackets lexer
 comma :: Parsec String s String
 comma = T.comma lexer
 
-commaSep :: Parsec String s a -> Parsec String s [a]
-commaSep = T.commaSep lexer
+-- commaSep :: Parsec String s a -> Parsec String s [a]
+-- commaSep = T.commaSep lexer
 
 commaSep1 :: Parsec String s a -> Parsec String s [a]
 commaSep1 = T.commaSep1 lexer

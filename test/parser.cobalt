@@ -3,25 +3,17 @@ import star   :: {a} {b} {s} 'Parser s (a -> b) -> 'Parser s a -> 'Parser s b;
 
 rule   app_parser
 match  #first@(#dollar@(dullar) #fn) #arg
-script var #a1 #a2 #b1 #b2 #s1 #s2,
-       #dollar ~ (#a1 -> #b1) -> 'Parser #s1 #a1 -> 'Parser #s1 #b1,
-       #first  ~ 'Parser #s1 #a1 -> 'Parser #s1 #b1,
+script fresh #a1 #a2 #b1 #b2 #s1 #s2,
+       [ #dollar ~ (#a1 -> #b1) -> 'Parser #s1 #a1 -> 'Parser #s1 #b1,
+         #first  ~ 'Parser #s1 #a1 -> 'Parser #s1 #b1 ],
        constraints #fn,
-       merge blame last,
-       #fn ~ #a1 -> #b1 { "left operand must be a function" },
-       merge blame last { "Left operand is not a function" },
+       #fn ~ #a1 -> #b1        error { "Left operand is not a function" },
        constraints #arg,
-       merge blame last,
-       #arg ~ 'Parser #s1 #a2 { "right operand must be a parser" },
-       merge blame last { "Right operand is not a parser" },
-       #this ~ 'Parser #s2 #b2,
-       merge blame last { "Context does not accept a parser" },
-       #b1 ~ #b2 { "the result type must be as expected" },
-       merge blame last { "Parser has an incorrect result type" },
-       #a1 ~ #a2 { "function should be applied to parser's result" },
-       merge blame last { "Function cannot be applied to parser's result" },
-       #s1 ~ #s2 { "parser symbols must coincide" },
-       merge blame last { "Parser has an incorrect symbol type" };
+       #arg ~ 'Parser #s1 #a2  error { "Right operand is not a parser" },
+       #this ~ 'Parser #s2 #b2 error { "Context does not accept a parser" },
+       #b1 ~ #b2               error { "Parser has an incorrect result type" },
+       #a1 ~ #a2               error { "Function cannot be applied to parser's result" },
+       #s1 ~ #s2               error { "Parser has an incorrect symbol type" };
 
 import mapToUpper :: [a] -> [a];
 import helloWorld :: 'String;
@@ -42,66 +34,52 @@ match  #oOne@(#oStar@(star)
               [ #firstTwo@(#firstOne@(#dullar@(dullar) #fn) #x)
               | #two@(#one@(#star@(star) &k) #y)]*k)
              #z
-script var #tau #w1 #w2 #w3 #str #f1 #f2 #f3 #f4,
-       constraints #fn,
-       update #tau <- #w1 -> #w2,
-       foreach #i <- #y { var #w, update #tau <- #w -> #tau },
-       update #tau <- #w3 -> #tau,
-       #fn ~ #tau,
-       merge blame last { "function does not have enough arguments" },
+script constraints #fn,
 
-       localstack {
-         constraints #x,
-         #x > {s} {a} 'Parser s a,
-         merge 2 blame last { "first argument is not a parser" },
+       fresh #w1 #w2 #w3,
+       fold #i <- inout #y init #tau <- #w1 -> #w2 { fresh #w } next #w -> #tau,
+       #fn ~ #w3 -> #tau error { "Function has too many arguments" },
 
-         foreach #i <- #y {
-           constraints #i,
-           #i > {s} {a} 'Parser s a,
-           merge 2 blame last { "argument is not a parser" }
-         },
+       [ asym [ constraints #x,
+                #x > {s} {a} 'Parser s a error { "First argument is not a parser" }],
+         asym [ constraints #i,
+                #i > {s} {a} 'Parser s a error { "Argument is not a parser" }
+              | #i <- inout #y ],
+         asym [ constraints #z,
+                #z > {s} {a} 'Parser s a error { "Last argument is not a parser" }] ],
 
-         constraints #z,
-         #z > {s} {a} 'Parser s a,
-         merge 2 blame last { "last argument is not a parser" }
-       },
-       merge blame last,
-
-       localstack {
-         #x > {a} 'Parser #str a,
-         foreach #i <- #y { #i > {a} 'Parser #str a },
+       fresh #str,
+       [ #x > {a} 'Parser #str a,
+         [ #i > {a} 'Parser #str a | #i <- inout #y ],
          #z > {a} 'Parser #str a
-       },
-       merge blame last { "not all parsers consume the same type" },
+       ] error { "Not all parsers consume the same type" },
 
-       #tau ~ #f1 -> #f2,
-       #x   ~ 'Parser #str #f1,
-       merge blame last { "first parser does not produce the correct type" },
-       #dullar   ~ (#f1 -> #f2) -> 'Parser #str #f1 -> 'Parser #str #f2,
-       #firstOne ~ 'Parser #str #f1 -> 'Parser #str #f2,
-       #firstTwo ~ 'Parser #str #f2,
-       merge blame last 3,
+       fresh #f1 #f2,
+       [ #fn ~ #f1 -> #f2,
+         #x  ~ 'Parser #str #f1,
+         #dullar   ~ (#f1 -> #f2) -> 'Parser #str #f1 -> 'Parser #str #f2,
+         #firstOne ~ 'Parser #str #f1 -> 'Parser #str #f2,
+         #firstTwo ~ 'Parser #str #f2 ]
+       error { "First parser does not produce the correct type" },
 
-       update #tau <- #f2,
-       foreach #i #s #o #t <- #y #star #one #two {
-         var #t1 #t2,
-         #tau ~ #t1 -> #t2,
-         #i ~ 'Parser #str #t1,
-         merge blame last { "parser does not produce the correct type" },
-         #s ~ 'Parser #str (#t1 -> #t2) -> 'Parser #str #t1 -> 'Parser #str #t2,
-         #o ~ 'Parser #str #t1 -> 'Parser #str #t2,
-         #t ~ 'Parser #str #t2,
-         merge blame last 3,
-         update #tau <- #t2
-       },
+       fold #i <- inout #y | #s <- inout #star | #o <- inout #one | #t <- inout #two
+       init #ty <- #f2 {
+         fresh #f3 #f4,
+         #ty ~ #f3 -> #f4,
+         #i ~ 'Parser #str #f3,
+         #s ~ 'Parser #str (#f3 -> #f4) -> 'Parser #str #f3 -> 'Parser #str #f4,
+         #o ~ 'Parser #str #f3 -> 'Parser #str #f4,
+         #t ~ 'Parser #str #f4
+       } next #f4,
 
-       #tau ~ #f3 -> #f4,
-       #z   ~ 'Parser #str #f3,
-       merge blame last 2 { "last parser does not produce the correct type" },
-       #oStar ~ 'Parser #str (#f3 -> #f4) -> 'Parser #str #f3 -> 'Parser #str #f4,
-       #oOne  ~ 'Parser #str #f3 -> 'Parser #str #f4,
-       #this  ~ 'Parser #str #f4,
-       merge blame last 3;
+       fresh #f5 #f6,
+       [ #ty ~ #f5 -> #f6,
+         #z  ~ 'Parser #str #f5,
+         #oStar ~ 'Parser #str (#f5 -> #f6) -> 'Parser #str #f5 -> 'Parser #str #f6,
+         #oOne  ~ 'Parser #str #f5 -> 'Parser #str #f6,
+         #this  ~ 'Parser #str #f6 ]
+       error { "Last parser does not produce the correct type" };
+
 
 import twoArgFn   :: ['Int] -> 'Bool -> 'Result;
 import threeArgFn :: ['Int] -> 'Bool -> 'Bool -> 'Result;
@@ -111,3 +89,5 @@ testB = star (dullar twoArgFn parser1) parser1 => fail;
 testC = star (dullar twoArgFn parser2) parser1 => fail;
 testD = star (star (dullar twoArgFn   parser2) parser1) parser1 => fail;
 testE = star (star (dullar threeArgFn parser1) parser2) parser1 => fail;
+testF = star (dullar twoArgFn 1) parser2 => fail;
+testG = star (star (dullar threeArgFn parser1) parser1) parser1 => fail;

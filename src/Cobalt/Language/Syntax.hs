@@ -120,7 +120,7 @@ getAnn (Term_LetAnn _ _ t)   = t
 getAnn (Term_Match _ _ _ t)  = t
 getAnn (Term_StrLiteral _ t) = t
 
-data Rule = Rule RuleStrictness String (Bind [TyVar] (RuleRegex, RuleCheck, RuleScript (Maybe RuleScriptMessage))) deriving Show
+data Rule = Rule RuleStrictness String (Bind [TyVar] (RuleRegex, RuleCheck, RuleScript (Maybe RuleScriptMessage) ())) deriving Show
 
 data RuleStrictness = RuleStrictness_NonStrict | RuleStrictness_Strict | RuleStrictness_Unsafe deriving Show
 
@@ -138,17 +138,20 @@ data RuleRegex = RuleRegex_Square  RuleRegexVar
 
 type RuleCheck = [Constraint]
 
-type RuleScript ann = Bind [TyVar] [(RuleScriptTree, ann)]
+type RuleScript ann plus = Bind [TyVar] ([(RuleScriptTree, ann)], plus)
 data RuleScriptTree = RuleScriptTree_Empty
                     | RuleScriptTree_Ref TyVar
                     | RuleScriptTree_Constraint Constraint
                     | RuleScriptTree_Merge [(TyVar,RuleScriptOrdering)]
-                                           (Bind [TyVar] (RuleScript ()))
+                                           (Bind [TyVar] (RuleScript () ()))
                     | RuleScriptTree_Asym  [(TyVar,RuleScriptOrdering)]
-                                           (Bind [TyVar] (RuleScript (Maybe RuleScriptMessage)))
-                    | RuleScriptTree_Fold  (TyVar,RuleScriptOrdering) {- what to loop over -}
+                                           (Bind [TyVar] (RuleScript (Maybe RuleScriptMessage) ()))
+                    | RuleScriptTree_Fold  [(TyVar,RuleScriptOrdering)] {- what to loop over -}
                                            TyVar {- accumulator -} MonoType {- initial value -}
-                                           (Bind TyVar (RuleScript (), MonoType))
+                                           (Bind [TyVar] (RuleScript () MonoType))
+                    | RuleScriptTree_AFold [(TyVar,RuleScriptOrdering)] {- what to loop over -}
+                                           TyVar {- accumulator -} MonoType {- initial value -}
+                                           (Bind [TyVar] (RuleScript () (MonoType, Maybe RuleScriptMessage)))
                     deriving Show
 
 data RuleScriptOrdering = RuleScriptOrdering_OutToIn
