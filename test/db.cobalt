@@ -36,16 +36,12 @@ import get :: {e} 'Key e -> 'Maybe e;
 
 rule   get
 match  #get@(get) #key
-script var #e1 #e2,
-       #get ~ 'Key #e1 -> 'Maybe #e2,
-       constraints #key,
-       merge,
-       #key ~ 'Key #e1,
-       merge blame last { "The given argument is not a key" },
-       #this ~ 'Maybe #e2,
-       merge blame last { "Context does not expect an entity" },
-       #e1 ~ #e2,
-       merge blame last { "The given value is not a key of the corresponding entity" };
+script fresh #e1 #e2,
+       [ #get ~ 'Key #e1 -> 'Maybe #e2,
+         constraints #key ],
+       #key ~ 'Key #e1    error { "The given argument is not a key" },
+       #this ~ 'Maybe #e2 error { "Context does not expect an entity" },
+       #e1 ~ #e2 error { "The given value is not a key of the corresponding entity" };
 
 g1 = get (MkPersonKey 1);
 g2 = get 1 => fail;
@@ -54,13 +50,11 @@ import get2 :: {e} 'Key e -> 'Maybe e;
 
 rule   get2
 match  #get@(get2) #key
-script var #e,
+script fresh #e,
        constraints #key,
-       #key ~ 'Key #e,
-       merge blame last { "The given argument is not a key" },
-       constraints #get,
-       #this ~ 'Maybe #e,
-       merge blame last 2;
+       #key ~ 'Key #e error { "The given argument is not a key" },
+       [ constraints #get,
+         #this ~ 'Maybe #e ];
 
 g1_ = get2 (MkPersonKey 1);
 g2_ = get2 1 => fail;
@@ -74,17 +68,14 @@ script repair { "You should provide a raw value, not an entity," };
 
 rule   update_
 match  #first@(#upd@(update_) #key) #val
-script var #s1,
-       constraints #key,
-       constraints #val,
-       #key ~ 'Key #s1,
-       merge blame last { "The first argument is not a key" },
-       #s1 ~ #val { "key and entity types must coincide" },
-       merge blame last { "Key and entity types are not equal" },
-       constraints #upd,
-       #first ~ #val -> 'Result,
-       #this ~ 'Result,
-       merge blame last 3;
+script fresh #s1,
+       [ constraints #key,
+         constraints #val ],
+       #key ~ 'Key #s1 error { "The first argument is not a key" },
+       #s1 ~ #val error { "Key and entity types are not equal" },
+       [ constraints #upd,
+         #first ~ #val -> 'Result,
+         #this ~ 'Result ];
 
 u1 = update_ (MkPersonKey 1) aPerson;
 u2 = update_ 1 aPerson => fail;

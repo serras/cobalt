@@ -10,6 +10,7 @@ module Cobalt.U.Script (
 , substScript
 , substsScript
 , simplifyScript
+, mergeScript
 , removeExistsScript
 ) where
 
@@ -65,6 +66,12 @@ substsScript v (Merge ss i)    = Merge (map (substsScript v) ss) i
 substsScript v (Asym c1 c2 i)  = Asym (substsScript v c1) (substsScript v c2) i
 substsScript v (Exists vs q w) = Exists vs (map (substs v) q) (substsScript v w)
 
+mergeScript :: (SourcePos,SourcePos) -> TyScript -> TyScript -> TyScript
+mergeScript _ Empty s = s
+mergeScript _ s Empty = s
+mergeScript _ (Merge ss i) s@(Singleton _ _) = Merge (s:ss) i
+mergeScript _ s@(Singleton _ _) (Merge ss i) = Merge (s:ss) i
+mergeScript p s1 s2 = Merge [s1,s2] (Just p, Nothing)
 
 instance Show TyScript where
   show Empty = ""
@@ -77,7 +84,7 @@ instance Show TyScript where
 
 showMsg :: Maybe String -> String
 showMsg (Just m) = " => " ++ m
-showMsg Nothing  = "" 
+showMsg Nothing  = ""
 
 simplifyScript :: Script var constraint info -> Script var constraint info
 simplifyScript Empty = Empty

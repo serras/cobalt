@@ -7,13 +7,12 @@ module Cobalt.U.Rules.Translation (
 ) where
 
 import Control.Applicative
-import Control.Lens
 import Control.Lens.Extras (is)
-import Control.Monad.State
+import Control.Monad (forM)
 import Data.Foldable (fold)
-import Data.Function
-import Data.List (elemIndex, union, transpose, sortBy)
-import Data.Maybe (fromJust, fromMaybe, catMaybes)
+import Data.Function (on)
+import Data.List (elemIndex, transpose, union, sortBy)
+import Data.Maybe (fromJust)
 import Data.Monoid
 import Data.Regex.MultiGenerics hiding (var)
 import qualified Data.Regex.MultiRules as Rx
@@ -45,7 +44,7 @@ syntaxRuleToScriptRule ax (Rule _ _ i) = runFreshM $ do
                          rightSyns   = filter (is _Term . snd) childrenMap
                          initialTy   = map (\(v, GatherTerm _ exprs _) -> (v, map (var . snd . ann) exprs)) rightSyns
                          checkW      = syntaxConstraintListToScript check thisTy initialTy
-                         wanteds     = undefined
+                         wanteds     = syntaxBindScriptToScript p thisTy rightSyns initialTy (mergeFnAsym p) script
                       in ( null check || entails ax sat checkW tchs
                          , [Rx.Child (Wrap n) [envAndSat] | n <- [0 .. (toEnum $ length vars)]]
                          , case initialSyn of
@@ -53,7 +52,7 @@ syntaxRuleToScriptRule ax (Rule _ _ i) = runFreshM $ do
                              _ -> initialSyn  -- Float errors upwards
                          ) )
 
-syntaxSynToMap :: CaptureVarList -> Rx.Children WI Syn -> [(TyVar, Gathered)]
+syntaxSynToMap :: CaptureVarList -> Rx.Children WI Syn -> TranslationEnv
 syntaxSynToMap tyvars = map (\(Rx.Child (Wrap n) info) ->
   (tyvars !! fromEnum n, fold (unsafeCoerce info :: [Gathered])) )
 
@@ -82,153 +81,88 @@ syntaxRegexToScriptRegex (RuleRegex_Capture n (Just r)) capturevars tyvars =
 
 -- Translation of "script" block
 syntaxBindScriptToScript :: (Rep a, Alpha a)
-                         => (SourcePos,SourcePos) -> TyVar -> TranslationEnv
-                         -> (TyScript -> a -> TyScript)  -- what to do with msg
-                         -> ([TyScript] -> TyScript)     -- how to merge everything together
+                         => (SourcePos,SourcePos) -> TyVar -> TranslationEnv -> TranslationTypeEnv
+                         -> ([(TyScript, a)] -> TyScript)     -- how to merge everything together
                          -> RuleScript a -> FreshM GatherTermInfo
-syntaxBindScriptToScript p thisTy env msgFn mergeFn script = do
+syntaxBindScriptToScript p thisTy env tyEnv mergeFn script = do
   (vars, instrs) <- unbind script
-  instrScripts <- mapM (\(instr, msg) -> do GatherTermInfo s custom customVars <- syntaxScriptTreeToScript p thisTy env instr
-                                            return $ ((s, msg), custom, customVars)) instrs
+  -- Add fresh variables
+  freshedTyVars <- mapM (fresh . s2n . drop 1 . name2String) vars
+  let newTyEnv = zipWith (\a b -> (a,[var b])) vars freshedTyVars ++ tyEnv
+  -- Call over each instruction and merge
+  instrScripts <- mapM (\(instr, msg) -> do GatherTermInfo s c cv <- syntaxScriptTreeToScript p thisTy env newTyEnv instr
+                                            return $ ((s, msg), c, cv)) instrs
   let (allSMsg, allCustom, allCustomVars) = unzip3 instrScripts
-  return $ GatherTermInfo (mergeFn (map (uncurry msgFn) allSMsg)) (concat allCustom) (concat allCustomVars)
+  return $ GatherTermInfo (mergeFn allSMsg) (concat allCustom) (freshedTyVars `union` concat allCustomVars)
 
+mergeFnMerge :: (SourcePos, SourcePos) -> [(TyScript, ())] -> TyScript
+mergeFnMerge p = foldl (mergeScript p) Empty . map fst
 
-syntaxScriptTreeToScript :: (SourcePos,SourcePos) -> TyVar -> TranslationEnv
+mergeFnAsym :: (SourcePos, SourcePos) -> [(TyScript, Maybe RuleScriptMessage)] -> TyScript
+mergeFnAsym _ [] = Empty
+mergeFnAsym _ [(x,m)] = replaceMsg m x
+mergeFnAsym p ((x,m):xs) = foldl (\prev (scr, msg) -> Asym scr prev (Just p, syntaxMessageToScript <$> msg))
+                                 (replaceMsg m x) xs
+
+replaceMsg :: Maybe RuleScriptMessage -> TyScript -> TyScript
+replaceMsg msg (Singleton c (p, _)) = Singleton c (p, syntaxMessageToScript <$> msg)
+replaceMsg msg (Merge ss (p, _))    = Merge ss (p, syntaxMessageToScript <$> msg)
+replaceMsg msg (Asym s1 s2 (p, _))  = Asym s1 s2 (p, syntaxMessageToScript <$> msg)
+replaceMsg _   s                    = s
+
+syntaxScriptTreeToScript :: (SourcePos,SourcePos) -> TyVar -> TranslationEnv -> TranslationTypeEnv
                          -> RuleScriptTree -> FreshM GatherTermInfo
-syntaxScriptTreeToScript = undefined
+syntaxScriptTreeToScript _ _ _ _ RuleScriptTree_Empty =
+   return $ GatherTermInfo Empty [] []
+syntaxScriptTreeToScript _p _this env _tys (RuleScriptTree_Ref v) =
+  case lookup v env of
+    Just (GatherTerm _ _ [g]) -> g
+    _  -> error "This should never happen"
+syntaxScriptTreeToScript p this _env tys (RuleScriptTree_Constraint c) =
+  return $ GatherTermInfo (Singleton (syntaxConstraintToScript c this tys) (Just p, Nothing)) [] []
+syntaxScriptTreeToScript p this env tys (RuleScriptTree_Merge vars loop) = do
+  let iterOver = zipVarInformation vars env
+  scripts <- syntaxScriptTreeIter p this env tys (mergeFnMerge p) {- ! -} loop iterOver
+  return $ foldr (\(GatherTermInfo s c cv) (GatherTermInfo ss cs cvs) ->
+                     GatherTermInfo (mergeScript p s ss) (c ++ cs) (cv `union` cvs))
+                 (GatherTermInfo Empty [] []) scripts
+syntaxScriptTreeToScript p this env tys (RuleScriptTree_Asym vars loop) = do
+  let iterOver = zipVarInformation vars env
+  scripts <- syntaxScriptTreeIter p this env tys (mergeFnAsym p) {- ! -} loop iterOver
+  return $ foldr (\(GatherTermInfo s c cv) (GatherTermInfo ss cs cvs) ->
+                     GatherTermInfo (mergeScript p s ss) (c ++ cs) (cv `union` cvs))
+                 (GatherTermInfo Empty [] []) scripts
 
-{-
--- Translation of "script" block
-type TranslationEnv = ( (SourcePos, SourcePos)
-                      , TyVar         -- #this
-                      , TranslationTypeEnv
-                      , TranslationExprEnv
-                      , TranslationConsEnv
-                      , [TyScript]     -- the stack
-                      , [Constraint]   -- extra custom
-                      , [TyVar] )      -- customVars
+zipVarInformation :: [(TyVar,RuleScriptOrdering)] -> TranslationEnv
+                  -> [[(UTerm ((SourcePos,SourcePos),TyVar), FreshM GatherTermInfo)]]
+zipVarInformation [] _ = [[]] -- iterate once
+zipVarInformation vars env =
+  let varInfos = flip map vars $ \(v, order) ->
+                   case lookup v env of
+                     Just (GatherTerm _ terms gs) -> sortBy (orderSourcePos order `on` (fst . ann . fst) ) (zip terms gs)
+                     _ -> error "This should never happen"
+      minLength = minimum (map length varInfos)
+   in transpose $ map (take minLength) varInfos
 
-syntaxBindScriptToScript :: RuleScript -> StateT TranslationEnv FreshM GatherTermInfo
-syntaxBindScriptToScript script = do
-  syntaxBindScriptToScript' script
-  p <- use _1
-  tree_ <- use _6
-  custom_ <- use _7
-  customVars_ <- use _8
-  case tree_ of
-    []  -> fail "Empty stack at the end"
-    [s] -> return $ GatherTermInfo s custom_ customVars_
-    _   -> return $ GatherTermInfo (Merge tree_ (Just p, Nothing)) custom_ customVars_
+orderSourcePos :: RuleScriptOrdering -> (SourcePos,SourcePos) -> (SourcePos,SourcePos) -> Ordering
+orderSourcePos _ (xi,xe) (yi,ye) | xi < yi, xe < ye = LT
+                                 | yi < xi, ye < xe = GT
+orderSourcePos RuleScriptOrdering_OutToIn (xi,xe) (yi,ye) | xi < yi || ye < xe = LT
+                                                          | yi < xi || xe < ye = GT
+orderSourcePos RuleScriptOrdering_InToOut (xi,xe) (yi,ye) | xi < yi || ye < xe = GT
+                                                          | yi < xi || xe < ye = LT
+orderSourcePos _ _ _ = EQ
 
--- After this is executed, local variables are deleted
-syntaxBindScriptToScript' :: RuleScript -> StateT TranslationEnv FreshM ()
-syntaxBindScriptToScript' script = do
-  (vars, statements) <- unbind script
-  freshed <- mapM (fresh . s2n . tail . name2String) vars
-  let varsFreshed = zipWith (\v f -> (v, [var f])) vars freshed
-  _3 %= (varsFreshed ++)
-  _8 %= (union freshed)
-  syntaxBindStatementsToScript statements
-  _3 %= (filter (\(v,_) -> v `notElem` vars))
-
-syntaxBindStatementsToScript :: [RuleScriptStatement] -> StateT TranslationEnv FreshM ()
-syntaxBindStatementsToScript [] = return ()
-syntaxBindStatementsToScript (RuleScriptStatement_Empty : rest) = do
-  _6 %= (Empty :)
-  syntaxBindStatementsToScript rest
-syntaxBindStatementsToScript (RuleScriptStatement_Ref v : rest) = do
-  constr <- uses _5 (lookup v)
-  case constr of
-    Just [i] -> do GatherTermInfo treeThis customThis customVarsThis <- lift i
-                   _6 %= (treeThis :)
-                   _7 %= (union customThis)
-                   _8 %= (union customVarsThis)
-                   syntaxBindStatementsToScript rest
-    Just _   -> fail $ show v ++ " is not a single constraint"
-    Nothing  -> fail $ "Cannot find " ++ show v
-syntaxBindStatementsToScript (RuleScriptStatement_Constraint r msg : rest) = do
-  p     <- use _1
-  this  <- use _2
-  tyEnv <- use _3
-  let c = syntaxConstraintToScript r this tyEnv
-  _6 %= (Singleton c (Just p, syntaxMessageToScript <$> msg) :)
-  syntaxBindStatementsToScript rest
-syntaxBindStatementsToScript (RuleScriptStatement_Merge howMany msg : rest) = do
-  p     <- use _1
-  stack <- use _6
-  let toTake = fromMaybe (length stack) howMany
-  _6 .= Merge (take toTake stack) (Just p, syntaxMessageToScript <$> msg) : drop toTake stack
-  syntaxBindStatementsToScript rest
-syntaxBindStatementsToScript (RuleScriptStatement_MergeBlameLast howMany howManyToBlame msg : rest) = do
-  p     <- use _1
-  stack <- use _6
-  let toTake = fromMaybe (length stack) howMany
-      firstN = take toTake stack
-      upper  = take howManyToBlame firstN
-      lower  = drop howManyToBlame firstN
-      asym1  = case upper of { [x] -> x ; _ -> Merge upper (Just p, Nothing) }
-      asym2  = case lower of { [x] -> x ; _ -> Merge lower (Just p, Nothing) }
-  _6 .= Asym asym1 asym2 (Just p, syntaxMessageToScript <$> msg) : drop toTake stack
-  syntaxBindStatementsToScript rest
-syntaxBindStatementsToScript (RuleScriptStatement_Update v m : rest) = do
-  this  <- use _2
-  tyEnv <- use _3
-  let m_ = syntaxMonoTypeToScript m this tyEnv
-  _3 %= replaceElt v [m_]
-  _4 %= filter (\(k,_) -> k /= v)
-  _5 %= filter (\(k,_) -> k /= v)
-  syntaxBindStatementsToScript rest
-syntaxBindStatementsToScript (RuleScriptStatement_LocalStack s : rest) = do
-  p <- use _1
-  previousStack <- use _6
-  _6 .= []  -- new stack
-  syntaxBindScriptToScript' s
-  -- merge everything in the new stack
-  left     <- use _6
-  stackTop <- case left of
-    []  -> fail "Empty stack at the end"
-    [l] -> return l
-    _   -> return (Merge left (Just p, Nothing))
-  -- take the previous stack back
-  _6 .= stackTop : previousStack
-  syntaxBindStatementsToScript rest
-syntaxBindStatementsToScript (RuleScriptStatement_ForEach vars loop : rest) = do
-  -- Compute the lists to iterate over
-  tyEnv <- use _3
-  exEnv <- use _4
-  coEnv <- use _5
-  let typeThings = map (fromMaybe [] . flip lookup tyEnv) vars
-      smallestLength = minimum (map length typeThings)
-      exprThings = map (maybe (replicate smallestLength Nothing) (map Just) . flip lookup exEnv) vars
-      consThings = map (maybe (replicate smallestLength Nothing) (map Just) . flip lookup coEnv) vars
-      iterateOver = take smallestLength $ transpose typeThings
-  -- Unbind inner loop
-  (innervars, innerloop) <- lift $ unbind loop
-  -- Run over each element
-  syntaxBindStatementsToScriptForEach innervars innerloop iterateOver (transpose exprThings) (transpose consThings)
-  syntaxBindStatementsToScript rest
-
-syntaxBindStatementsToScriptForEach :: [TyVar] -> RuleScript
-                                    -> [[MonoType]] -> [[Maybe (UTerm ((SourcePos,SourcePos),TyVar))]]
-                                    -> [[Maybe (FreshM GatherTermInfo)]] -> StateT TranslationEnv FreshM ()
-syntaxBindStatementsToScriptForEach _ _ [] _ _ = return ()
-syntaxBindStatementsToScriptForEach vars loop (m : ms) (e : es) (c : cs) = do
-  _3 %= (zipWith (\v m_ -> (v, [m_])) vars m ++)
-  _4 %= (catMaybes (zipWith (\v e_ -> maybe Nothing (\e__ -> Just (v, [e__])) e_) vars e) ++)
-  _5 %= (catMaybes (zipWith (\v c_ -> maybe Nothing (\c__ -> Just (v, [c__])) c_) vars c) ++)
-  syntaxBindScriptToScript' loop
-  _3 %= (filter (\(v,_) -> v `notElem` vars))
-  _4 %= (filter (\(v,_) -> v `notElem` vars))
-  _5 %= (filter (\(v,_) -> v `notElem` vars))
-  syntaxBindStatementsToScriptForEach vars loop ms es cs
-syntaxBindStatementsToScriptForEach _ _ (_:_) _ _ = error "This should never happen"
-
-replaceElt :: Eq a => a -> b -> [(a,b)] -> [(a,b)]
-replaceElt _  _  [] = []
-replaceElt x1 v1 ((x2, v2) : rs) | x1 == x2  = (x1, v1) : rs
-                                 | otherwise = (x2, v2) : replaceElt x1 v1 rs
--}
+syntaxScriptTreeIter :: (Rep a, Alpha a)
+                     => (SourcePos,SourcePos) -> TyVar -> TranslationEnv -> TranslationTypeEnv
+                     -> ([(TyScript, a)] -> TyScript) -> (Bind [TyVar] (RuleScript a))
+                     -> [[(UTerm ((SourcePos,SourcePos),TyVar), FreshM GatherTermInfo)]]
+                     -> FreshM [GatherTermInfo]
+syntaxScriptTreeIter p this env tys mergeFn loop vars = forM vars $ \loopitem -> do
+  (loopvars, loopbody) <- unbind loop
+  let extraEnv = zipWith (\loopvar (term, ginfo) -> (loopvar, GatherTerm [] [term] [ginfo])) loopvars loopitem
+      extraTy  = map (\(v, GatherTerm _ exprs _) -> (v, map (var . snd . ann) exprs)) extraEnv
+  syntaxBindScriptToScript p this (extraEnv ++ env) (extraTy ++ tys) mergeFn loopbody
 
 -- Translation of types and constraints -- used in "check" block
 syntaxConstraintListToScript :: [Constraint] -> TyVar -> TranslationTypeEnv -> [Constraint]
