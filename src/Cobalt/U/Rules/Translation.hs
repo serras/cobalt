@@ -45,7 +45,7 @@ syntaxRuleToScriptRule ax (Rule _ _ i) = runFreshM $ do
                          rightSyns   = filter (is _Term . snd) childrenMap
                          initialTy   = map (\(v, GatherTerm _ exprs _) -> (v, map (var . snd . ann) exprs)) rightSyns
                          checkW      = syntaxConstraintListToScript check thisTy initialTy
-                         wanteds     = fst <$> syntaxBindScriptToScript p thisTy rightSyns initialTy (mergeFnAsym p) const script
+                         wanteds     = (\(x,_,_) -> x) <$> syntaxBindScriptToScript p thisTy rightSyns initialTy (mergeFnAsym p) const script
                       in ( null check || entails ax sat checkW tchs
                          , [Rx.Child (Wrap n) [envAndSat] | n <- [0 .. (toEnum $ length vars)]]
                          , case initialSyn of
@@ -85,20 +85,24 @@ syntaxBindScriptToScript :: (Rep a, Alpha a, Rep b, Alpha b)
                          => (SourcePos,SourcePos) -> TyVar -> TranslationEnv -> TranslationTypeEnv
                          -> ([(TyScript, a)] -> TyScript)     -- how to merge everything together
                          -> (b -> TranslationTypeEnv -> b)    -- how to change the next step
-                         -> RuleScript a b -> FreshM (GatherTermInfo, b)
+                         -> RuleScript a b -> FreshM (GatherTermInfo, b, TranslationTypeEnv)
 syntaxBindScriptToScript p thisTy env tyEnv mergeFn nextFn script = do
   (vars, (instrs, next)) <- unbind script
   -- Add fresh variables
   freshedTyVars <- mapM (fresh . s2n . drop 1 . name2String) vars
-  let newTyEnv = zipWith (\a b -> (a,[var b])) vars freshedTyVars ++ tyEnv
+  let startEnv = zipWith (\a b -> (a,[var b])) vars freshedTyVars ++ tyEnv
   -- Call over each instruction and merge
-  instrScripts <- mapM (\(instr, msg) -> do GatherTermInfo s c cv <- syntaxScriptTreeToScript p thisTy env newTyEnv instr
-                                            return $ ((s, msg), c, cv)) instrs
+  (finalEnv, instrScripts) <-
+    foldM (\(currentTyEnv, scriptList) (instr, msg) -> do
+              (GatherTermInfo s c cv, newEnv) <- syntaxScriptTreeToScript p thisTy env currentTyEnv instr
+              return (newEnv, scriptList ++ [((s,msg), c, cv)]))
+          (startEnv, []) instrs
   let (allSMsg, allCustom, allCustomVars) = unzip3 instrScripts
   return ( GatherTermInfo (mergeFn allSMsg)
                           (concat allCustom)
                           (freshedTyVars `union` concat allCustomVars)
-         , nextFn next newTyEnv )
+         , nextFn next finalEnv
+         , finalEnv )
 
 mergeFnMerge :: (SourcePos, SourcePos) -> [(TyScript, ())] -> TyScript
 mergeFnMerge p = foldl (mergeScript p) Empty . map fst
@@ -126,46 +130,42 @@ replaceMsg msg (Asym s1 s2 (p, _))  = Asym s1 s2 (p, syntaxMessageToScript <$> m
 replaceMsg _   s                    = s
 
 syntaxScriptTreeToScript :: (SourcePos,SourcePos) -> TyVar -> TranslationEnv -> TranslationTypeEnv
-                         -> RuleScriptTree -> FreshM GatherTermInfo
-syntaxScriptTreeToScript _ _ _ _ RuleScriptTree_Empty =
-   return $ GatherTermInfo Empty [] []
-syntaxScriptTreeToScript _p _this env _tys (RuleScriptTree_Ref v) =
+                         -> RuleScriptTree -> FreshM (GatherTermInfo, TranslationTypeEnv)
+syntaxScriptTreeToScript _ _ _ tys RuleScriptTree_Empty =
+   return (GatherTermInfo Empty [] [], tys)
+syntaxScriptTreeToScript _p _this env tys (RuleScriptTree_Ref v) =
   case lookup v env of
-    Just (GatherTerm _ _ [g]) -> g
+    Just (GatherTerm _ _ [g]) -> do { g' <- g; return (g',tys) }
     _  -> error "This should never happen, we reference a not existing variable"
 syntaxScriptTreeToScript p this _env tys (RuleScriptTree_Constraint c) =
-  return $ GatherTermInfo (Singleton (syntaxConstraintToScript c this tys) (Just p, Nothing)) [] []
+  return ( GatherTermInfo (Singleton (syntaxConstraintToScript c this tys)
+                          (Just p, Nothing)) [] []
+         , tys )
 syntaxScriptTreeToScript p this env tys (RuleScriptTree_Merge vars loop) = do
   let iterOver = zipVarInformation vars env
-  (_,scripts) <- syntaxScriptTreeIter p this env tys (mergeFnMerge p) {- ! -} const const loop iterOver
-  return $ mergeAllScripts p (map fst scripts)
+  (newTyEnv,scripts) <- syntaxScriptTreeIter p this env tys (mergeFnMerge p) {- ! -} const const loop iterOver
+  return (mergeAllScripts p (map fst scripts), newTyEnv)
 syntaxScriptTreeToScript p this env tys (RuleScriptTree_Asym vars loop) = do
   let iterOver = zipVarInformation vars env
-  (_,scripts) <- syntaxScriptTreeIter p this env tys (mergeFnAsym p) {- ! -} const const loop iterOver
-  return $ mergeAllScripts p (map fst scripts)
+  (newTyEnv,scripts) <- syntaxScriptTreeIter p this env tys (mergeFnAsym p) {- ! -} const const loop iterOver
+  return (mergeAllScripts p (map fst scripts), newTyEnv)
 syntaxScriptTreeToScript p this env tys (RuleScriptTree_Fold vars accVar initial loop) = do
   let iterOver   = zipVarInformation vars env
-      oldFreshTy = head $ fromJust $ lookup accVar tys
       initTy     = syntaxMonoTypeToScript initial this tys
       nextTyFn   = \nextType currentTyEnv -> syntaxMonoTypeToScript nextType this currentTyEnv
       replaceVar = \currentTyEnv nextType -> (accVar,[nextType]) : filter (\(v,_) -> v /= accVar) currentTyEnv
   (finalEnv, scripts) <- syntaxScriptTreeIter p this env ((accVar,[initTy]):tys)
                                               (mergeFnMerge p) nextTyFn replaceVar loop iterOver
-  let finalTy = head $ fromJust $ lookup accVar finalEnv
-      finalGather = GatherTermInfo (Singleton (Constraint_Unify oldFreshTy finalTy) (Just p, Nothing)) [] []
-  return $ mergeAllScripts p (finalGather : map fst scripts)
+  return (mergeAllScripts p (map fst scripts), finalEnv)
 syntaxScriptTreeToScript p this env tys (RuleScriptTree_AFold vars accVar initial loop) = do
   let iterOver   = zipVarInformation vars env
-      oldFreshTy = head $ fromJust $ lookup accVar tys
       initTy     = syntaxMonoTypeToScript initial this tys
-      nextTyFn   = \nextType currentTyEnv -> syntaxMonoTypeToScript nextType this currentTyEnv
-      replaceVar = \currentTyEnv nextType -> (accVar,[nextType]) : filter (\(v,_) -> v /= accVar) currentTyEnv
+      nextTyFn   = \(nextType, msg) currentTyEnv -> (syntaxMonoTypeToScript nextType this currentTyEnv, msg)
+      replaceVar = \currentTyEnv (nextType,_) -> (accVar,[nextType]) : filter (\(v,_) -> v /= accVar) currentTyEnv
   (finalEnv, scripts) <- syntaxScriptTreeIter p this env ((accVar,[initTy]):tys)
                                               (mergeFnMerge p) nextTyFn replaceVar loop iterOver
-  let finalTy = head $ fromJust $ lookup accVar finalEnv
-      finalGather = GatherTermInfo (Singleton (Constraint_Unify oldFreshTy finalTy) (Just p, Nothing)) [] []
-      finalScripts = map (\(s, (_, m)) -> (s, m)) scripts
-  return $ mergeAllScriptsAsym p ((finalGather, Nothing) : finalScripts)
+  let finalScripts = map (\(s, (_, m)) -> (s, m)) scripts
+  return (mergeAllScriptsAsym p finalScripts, finalEnv)
 
 zipVarInformation :: [(TyVar,RuleScriptOrdering)] -> TranslationEnv
                   -> [[(UTerm ((SourcePos,SourcePos),TyVar), FreshM GatherTermInfo)]]
@@ -202,8 +202,9 @@ syntaxScriptTreeIter p this env tys mergeFn nextFn stepFn loop vars =
     (loopvars, loopbody) <- unbind loop
     let extraEnv = zipWith (\loopvar (term, ginfo) -> (loopvar, GatherTerm [] [term] [ginfo])) loopvars loopitem
         extraTy  = map (\(v, GatherTerm _ exprs _) -> (v, map (var . snd . ann) exprs)) extraEnv
-    (loopelt, nextStep) <- syntaxBindScriptToScript p this (extraEnv ++ env) (extraTy ++ tys) mergeFn nextFn loopbody
-    let newTys = stepFn thisTyEnv nextStep
+    (loopelt, nextStep, nextTyEnv) <- syntaxBindScriptToScript p this (extraEnv ++ env) (extraTy ++ thisTyEnv)
+                                                               mergeFn nextFn loopbody
+    let newTys = stepFn (filter (\(v,_) -> v `notElem` loopvars) nextTyEnv) nextStep
     return (newTys, (loopelt, nextStep):looplst))
     (tys,[]) vars
 

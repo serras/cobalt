@@ -2,6 +2,7 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE OverlappingInstances #-}
 module Cobalt.U.Script (
   Script(..), TyScript
 , toConstraintList
@@ -14,7 +15,9 @@ module Cobalt.U.Script (
 , removeExistsScript
 ) where
 
+import Control.Applicative ((<|>))
 import Data.List (intercalate, union, (\\))
+import Data.Monoid
 import Unbound.LocallyNameless (fv, subst, substs)
 
 import Cobalt.Core
@@ -86,22 +89,32 @@ showMsg :: Maybe String -> String
 showMsg (Just m) = " => " ++ m
 showMsg Nothing  = ""
 
-simplifyScript :: Script var constraint info -> Script var constraint info
+simplifyScript :: Monoid info => Script var constraint info -> Script var constraint info
 simplifyScript Empty = Empty
 simplifyScript s@(Singleton _ _) = s
 simplifyScript (Merge ss info)   = case filter notEmpty $ map simplifyScript ss of
                                      []  -> Empty
-                                     [m] -> m
+                                     [m] -> updateInfo info m
                                      ms  -> Merge ms info
                                    where notEmpty Empty = False
                                          notEmpty _     = True
 simplifyScript (Asym c1 c2 info) = let s1 = simplifyScript c1
                                        s2 = simplifyScript c2
                                     in case (s1, s2) of
-                                         (Empty, _) -> s2
-                                         (_, Empty) -> s1
+                                         (Empty, _) -> updateInfo info s2
+                                         (_, Empty) -> updateInfo info s1
                                          _          -> Asym s1 s2 info
 simplifyScript (Exists v q s)    = Exists v q (simplifyScript s)
+
+updateInfo :: Monoid info => info -> Script var constraint info -> Script var constraint info
+updateInfo m (Singleton c i) = Singleton c (mappend m i)
+updateInfo m (Merge ss i)    = Merge ss    (mappend m i)
+updateInfo m (Asym s1 s2 i)  = Asym s1 s2  (mappend m i)
+updateInfo _ s               = s
+
+instance Monoid (Maybe (SourcePos,SourcePos), Maybe String) where
+  mempty = (Nothing, Nothing)
+  mappend (s1, m1) (s2, m2) = (s1 <|> s2, m1 <|> m2)
 
 removeExistsScript :: TyScript -> (TyScript, [Constraint], [TyVar])
 removeExistsScript Empty = (Empty, [], [])

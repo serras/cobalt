@@ -55,30 +55,28 @@ script constraints #fn,
        ] error { "Not all parsers consume the same type" },
 
        fresh #f1 #f2,
-       [ #fn ~ #f1 -> #f2,
-         #x  ~ 'Parser #str #f1,
-         #dullar   ~ (#f1 -> #f2) -> 'Parser #str #f1 -> 'Parser #str #f2,
+       #fn ~ #f1 -> #f2,
+       #x  ~ 'Parser #str #f1 error { "First parser does not produce the correct type" },
+       [ #dullar   ~ (#f1 -> #f2) -> 'Parser #str #f1 -> 'Parser #str #f2,
          #firstOne ~ 'Parser #str #f1 -> 'Parser #str #f2,
-         #firstTwo ~ 'Parser #str #f2 ]
-       error { "First parser does not produce the correct type" },
+         #firstTwo ~ 'Parser #str #f2 ],
 
-       fold #i <- inout #y | #s <- inout #star | #o <- inout #one | #t <- inout #two
+       asym fold #i <- inout #y | #s <- inout #star | #o <- inout #one | #t <- inout #two
        init #ty <- #f2 {
          fresh #f3 #f4,
-         #ty ~ #f3 -> #f4,
-         #i ~ 'Parser #str #f3,
-         #s ~ 'Parser #str (#f3 -> #f4) -> 'Parser #str #f3 -> 'Parser #str #f4,
-         #o ~ 'Parser #str #f3 -> 'Parser #str #f4,
-         #t ~ 'Parser #str #f4
+         asym [ #ty ~ #f3 -> #f4,
+                #i ~ 'Parser #str #f3 error { "Parser does not produce the correct type" },
+                [ #s ~ 'Parser #str (#f3 -> #f4) -> 'Parser #str #f3 -> 'Parser #str #f4,
+                  #o ~ 'Parser #str #f3 -> 'Parser #str #f4,
+                  #t ~ 'Parser #str #f4 ] ]
        } next #f4,
 
        fresh #f5 #f6,
-       [ #ty ~ #f5 -> #f6,
-         #z  ~ 'Parser #str #f5,
-         #oStar ~ 'Parser #str (#f5 -> #f6) -> 'Parser #str #f5 -> 'Parser #str #f6,
+       #ty ~ #f5 -> #f6,
+       #z  ~ 'Parser #str #f5 error { "Last parser does not produce the correct type" },
+       [ #oStar ~ 'Parser #str (#f5 -> #f6) -> 'Parser #str #f5 -> 'Parser #str #f6,
          #oOne  ~ 'Parser #str #f5 -> 'Parser #str #f6,
-         #this  ~ 'Parser #str #f6 ]
-       error { "Last parser does not produce the correct type" };
+         #this  ~ 'Parser #str #f6 ];
 
 
 import twoArgFn   :: ['Int] -> 'Bool -> 'Result;
