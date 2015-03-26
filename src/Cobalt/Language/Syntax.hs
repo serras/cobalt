@@ -28,7 +28,7 @@ module Cobalt.Language.Syntax (
 , RuleRegex(..)
 , RuleCheck
 , RuleScript
-, RuleScriptTree(..)
+, RuleScriptInstr(..)
 , RuleScriptOrdering(..)
 , RuleScriptMessage(..)
   -- * Whole program structure
@@ -120,7 +120,7 @@ getAnn (Term_LetAnn _ _ t)   = t
 getAnn (Term_Match _ _ _ t)  = t
 getAnn (Term_StrLiteral _ t) = t
 
-data Rule = Rule RuleStrictness String (Bind [TyVar] (RuleRegex, RuleCheck, RuleScript (Maybe RuleScriptMessage) ())) deriving Show
+data Rule = Rule RuleStrictness String (Bind [TyVar] (RuleRegex, RuleCheck, RuleScript)) deriving Show
 
 data RuleStrictness = RuleStrictness_NonStrict | RuleStrictness_Strict | RuleStrictness_Unsafe deriving Show
 
@@ -138,21 +138,15 @@ data RuleRegex = RuleRegex_Square  RuleRegexVar
 
 type RuleCheck = [Constraint]
 
-type RuleScript ann plus = Bind [TyVar] ([(RuleScriptTree, ann)], plus)
-data RuleScriptTree = RuleScriptTree_Empty
-                    | RuleScriptTree_Ref TyVar
-                    | RuleScriptTree_Constraint Constraint
-                    | RuleScriptTree_Merge [(TyVar,RuleScriptOrdering)]
-                                           (Bind [TyVar] (RuleScript () ()))
-                    | RuleScriptTree_Asym  [(TyVar,RuleScriptOrdering)]
-                                           (Bind [TyVar] (RuleScript (Maybe RuleScriptMessage) ()))
-                    | RuleScriptTree_Fold  [(TyVar,RuleScriptOrdering)] {- what to loop over -}
-                                           TyVar {- accumulator -} MonoType {- initial value -}
-                                           (Bind [TyVar] (RuleScript () MonoType))
-                    | RuleScriptTree_AFold [(TyVar,RuleScriptOrdering)] {- what to loop over -}
-                                           TyVar {- accumulator -} MonoType {- initial value -}
-                                           (Bind [TyVar] (RuleScript () (MonoType, Maybe RuleScriptMessage)))
-                    deriving Show
+type RuleScript = Bind [TyVar] [(RuleScriptInstr, Maybe RuleScriptMessage)]
+data RuleScriptInstr = RuleScriptInstr_Empty
+                     | RuleScriptInstr_Ref TyVar
+                     | RuleScriptInstr_Constraint Constraint
+                     | RuleScriptInstr_Ordered RuleScript
+                     | RuleScriptInstr_Merge   RuleScript
+                     | RuleScriptInstr_ForEach [(TyVar, RuleScriptOrdering)] (Bind [TyVar] RuleScript)
+                     | RuleScriptInstr_Update  TyVar MonoType
+                     deriving Show
 
 data RuleScriptOrdering = RuleScriptOrdering_OutToIn
                         | RuleScriptOrdering_InToOut
@@ -354,13 +348,13 @@ rSourcePos = Emb { to = \(fn :*: i :*: f :*: Nil) -> newPos fn i f
 
 instance Alpha SourcePos
 
-$(derive [''RuleRegex, ''RuleScriptTree, ''RuleScriptOrdering, ''RuleScriptMessage])
+$(derive [''RuleRegex, ''RuleScriptInstr, ''RuleScriptOrdering, ''RuleScriptMessage])
 instance Alpha RuleRegex
-instance Alpha RuleScriptTree
+instance Alpha RuleScriptInstr
 instance Alpha RuleScriptOrdering
 instance Alpha RuleScriptMessage
 
-instance Subst MonoType RuleScriptTree
+instance Subst MonoType RuleScriptInstr
 instance Subst MonoType RuleScriptOrdering
 instance Subst MonoType RuleScriptMessage
 

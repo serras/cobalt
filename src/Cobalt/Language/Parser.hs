@@ -329,11 +329,11 @@ parseRule = do reserved "rule"
                          <*> commaSep1 parseConstraint
                   <|> pure []
                reserved "script"
-               sc <- parseRuleScript parseRuleTreeMsg
+               sc <- parseRuleScript
                reservedOp ";"
                createRule st nm rx ch sc
 
-createRule :: RuleStrictness -> String -> RuleRegex -> [Constraint] -> RuleScript (Maybe RuleScriptMessage) () -> Parsec String s Rule
+createRule :: RuleStrictness -> String -> RuleRegex -> [Constraint] -> RuleScript -> Parsec String s Rule
 createRule st nm rx ch sc = do
   let rxVars = s2n "#this" : nub (fv rx)
       chVars = nub (fv ch) \\ rxVars
@@ -369,86 +369,39 @@ parseRuleRegexAtom = -- Parenthesized expression
                  <|> RuleRegex_Str <$> stringLiteral
                  <|> RuleRegex_Var <$> (s2n <$> identifier)
 
-parseRuleScript :: (Rep a, Alpha a) => Parsec String s ([(RuleScriptTree, a)], [TyVar])
-                -> Parsec String s (RuleScript a ())
-parseRuleScript p = (\lst -> let (trees, vars) = unzip lst in bind (concat vars) (concat trees, ())) <$> commaSep1 p
+parseRuleScript :: Parsec String s RuleScript
+parseRuleScript = bind <$> (    id <$ reserved "fresh" <*> commaSep1 parseRuleCapture <* comma
+                            <|> pure [])
+                       <*> commaSep1 ((,) <$> parseRuleInstr
+                                          <*> optionMaybe (id <$  reserved "error"
+                                                              <*> parseRuleMessage))
 
-parseRuleScriptNext :: (Rep a, Alpha a) => Parsec String s ([(RuleScriptTree, a)], [TyVar])
-                    -> Parsec String s (RuleScript a MonoType)
-parseRuleScriptNext p = (\lst next -> let (trees, vars) = unzip lst in bind (concat vars) (concat trees, next))
-                          <$> braces (commaSep1 p)
-                          <*  reserved "next"
-                          <*> parseMonoType
+parseRuleInstr :: Parsec String s RuleScriptInstr
+parseRuleInstr = RuleScriptInstr_Empty   <$  reserved "empty"
+             <|> RuleScriptInstr_Ref     <$  reserved "constraints"
+                                         <*> parseRuleCapture
+             <|> RuleScriptInstr_Constraint <$> parseConstraint
+             <|> RuleScriptInstr_Ordered <$  reserved "ordered"
+                                         <*> braces parseRuleScript
+             <|> RuleScriptInstr_Merge   <$  reserved "merge"
+                                         <*> braces parseRuleScript
+             <|> (\vars script -> let (inner, outer) = unzip vars
+                                   in RuleScriptInstr_ForEach outer (bind inner script))
+                                         <$  reserved "foreach"
+                                         <*> ((,) <$> parseRuleCapture
+                                                  <*  reservedOp "<-"
+                                                  <*> parseRuleCaptureOrdering)
+                                             `sepBy1` (reservedOp "|")
+                                         <*> braces parseRuleScript
+             <|> RuleScriptInstr_Update  <$  reserved "update"
+                                         <*> parseRuleCapture
+                                         <*  reservedOp "<-"
+                                         <*> parseMonoType
 
-parseRuleScriptNextMsg :: (Rep a, Alpha a) => Parsec String s ([(RuleScriptTree, a)], [TyVar])
-                       -> Parsec String s (RuleScript a (MonoType, Maybe RuleScriptMessage))
-parseRuleScriptNextMsg p = (\lst msg next -> let (trees, vars) = unzip lst in bind (concat vars) (concat trees, (next, msg)))
-                             <$> braces (commaSep1 p)
-                             <*> optionMaybe (id <$ reserved "error" <*> braces parseRuleMessage)
-                             <*  reserved "next"
-                             <*> parseMonoType
-
-parseRuleTreeMsg :: Parsec String s ([(RuleScriptTree, Maybe RuleScriptMessage)], [TyVar])
-parseRuleTreeMsg = (\msg -> ([(RuleScriptTree_Constraint Constraint_Inconsistent, Just msg)], []))
-                     <$  reserved "repair"
-                     <*> braces parseRuleMessage
-               <|> (\(ts,vars) msg -> (map (\(t,_) -> (t,msg)) ts, vars))
-                     <$> parseRuleTree
-                     <*> optionMaybe (id <$ reserved "error" <*> braces parseRuleMessage)
-
-parseRuleTree :: Parsec String s ([(RuleScriptTree, ())], [TyVar])
-parseRuleTree = ([(RuleScriptTree_Empty, ())], []) <$ reserved "empty"
-            <|> (\c -> ([(RuleScriptTree_Ref c, ())], []))
-                     <$  reserved "constraints"
-                     <*> parseRuleCapture
-            <|> (\tyvars -> ([], tyvars))
-                     <$  reserved "fresh"
-                     <*> many1 parseRuleCapture
-            <|> try ((\foldOver acc initial next -> let (inner, outer) = unzip foldOver in
-                   ([(RuleScriptTree_AFold outer acc initial (bind inner next), ())], [acc]))
-                     <$  reserved "asym"
-                     <*  reserved "fold"
-                     <*> ((,) <$> parseRuleCapture
-                              <*  reservedOp "<-"
-                              <*> parseVarWithOrdering) `sepBy1` (reservedOp "|")
-                     <*  reserved "init"
-                     <*> parseRuleCapture
-                     <*  reservedOp "<-"
-                     <*> parseMonoType
-                     <*> parseRuleScriptNextMsg parseRuleTree)
-            <|> (\foldOver acc initial next -> let (inner, outer) = unzip foldOver in
-                   ([(RuleScriptTree_Fold outer acc initial (bind inner next), ())], [acc]))
-                     <$  reserved "fold"
-                     <*> ((,) <$> parseRuleCapture
-                              <*  reservedOp "<-"
-                              <*> parseVarWithOrdering) `sepBy1` (reservedOp "|")
-                     <*  reserved "init"
-                     <*> parseRuleCapture
-                     <*  reservedOp "<-"
-                     <*> parseMonoType
-                     <*> parseRuleScriptNext parseRuleTree
-            <|> (\(c, vars) -> let (inner, outer) = unzip vars
-                                in ([(RuleScriptTree_Asym outer (bind inner c), ())], []))
-                     <$  reserved "asym"
-                     <*> brackets ((,) <$> parseRuleScript parseRuleTreeMsg
-                                       <*> many ((,) <$  reservedOp "|"
-                                                     <*> parseRuleCapture
-                                                     <*  reservedOp "<-"
-                                                     <*> parseVarWithOrdering ) )
-            <|> (\(c, vars) -> let (inner, outer) = unzip vars
-                                in ([(RuleScriptTree_Merge outer (bind inner c), ())], []))
-                     <$> brackets ((,) <$> parseRuleScript parseRuleTree
-                                       <*> many ((,) <$  reservedOp "|"
-                                                     <*> parseRuleCapture
-                                                     <*  reservedOp "<-"
-                                                     <*> parseVarWithOrdering ) )
-            <|> (\c -> ([(RuleScriptTree_Constraint c, ())], []))
-                     <$> parseConstraint
-
-parseVarWithOrdering :: Parsec String s (TyVar,RuleScriptOrdering)
-parseVarWithOrdering = (flip (,)) <$> (    RuleScriptOrdering_InToOut <$ reserved "inout"
-                                       <|> RuleScriptOrdering_OutToIn <$ reserved "outin")
-                                  <*> parseRuleCapture
+parseRuleCaptureOrdering :: Parsec String s (TyVar,RuleScriptOrdering)
+parseRuleCaptureOrdering = (flip (,)) <$> (    RuleScriptOrdering_InToOut <$ reserved "inout"
+                                           <|> RuleScriptOrdering_OutToIn <$ reserved "outin")
+                                      <*> parseRuleCapture
 
 parseRuleMessage :: Parsec String s RuleScriptMessage
 parseRuleMessage = parseRuleMessageAtom `chainl1` (   RuleScriptMessage_Vertical   <$ reservedOp "<|>"
@@ -504,9 +457,8 @@ lexer :: T.TokenParser t
 lexer = T.makeTokenParser $ haskellDef { T.reservedNames = "rule" : "strict" : "unsafe"            -- Rule
                                                            : "match" : "check" : "script" : "any"  -- Rule
                                                            : "type" : "expr" : "vcat" : "hcat"     -- Error msgs
-                                                           : "fresh" : "constraints" : "asym"      -- Type tree
-                                                           : "repair" : "empty" : "error"          -- Type tree
-                                                           : "fold" : "init" : "next"              -- Type tree
+                                                           : "fresh" : "constraints" : "repair"    -- Type tree
+                                                           : "merge" : "ordered" : "foreach" : "update"  -- Type tree
                                                            : "inout" : "outin"                     -- Type tree ordering
                                                            : "injective" : "defer" : "synonym"     -- Axioms
                                                            : "do" : "with"                         -- Syntax
