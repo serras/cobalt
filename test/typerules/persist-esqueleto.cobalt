@@ -23,7 +23,7 @@ import insertKey :: {val} ^Key val -> val -> 'Unit;
 import repsert   :: {val} ^Key val -> val -> 'Unit;
 import replace   :: {val} ^Key val -> val -> 'Unit;
 import delete    :: {val} ^Key val -> 'Unit;
-import update    :: {val} ^Key val -> ['Update val] -> 'Unit;
+import update_   :: {val} ^Key val -> ['Update val] -> 'Unit;
 
 data 'Update v;
 import pAssign :: {v} {typ} $PersistField typ => ^EntityField v typ -> typ -> 'Update v;

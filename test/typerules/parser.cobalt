@@ -4,8 +4,10 @@ import star   :: {a} {b} {s} 'Parser s (a -> b) -> 'Parser s a -> 'Parser s b;
 rule   app_parser
 match  #first@(#dollar@(dullar) #fn) #arg
 script fresh #a1 #a2 #b1 #b2 #s1 #s2,
-       [ #dollar ~ (#a1 -> #b1) -> 'Parser #s1 #a1 -> 'Parser #s1 #b1,
-         #first  ~ 'Parser #s1 #a1 -> 'Parser #s1 #b1 ],
+       merge {
+         #dollar ~ (#a1 -> #b1) -> 'Parser #s1 #a1 -> 'Parser #s1 #b1,
+         #first  ~ 'Parser #s1 #a1 -> 'Parser #s1 #b1
+       },
        constraints #fn,
        #fn ~ #a1 -> #b1        error { "Left operand is not a function" },
        constraints #arg,
@@ -34,50 +36,67 @@ match  #oOne@(#oStar@(star)
               [ #firstTwo@(#firstOne@(#dullar@(dullar) #fn) #x)
               | #two@(#one@(#star@(star) &k) #y)]*k)
              #z
-script constraints #fn,
+script fresh #fnTy #fn1 #fn2 #fnEnd #str #rTy #r1 #r2 #rE1 #rE2,
 
-       fresh #w1 #w2 #w3,
-       fold #i <- inout #y init #tau <- #w1 -> #w2 { fresh #w } next #w -> #tau,
-       #fn ~ #w3 -> #tau error { "Function has too many arguments" },
+       constraints #fn,
 
-       [ asym [ constraints #x,
-                #x > {s} {a} 'Parser s a error { "First argument is not a parser" }],
-         asym [ constraints #i,
-                #i > {s} {a} 'Parser s a error { "Argument is not a parser" }
-              | #i <- inout #y ],
-         asym [ constraints #z,
-                #z > {s} {a} 'Parser s a error { "Last argument is not a parser" }] ],
+       update #fnTy <- #fn1 -> #fn2,
+       foreach #i <- inout #y {
+         fresh #fnI,
+         update #fnTy <- #fnI -> #fnTy
+       },
+       update #fnTy <- #fnEnd -> #fnTy,
 
-       fresh #str,
-       [ #x > {a} 'Parser #str a,
-         [ #i > {a} 'Parser #str a | #i <- inout #y ],
+       merge {
+         ordered {
+           constraints #x,
+           #x > {s} {a} 'Parser s a error { "First argument is not a parser" }
+         },
+         foreach #i <- inout #y {
+           ordered {
+             constraints #i,
+             #i > {s} {a} 'Parser s a error { "Argument is not a parser" }
+           }
+         },
+         ordered {
+           constraints #z,
+           #z > {s} {a} 'Parser s a error { "Last argument is not a parser" }
+         }
+       },
+
+       merge {
+         #x > {a} 'Parser #str a,
+         foreach #i <- inout #y { #i > {a} 'Parser #str a },
          #z > {a} 'Parser #str a
-       ] error { "Not all parsers consume the same type" },
+       } error { "Not all parsers consume the same type" },
 
-       fresh #f1 #f2,
-       #fn ~ #f1 -> #f2,
-       #x  ~ 'Parser #str #f1 error { "First parser does not produce the correct type" },
-       [ #dullar   ~ (#f1 -> #f2) -> 'Parser #str #f1 -> 'Parser #str #f2,
-         #firstOne ~ 'Parser #str #f1 -> 'Parser #str #f2,
-         #firstTwo ~ 'Parser #str #f2 ],
+       #fn ~ #r1 -> #r2,
+       #x ~ 'Parser #str #r1 error { "First parser does not produce the correct type" },
+       merge {
+         #dullar   ~ (#r1 -> #r2) -> 'Parser #str #r1 -> 'Parser #str #r2,
+         #firstOne ~ 'Parser #str #r1 -> 'Parser #str #r2,
+         #firstTwo ~ 'Parser #str #r2
+       },
 
-       asym fold #i <- inout #y | #s <- inout #star | #o <- inout #one | #t <- inout #two
-       init #ty <- #f2 {
-         fresh #f3 #f4,
-         asym [ #ty ~ #f3 -> #f4,
-                #i ~ 'Parser #str #f3 error { "Parser does not produce the correct type" },
-                [ #s ~ 'Parser #str (#f3 -> #f4) -> 'Parser #str #f3 -> 'Parser #str #f4,
-                  #o ~ 'Parser #str #f3 -> 'Parser #str #f4,
-                  #t ~ 'Parser #str #f4 ] ]
-       } next #f4,
+       update #rTy <- #r2,
+       foreach #i <- inout #y | #s <- inout #star | #o <- inout #one | #t <- inout #two {
+         fresh #rI1 #rI2,
+         #rTy ~ #rI1 -> #rI2,
+         #i ~ 'Parser #str #rI1 error { "Parser does not produce the correct type" },
+         merge {
+           #s ~ 'Parser #str (#rI1 -> #rI2) -> 'Parser #str #rI1 -> 'Parser #str #rI2,
+           #o ~ 'Parser #str #rI1 -> 'Parser #str #rI2,
+           #t ~ 'Parser #str #rI2
+         }
+       },
 
-       fresh #f5 #f6,
-       #ty ~ #f5 -> #f6,
-       #z  ~ 'Parser #str #f5 error { "Last parser does not produce the correct type" },
-       [ #oStar ~ 'Parser #str (#f5 -> #f6) -> 'Parser #str #f5 -> 'Parser #str #f6,
-         #oOne  ~ 'Parser #str #f5 -> 'Parser #str #f6,
-         #this  ~ 'Parser #str #f6 ];
-
+       #rTy ~ #rE1 -> #rE2,
+       #z ~ 'Parser #str #rE1 error { "Last parser does not produce the correct type" },
+       merge {
+         #oStar ~ 'Parser #str (#rE1 -> #rE2) -> 'Parser #str #rE1 -> 'Parser #str #rE2,
+         #oOne  ~ 'Parser #str #rE1 -> 'Parser #str #rE2,
+         #this  ~ 'Parser #str #rE2
+       };
 
 import twoArgFn   :: ['Int] -> 'Bool -> 'Result;
 import threeArgFn :: ['Int] -> 'Bool -> 'Bool -> 'Result;

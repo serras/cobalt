@@ -13,20 +13,20 @@ import false  :: 'Bool;
 
 f1 = execute (plus (mult (lit 3) (lit 2)) (lit 5));
 f2 = execute (plus (mult (lit aFloat) (lit aFloat)) (lit aFloat));
-f3 = execute (plus (mult (lit 3) (lit 2)) (lit aFloat));
-f4 = execute (plus (mult (lit true) (lit 2)) (lit true));
+f3 = execute (plus (mult (lit 3) (lit 2)) (lit aFloat))  => fail;
+f4 = execute (plus (mult (lit true) (lit 2)) (lit true)) => fail;
 
 rule   unsafe look_at_leaves
 match  execute [ #ap1@(#ap2@(#op@(plus) &k) &k)
                | #ap1@(#ap2@(#op@(mult) &k) &k)
                | #ap1@(#lit@(lit) #leaves) ]*k
 script fresh #e,
-       [ constraints #leaf | #leaf <- inout #leaves ],
-       [ #leaf ~ #e | #leaf <- inout #leaves ]
-         error { "All literals must be of the same type" },
+       merge { foreach #leaf <- inout #leaves { constraints #leaf } },
+       merge { foreach #leaf <- inout #leaves { #leaf ~ #e } }
+               error { "All literals must be of the same type" },
        $Num #e error { "Literals must be of class Num" },
-       [ #a1 ~ 'Expr #e             | #a1 <- inout #ap1 ],
-       [ #a2 ~ 'Expr #e -> 'Expr #e | #a2 <- inout #ap2 ],
-       [ constraints #o | #o <- inout #op ],
-       [ constraints #l | #l <- inout #lit ],
+       merge { foreach #a1 <- inout #ap1 { #a1 ~ 'Expr #e } },
+       merge { foreach #a2 <- inout #ap2 { #a2 ~ 'Expr #e -> 'Expr #e } },
+       merge { foreach #o <- inout #op  { constraints #o } },
+       merge { foreach #l <- inout #lit { constraints #l } },
        #this ~ #e;
