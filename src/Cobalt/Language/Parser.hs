@@ -370,17 +370,22 @@ parseRuleRegexAtom = -- Parenthesized expression
                  <|> RuleRegex_Var <$> (s2n <$> identifier)
 
 parseRuleScript :: Parsec String s RuleScript
-parseRuleScript = bind <$> (    id <$ reserved "fresh" <*> commaSep1 parseRuleCapture <* comma
+parseRuleScript = bind <$> (    id <$ reserved "fresh" <*> many1 parseRuleCapture <* comma
                             <|> pure [])
-                       <*> commaSep1 ((,) <$> parseRuleInstr
-                                          <*> optionMaybe (id <$  reserved "error"
-                                                              <*> parseRuleMessage))
+                       <*> commaSep1 parseRuleInstrMsg
+
+parseRuleInstrMsg :: Parsec String s (RuleScriptInstr, Maybe RuleScriptMessage)
+parseRuleInstrMsg = (\msg -> (RuleScriptInstr_Constraint Constraint_Inconsistent, Just msg))
+                        <$  reserved "repair"
+                        <*> braces parseRuleMessage
+                <|> (,) <$> parseRuleInstr
+                        <*> optionMaybe (id <$  reserved "error"
+                                            <*> braces parseRuleMessage)
 
 parseRuleInstr :: Parsec String s RuleScriptInstr
 parseRuleInstr = RuleScriptInstr_Empty   <$  reserved "empty"
              <|> RuleScriptInstr_Ref     <$  reserved "constraints"
                                          <*> parseRuleCapture
-             <|> RuleScriptInstr_Constraint <$> parseConstraint
              <|> RuleScriptInstr_Ordered <$  reserved "ordered"
                                          <*> braces parseRuleScript
              <|> RuleScriptInstr_Merge   <$  reserved "merge"
@@ -397,6 +402,7 @@ parseRuleInstr = RuleScriptInstr_Empty   <$  reserved "empty"
                                          <*> parseRuleCapture
                                          <*  reservedOp "<-"
                                          <*> parseMonoType
+             <|> RuleScriptInstr_Constraint <$> parseConstraint
 
 parseRuleCaptureOrdering :: Parsec String s (TyVar,RuleScriptOrdering)
 parseRuleCaptureOrdering = (flip (,)) <$> (    RuleScriptOrdering_InToOut <$ reserved "inout"
@@ -458,7 +464,8 @@ lexer = T.makeTokenParser $ haskellDef { T.reservedNames = "rule" : "strict" : "
                                                            : "match" : "check" : "script" : "any"  -- Rule
                                                            : "type" : "expr" : "vcat" : "hcat"     -- Error msgs
                                                            : "fresh" : "constraints" : "repair"    -- Type tree
-                                                           : "merge" : "ordered" : "foreach" : "update"  -- Type tree
+                                                           : "merge" : "ordered" : "foreach"       -- Type tree
+                                                           : "update" : "error"                    -- Type tree
                                                            : "inout" : "outin"                     -- Type tree ordering
                                                            : "injective" : "defer" : "synonym"     -- Axioms
                                                            : "do" : "with"                         -- Syntax

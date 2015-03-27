@@ -80,6 +80,10 @@ mainServe = do
                              vals = zipWith jsonScript defns gath
                           in json $ object [ "status" .= ("ok" :: String)
                                            , "values" .= vals ]
+    get "/example/:folder/:file" $ do
+      dirname <- param "folder"
+      fname   <- param "file"
+      file $ "test/" ++ dirname ++ "/" ++ fname
     get "/example/:file" $ do
       fname <- param "file"
       file $ "test/" ++ fname

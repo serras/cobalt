@@ -22,6 +22,10 @@
   <script src="cola.v3.min.js"></script>
 
   <style>
+  h1 a:hover {
+    text-decoration: none;
+  }
+
   #editor {
     height: 400px;
   }
@@ -34,9 +38,9 @@
     margin-top: 5px;
   }
 
-  #load-button {
+  .load-button {
     width: 100%;
-    margin-top: 5px;
+    /*margin-top: 5px;*/
   }
 
   .dropdown-menu {
@@ -122,33 +126,40 @@
   </div>
 
   <div class="container-fluid">
-    <h1>Cobalt <small>:: Constraint-Based Little Typechecker</small></h1>
+    <h1><a href="https://github.com/serras/cobalt/blob/master/README.md" target="_blank">Cobalt <small>:: Constraint-Based Little Typechecker</small></a></h1>
     <div class="row">
       <div class="col-md-6">
         <div id="editor"></div>
         <button type="button" class="btn btn-primary" id="tc-button">Typecheck!</button>
         <button type="button" class="btn btn-primary" id="gather-button">Gather constraints!</button>
         <div class="dropdown" id="dropdownie">
-          <button class="btn btn-info dropdown-toggle" type="button" id="load-button" data-toggle="dropdown">
-            Load example <span class="caret"></span>
+            <button class="btn btn-info dropdown-toggle load-button" type="button" data-toggle="dropdown">
+              Higher-ranked polymorphism <span class="caret"></span>
+            </button>
+            <ul class="dropdown-menu" role="menu">
+              <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('outsidein/basic.cobalt');">Basic higher ranks</a></li>
+              <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('outsidein/singid.cobalt');">Singleton list with identity</a></li>
+              <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('outsidein/st.cobalt');">Working with ST</a></li>
+              <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('outsidein/expr.cobalt');">Expression language using GADTs</a></li>
+              <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('outsidein/listmatch.cobalt');">Pattern matching on lists</a></li>
+              <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('outsidein/tyfams.cobalt');">Type families and classes</a></li>
+            </ul>
+        </div>
+        <div class="dropdown" id="dropdownie">
+          <button class="btn btn-info dropdown-toggle load-button" type="button" data-toggle="dropdown">
+            Domain specific type rules <span class="caret"></span>
           </button>
           <ul class="dropdown-menu" role="menu">
-            <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('basic.cobalt');">Basic higher ranks</a></li>
-            <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('singid.cobalt');">Singleton list with identity</a></li>
-            <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('st.cobalt');">Working with ST</a></li>
-            <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('expr.cobalt');">Expression language using GADTs</a></li>
-            <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('listmatch.cobalt');">Pattern matching on lists</a></li>
-            <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('tyfams.cobalt');">Type families and classes</a></li>
-            <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('simple.cobalt');">Simple type rules</a></li>
-            <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('num.cobalt');">Numerical expressions with rules</a></li>
-            <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('parser.cobalt');">Type rules over parser</a></li>
-            <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('db.cobalt');">Database library</a></li>
-            <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('compr.cobalt');">Monads versus lists</a></li>
-            <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('record.cobalt');">Lightweight extensible records</a></li>
-            <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('persist-esqueleto.cobalt');">Persistent and Esqueleto</a></li>
+            <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('typerules/simple.cobalt');">Simple type rules</a></li>
+            <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('typerules/num.cobalt');">Numerical expressions with rules</a></li>
+            <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('typerules/parser.cobalt');">Type rules over parser</a></li>
+            <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('typerules/db.cobalt');">Database library</a></li>
+            <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('typerules/compr.cobalt');">Monads versus lists</a></li>
+            <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('typerules/record.cobalt');">Lightweight extensible records</a></li>
+            <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('typerules/persist-esqueleto.cobalt');">Persistent and Esqueleto</a></li>
           </ul>
         </div>
-        <a class="btn btn-default" id="syntax-button" href="https://github.com/serras/cobalt/blob/master/README.md" target="_blank">Learn the syntax (<b>not anonymized</b>)</a>
+        <!-- <a class="btn btn-default" id="syntax-button" href="https://github.com/serras/cobalt/blob/master/README.md" target="_blank">Learn the syntax (<b>not anonymized</b>)</a> -->
         <div id="info">This webpage is anonymized for ICFP 2015 reviewers.</div>
       </div>
       <div class="col-md-6">

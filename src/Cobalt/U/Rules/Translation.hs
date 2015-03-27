@@ -9,7 +9,6 @@ module Cobalt.U.Rules.Translation (
 import Control.Applicative
 import Control.Lens
 import Control.Lens.Extras (is)
-import Control.Monad (foldM)
 import Control.Monad.State
 import Data.Foldable (fold)
 import Data.Function (on)
@@ -156,6 +155,16 @@ syntaxInstrToScript (RuleScriptInstr_Merge s, msg) = do
   p <- use _pos
   syntaxMergerInstrToScript s msg $
     \lst -> foldl (mergeScript p) Empty (map fst lst)
+syntaxInstrToScript (RuleScriptInstr_Update v m, _msg) = do
+  newMono <- syntaxMonoTypeToScript m <$> use _this <*> use _types
+  -- Remove previous incarnations
+  _info  %= (filter (\(k,_) -> v /= k))
+  _types %= (filter (\(k,_) -> v /= k))
+  -- Add new type
+  _types %= ((v, [newMono]) :)
+syntaxInstrToScript (RuleScriptInstr_ForEach vars loop, _msg) = do
+  oChildren <- orderedChildren vars <$> use _info
+  syntaxInstrToScriptIter loop oChildren
 
 syntaxMergerInstrToScript :: RuleScript -> Maybe RuleScriptMessage
                           -> ([(TyScript, Maybe String)] -> TyScript)
@@ -168,18 +177,37 @@ syntaxMergerInstrToScript s msg merger = do
   _scripts .= prevScripts ++ [(merger newScripts, syntaxMessageToScript <$> msg)]
                                -- Put back updated old script list
 
+syntaxInstrToScriptIter :: Bind [TyVar] RuleScript -> [[Gathered]]
+                        -> StateT TranslationEnv FreshM ()
+syntaxInstrToScriptIter _ [] = return ()
+syntaxInstrToScriptIter loopbody (itervars:rest) = do
+  (loopvars, body) <- unbind loopbody
+  let newInfo = zip loopvars itervars
+      newTys  = syntaxMapToTy newInfo
+  _customV %= (union loopvars)
+  -- Add new variables
+  _info  %= (newInfo ++)
+  _types %= (newTys ++)
+  -- Run the inner loop
+  syntaxRuleScriptToScript body
+  -- Delete the variables
+  _info  %= (filter (\(v,_) -> v `notElem` loopvars))
+  _types %= (filter (\(v,_) -> v `notElem` loopvars))
+  -- And do the rest
+  syntaxInstrToScriptIter loopbody rest
+
 asymMerger :: (SourcePos,SourcePos) -> [(TyScript, Maybe String)] -> TyScript
 asymMerger p = foldl (\prev (new,msg) -> Asym new prev (Just p, msg)) Empty
 
-getVarIterator :: [(TyVar,RuleScriptOrdering)] -> TranslationInfoEnv
-               -> [[(UTerm ((SourcePos,SourcePos),TyVar), FreshM GatherTermInfo)]]
-getVarIterator vars env =
+-- Get children ordered by its position -- ugly code, don't look much at it
+orderedChildren :: [(TyVar,RuleScriptOrdering)] -> TranslationInfoEnv -> [[Gathered]]
+orderedChildren vars env =
   let varInfos = flip map vars $ \(v, order) -> case lookup v env of
                    Just (GatherTerm _ terms gs) -> sortBy (orderSourcePos order `on` (fst . ann . fst) ) (zip terms gs)
                    Nothing -> []
                    _       -> error ("This should never happen, we are zipping " ++ show v ++ " incorrectly")
       minLength = minimum (map length varInfos)
-   in transpose $ map (take minLength) varInfos
+   in transpose $ map (take minLength) $ map (map (\(x,y) -> GatherTerm [] [x] [y])) varInfos
 
 orderSourcePos :: RuleScriptOrdering -> (SourcePos,SourcePos) -> (SourcePos,SourcePos) -> Ordering
 orderSourcePos _ (xi,xe) (yi,ye) | xi < yi, xe < ye = LT
