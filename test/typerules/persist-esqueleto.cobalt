@@ -1,5 +1,6 @@
 axiom $PersistField 'Int;
 axiom $PersistField 'Bool;
+axiom $PersistField ['Char];
 import True  :: 'Bool;
 import False :: 'Bool;
 import nil   :: {a} [a];
@@ -60,6 +61,17 @@ import return :: {e} e -> 'SqlQuery e;
 import bind_  :: {a} {b} 'SqlQuery a -> 'SqlQuery (a -> 'SqlQuery b) -> 'SqlQuery b;
 import then_  :: {a} {b} 'SqlQuery a -> 'SqlQuery b -> 'SqlQuery b;
 
+rule   then_rule
+match  #one@(#then_@(then_) #a) #b
+script constraints #a,
+       constraints #b,
+       merge {
+         constraints #then_,
+         #then_ ~ #a -> #b -> #b,
+         #one   ~ #b -> #b,
+         #this  ~ #b
+       };
+
 data 'Value a;
 data 'ValueList a;
 data 'SomeValue;
@@ -95,6 +107,32 @@ import set    :: {val} 'SqlExpr ('Entity val) -> ['SqlExpr ('EUpdate val)] -> 'S
 import assign :: {val} {typ} $PersistField typ => ^EntityField val typ -> 'SqlExpr ('Value typ) -> 'SqlExpr ('EUpdate val);
 import add    :: {val} {typ} $PersistField typ => ^EntityField val typ -> 'SqlExpr ('Value typ) -> 'SqlExpr ('EUpdate val);
 
+rule   update_rule
+match  #one@(#set@(set) #e) [ #c2@(#c1@(#c0@(cons) #u) &k) | #nil@(nil) ]*k
+script fresh #v,
+       constraints #e,
+       #e ~ 'SqlExpr ('Entity #v) error { "First argument is not an entity" },
+       merge {
+         foreach #u_ <- inout #u | #c0_ <- inout #c0 | #c1_ <- inout #c1 | #c2_ <- inout #c2 {
+           fresh #w,
+           ordered {
+             constraints #u_,
+             #u_ ~ 'SqlExpr ('EUpdate #w) error { "Not an update operation" },
+             #w ~ #v error { "Update does not refer to the right entity" },
+             merge {
+               #c0_ ~ 'SqlExpr ('EUpdate #v) -> ['SqlExpr ('EUpdate #v)] -> ['SqlExpr ('EUpdate #v)],
+               #c1_ ~ ['SqlExpr ('EUpdate #v)] -> ['SqlExpr ('EUpdate #v)],
+               #c2_ ~ ['SqlExpr ('EUpdate #v)]
+             }
+           }
+         }
+       },
+       merge {
+         #nil ~ ['SqlExpr ('EUpdate #v)],
+         #set ~ 'SqlExpr ('Entity #v) -> ['SqlExpr ('EUpdate #v)] -> 'SqlQuery 'Unit,
+         #one ~ ['SqlExpr ('EUpdate #v)] -> 'SqlQuery 'Unit,
+         #this ~ 'SqlQuery 'Unit
+       };
 
 axiom {a} $From ('SqlExpr ('Entity a));
 axiom {a} $From ('SqlExpr ('Maybe ('Entity a)));
@@ -132,8 +170,8 @@ import PersonKey :: 'Int -> 'PersonKey;
 
 data 'PersonField;
 axiom {r} ^EntityField 'Person r ~ 'PersonField r;
-import PersonFirstName :: 'PersonField 'String;
-import PersonLastName  :: 'PersonField 'String;
+import PersonFirstName :: 'PersonField ['Char];
+import PersonLastName  :: 'PersonField ['Char];
 import PersonAge       :: 'PersonField 'Int;
 
 data 'PersonUnique;
@@ -151,8 +189,8 @@ import TaskKey :: 'Int -> 'TaskKey;
 
 data 'TaskField;
 axiom {r} ^EntityField 'Task r ~ 'TaskField r;
-import TaskTitle :: ^EntityField 'Task 'String;
-import TaskDescr :: ^EntityField 'Task 'String;
+import TaskTitle :: ^EntityField 'Task ['Char];
+import TaskDescr :: ^EntityField 'Task ['Char];
 import TaskTime  :: ^EntityField 'Task 'Int;
 
 data 'TaskUnique;
@@ -160,4 +198,11 @@ axiom ^Unique 'Task ~ 'TaskUnique;
 
 q3 = from (\p -> where_ (geq (field p TaskTime) (val 30)));
 q4 = from (\p -> do where_ (geq (field p TaskTime) (val 30)),
-                    where_ (geq (field p PersonAge) (val 18)) );
+                    where_ (geq (field p PersonAge) (val 18)) ) => fail;
+
+q5 = from (\p -> do where_ (geq (field p TaskTime) (val 30)),
+                    set p (cons (assign TaskTitle (val "Hello")) nil));
+q6 = from (\p -> do where_ (geq (field p PersonAge) (val 30)),
+                    set p (cons (assign TaskTitle (val "Hello")) nil)) => fail;
+q7 = from (\p -> do where_ (geq (field p PersonAge) (val 30)),
+                    set 1 nil) => fail;
