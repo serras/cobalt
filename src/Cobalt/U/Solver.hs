@@ -13,7 +13,6 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Writer
 import Data.List (union, foldl')
-import Data.Maybe (maybeToList)
 import Text.Parsec.Pos (SourcePos)
 import Unbound.LocallyNameless hiding (union)
 
@@ -28,18 +27,18 @@ type OInState = ([Constraint],[Constraint],[TyVar])
 type ScriptSolution = (OInState, [ErrorExplanation], Graph)
 type FinalSolution  = (OIn.Solution, [ErrorExplanation], Graph)
 
-solve :: [Axiom] -> [Constraint] -> [TyVar] -> TyScript
+solve :: [Axiom] -> [Constraint] -> [TyVar] -> TyScriptInfo -> TyScript
       -> FreshM FinalSolution
-solve ax g tch w = do
-  (((simplG,rs,vars),err,graph), extraExists) <- simpl ax g tch w
+solve ax g tch info w = do
+  (((simplG,rs,vars),err,graph), extraExists) <- simpl ax g tch info w
   let s@(OIn.Solution _simplG' rs' subst' _vars') = OIn.toSolution simplG rs vars
-  solveImpl ax (g ++ rs') (map (substsScript subst') extraExists) (s,err,graph)
+  solveImpl ax (g ++ rs') (map (\(i_, s_) -> (i_, substsScript subst' s_)) extraExists) (s,err,graph)
 
-solveImpl :: [Axiom] -> [Constraint] -> [TyScript]
+solveImpl :: [Axiom] -> [Constraint] -> [(TyScriptInfo, TyScript)]
           -> FinalSolution -> FreshM FinalSolution
 solveImpl _ _ [] sol = return sol
-solveImpl ax g (Exists vars q c : rest) (curSol, currErr, currGraph) = do
-  (thisSol, thisErr, thisGraph) <- solve ax (g ++ q) vars c
+solveImpl ax g ((info, Exists vars q c) : rest) (curSol, currErr, currGraph) = do
+  (thisSol, thisErr, thisGraph) <- solve ax (g ++ q) vars info c
   let newGraph = mappend thisGraph currGraph -- : map (\x -> singletonNode _ x "exists") (q ++ c)
   case (thisSol, thisErr) of
     (OIn.Solution _ [] _ _, []) -> solveImpl ax g rest (curSol, currErr, newGraph)
@@ -48,23 +47,24 @@ solveImpl ax g (Exists vars q c : rest) (curSol, currErr, currGraph) = do
                                  , makeManyExplanation (SolverError_CouldNotDischarge cList) cList Nothing Nothing thisGraph : (currErr ++ thisErr)
                                  , newGraph)
 solveImpl _ _ _ _ = error "This should never happen"
-      
+
 -- Solve one layer of constraints
 -- and return the list of extra Exists.
-simpl :: [Axiom] -> [Constraint] -> [TyVar] -> TyScript
-      -> FreshM (ScriptSolution, [TyScript])
-simpl _ g tch Empty =
+simpl :: [Axiom] -> [Constraint] -> [TyVar] -> TyScriptInfo -> TyScript
+      -> FreshM (ScriptSolution, [(TyScriptInfo, TyScript)])
+simpl _ g tch _ Empty =
   return ((emptySolution g tch, [], emptyGraph), [])
-simpl _ g tch me@(Exists { }) =
-  return ((emptySolution g tch, [], emptyGraph), [me])
-simpl ax g tch (Singleton c (pos,cm)) = do
-  let comment = map Comment_Pos (maybeToList pos) ++ map Comment_String (maybeToList cm)
-  solved <- simplMany' ax [((g,[c],tch), [], singletonCommented c comment)]
+simpl _ g tch info me@(Exists { }) =
+  return ((emptySolution g tch, [], emptyGraph), [(info, me)])
+simpl ax g tch _ (Label i c) = simpl ax g tch i c
+simpl ax g tch (pos,cm) (Singleton c) = do
+  -- let comment = map Comment_Pos (maybeToList pos) ++ map Comment_String (maybeToList cm)
+  solved <- simplMany' ax [((g,[c],tch), [], singletonCommented c [])]
   case solved of
     (Left err, graph) -> return ((emptySolution g tch, [makeExplanation err pos cm graph], emptyGraph), [])
     (Right s,  graph) -> return ((s, [], graph), [])
-simpl ax g tch (Merge lst (pos,cm)) = do
-  simpls <- mapM (simpl ax g tch) lst
+simpl ax g tch (pos,cm) (Join lst) = do
+  simpls <- mapM (simpl ax g tch (pos,cm)) lst
   let (results, exs) = unzip simpls
       errs = map (\(_,e,_) -> e) results
   solved <- simplMany' ax results
@@ -74,7 +74,8 @@ simpl ax g tch (Merge lst (pos,cm)) = do
        let (fstSol, _, fstGraph) = head results
         in return ((fstSol, makeExplanation err pos cm graph : concat errs, fstGraph), concat exs)
     (Right s, graph) -> return ((s, concat errs, graph), concat exs)
-simpl ax g tch (Asym s1 s2 info) = simpl ax g tch (Merge [s2,s1] info)
+simpl ax g tch (pos,cm) (AsymJoin s1 s2) = simpl ax g tch (pos,cm) (Join [s1,s2])
+-- simpl ax g tch (pos,cm) (Sequence s1 s2)
 
 makeExplanation :: SolverError -> Maybe (SourcePos, SourcePos) -> Maybe String -> Graph -> ErrorExplanation
 makeExplanation err pos msg graph =

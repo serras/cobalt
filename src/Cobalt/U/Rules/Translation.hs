@@ -10,7 +10,7 @@ import Control.Applicative
 import Control.Lens
 import Control.Lens.Extras (is)
 import Control.Monad.State
-import Data.Foldable (fold)
+import Data.Foldable (fold, foldMap)
 import Data.Function (on)
 import Data.List (elemIndex, transpose, union, sortBy)
 import Data.Maybe (fromJust)
@@ -146,15 +146,13 @@ syntaxInstrToScript (RuleScriptInstr_Ref v, msg) = do
     Nothing  -> fail $ "Cannot find " ++ show v
 syntaxInstrToScript (RuleScriptInstr_Constraint r, msg) = do
   c <- syntaxConstraintToScript r <$> use _this <*> use _types
-  p <- use _pos
-  _scripts %++ (Singleton c (Just p, Nothing), syntaxMessageToScript <$> msg)
+  _scripts %++ (Singleton c, syntaxMessageToScript <$> msg)
 syntaxInstrToScript (RuleScriptInstr_Ordered s, msg) = do
   p <- use _pos
   syntaxMergerInstrToScript s msg (asymMerger p)
-syntaxInstrToScript (RuleScriptInstr_Merge s, msg) = do
+syntaxInstrToScript (RuleScriptInstr_Join s, msg) = do
   p <- use _pos
-  syntaxMergerInstrToScript s msg $
-    \lst -> foldl (mergeScript p) Empty (map fst lst)
+  syntaxMergerInstrToScript s msg (foldMap fst)
 syntaxInstrToScript (RuleScriptInstr_Update v m, _msg) = do
   newMono <- syntaxMonoTypeToScript m <$> use _this <*> use _types
   -- Remove previous incarnations
@@ -197,7 +195,11 @@ syntaxInstrToScriptIter loopbody (itervars:rest) = do
   syntaxInstrToScriptIter loopbody rest
 
 asymMerger :: (SourcePos,SourcePos) -> [(TyScript, Maybe String)] -> TyScript
-asymMerger p = foldl (\prev (new,msg) -> Asym new prev (Just p, msg)) Empty
+asymMerger p = foldl (\prev (new,msg) -> let scr = AsymJoin prev new
+                                          in case msg of
+                                              Nothing -> scr
+                                              _       -> Label (Just p, msg) scr)
+                     Empty
 
 -- Get children ordered by its position -- ugly code, don't look much at it
 orderedChildren :: [(TyVar,RuleScriptOrdering)] -> TranslationInfoEnv -> [[Gathered]]

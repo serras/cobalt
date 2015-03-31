@@ -388,7 +388,7 @@ parseRuleInstr = RuleScriptInstr_Empty   <$  reserved "empty"
                                          <*> parseRuleCapture
              <|> RuleScriptInstr_Ordered <$  reserved "ordered"
                                          <*> braces parseRuleScript
-             <|> RuleScriptInstr_Merge   <$  reserved "merge"
+             <|> RuleScriptInstr_Join    <$  reserved "join"
                                          <*> braces parseRuleScript
              <|> (\vars script -> let (inner, outer) = unzip vars
                                    in RuleScriptInstr_ForEach outer (bind inner script))
@@ -464,7 +464,7 @@ lexer = T.makeTokenParser $ haskellDef { T.reservedNames = "rule" : "strict" : "
                                                            : "match" : "check" : "script" : "any"  -- Rule
                                                            : "type" : "expr" : "vcat" : "hcat"     -- Error msgs
                                                            : "fresh" : "constraints" : "repair"    -- Type tree
-                                                           : "merge" : "ordered" : "foreach"       -- Type tree
+                                                           : "join" : "ordered" : "foreach"        -- Type tree
                                                            : "update" : "error"                    -- Type tree
                                                            : "inout" : "outin"                     -- Type tree ordering
                                                            : "injective" : "defer" : "synonym"     -- Axioms

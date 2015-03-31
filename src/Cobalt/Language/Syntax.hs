@@ -143,7 +143,7 @@ data RuleScriptInstr = RuleScriptInstr_Empty
                      | RuleScriptInstr_Ref TyVar
                      | RuleScriptInstr_Constraint Constraint
                      | RuleScriptInstr_Ordered RuleScript
-                     | RuleScriptInstr_Merge   RuleScript
+                     | RuleScriptInstr_Join    RuleScript
                      | RuleScriptInstr_ForEach [(TyVar, RuleScriptOrdering)] (Bind [TyVar] RuleScript)
                      | RuleScriptInstr_Update  TyVar MonoType
                      deriving Show
