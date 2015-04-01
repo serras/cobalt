@@ -30,7 +30,8 @@ type FinalSolution  = (OIn.Solution, [ErrorExplanation], Graph)
 
 solve :: [Axiom] -> [Constraint] -> [TyVar]
       -> TyScript -> FreshM FinalSolution
-solve ax c v = solve_ ax c v Nothing
+solve ax c v s = do (sol, errs, g) <- solve_ ax c v Nothing s
+                    return (sol, reverse errs, g)
 
 solve_ :: [Axiom] -> [Constraint] -> [TyVar]
        -> Maybe TyScriptInfo -> TyScript

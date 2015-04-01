@@ -65,7 +65,7 @@ rule   then_rule
 match  #one@(#then_@(then_) #a) #b
 script constraints #a,
        constraints #b,
-       merge {
+       join {
          constraints #then_,
          #then_ ~ #a -> #b -> #b,
          #one   ~ #b -> #b,
@@ -112,14 +112,14 @@ match  #one@(#set@(set) #e) [ #c2@(#c1@(#c0@(cons) #u) &k) | #nil@(nil) ]*k
 script fresh #v,
        constraints #e,
        #e ~ 'SqlExpr ('Entity #v) error { "First argument is not an entity" },
-       merge {
+       join {
          foreach #u_ <- inout #u | #c0_ <- inout #c0 | #c1_ <- inout #c1 | #c2_ <- inout #c2 {
            fresh #w,
            ordered {
              constraints #u_,
              #u_ ~ 'SqlExpr ('EUpdate #w) error { "Not an update operation" },
              #w ~ #v error { "Update does not refer to the right entity" },
-             merge {
+             join {
                #c0_ ~ 'SqlExpr ('EUpdate #v) -> ['SqlExpr ('EUpdate #v)] -> ['SqlExpr ('EUpdate #v)],
                #c1_ ~ ['SqlExpr ('EUpdate #v)] -> ['SqlExpr ('EUpdate #v)],
                #c2_ ~ ['SqlExpr ('EUpdate #v)]
@@ -127,7 +127,7 @@ script fresh #v,
            }
          }
        },
-       merge {
+       join {
          #nil ~ ['SqlExpr ('EUpdate #v)],
          #set ~ 'SqlExpr ('Entity #v) -> ['SqlExpr ('EUpdate #v)] -> 'SqlQuery 'Unit,
          #one ~ ['SqlExpr ('EUpdate #v)] -> 'SqlQuery 'Unit,

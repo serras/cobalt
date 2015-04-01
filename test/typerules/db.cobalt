@@ -37,7 +37,7 @@ import get :: {e} 'Key e -> 'Maybe e;
 rule   get
 match  #get@(get) #key
 script fresh #e1 #e2,
-       merge {
+       join {
          #get ~ 'Key #e1 -> 'Maybe #e2,
          constraints #key
        },
@@ -55,7 +55,7 @@ match  #get@(get2) #key
 script fresh #e,
        constraints #key,
        #key ~ 'Key #e error { "The given argument is not a key" },
-       merge {
+       join {
          constraints #get,
          #this ~ 'Maybe #e
        };
@@ -73,13 +73,13 @@ script repair { "You should provide a raw value, not an entity," };
 rule   update_
 match  #first@(#upd@(update_) #key) #val
 script fresh #s1,
-       merge {
+       join {
          constraints #key,
          constraints #val
        },
        #key ~ 'Key #s1 error { "The first argument is not a key" },
        #s1 ~ #val error { "Key and entity types are not equal" },
-       merge {
+       join {
          constraints #upd,
          #first ~ #val -> 'Result,
          #this ~ 'Result

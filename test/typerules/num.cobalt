@@ -21,12 +21,12 @@ match  execute [ #ap1@(#ap2@(#op@(plus) &k) &k)
                | #ap1@(#ap2@(#op@(mult) &k) &k)
                | #ap1@(#lit@(lit) #leaves) ]*k
 script fresh #e,
-       merge { foreach #leaf <- inout #leaves { constraints #leaf } },
-       merge { foreach #leaf <- inout #leaves { #leaf ~ #e } }
-               error { "All literals must be of the same type" },
+       join { foreach #leaf <- inout #leaves { constraints #leaf } },
+       join { foreach #leaf <- inout #leaves { #leaf ~ #e } }
+              error { "All literals must be of the same type" },
        $Num #e error { "Literals must be of class Num" },
-       merge { foreach #a1 <- inout #ap1 { #a1 ~ 'Expr #e } },
-       merge { foreach #a2 <- inout #ap2 { #a2 ~ 'Expr #e -> 'Expr #e } },
-       merge { foreach #o <- inout #op  { constraints #o } },
-       merge { foreach #l <- inout #lit { constraints #l } },
+       join { foreach #a1 <- inout #ap1 { #a1 ~ 'Expr #e } },
+       join { foreach #a2 <- inout #ap2 { #a2 ~ 'Expr #e -> 'Expr #e } },
+       join { foreach #o <- inout #op  { constraints #o } },
+       join { foreach #l <- inout #lit { constraints #l } },
        #this ~ #e;

@@ -4,7 +4,7 @@ import star   :: {a} {b} {s} 'Parser s (a -> b) -> 'Parser s a -> 'Parser s b;
 rule   app_parser
 match  #first@(#dollar@(dullar) #fn) #arg
 script fresh #a1 #a2 #b1 #b2 #s1 #s2,
-       merge {
+       join {
          #dollar ~ (#a1 -> #b1) -> 'Parser #s1 #a1 -> 'Parser #s1 #b1,
          #first  ~ 'Parser #s1 #a1 -> 'Parser #s1 #b1
        },
@@ -47,7 +47,7 @@ script fresh #fnTy #fn1 #fn2 #fnEnd #str #rTy #r1 #r2 #rE1 #rE2,
        },
        update #fnTy <- #fnEnd -> #fnTy,
 
-       merge {
+       join {
          ordered {
            constraints #x,
            #x > {s} {a} 'Parser s a error { "First argument is not a parser" }
@@ -64,7 +64,7 @@ script fresh #fnTy #fn1 #fn2 #fnEnd #str #rTy #r1 #r2 #rE1 #rE2,
          }
        },
 
-       merge {
+       join {
          #x > {a} 'Parser #str a,
          foreach #i <- inout #y { #i > {a} 'Parser #str a },
          #z > {a} 'Parser #str a
@@ -72,7 +72,7 @@ script fresh #fnTy #fn1 #fn2 #fnEnd #str #rTy #r1 #r2 #rE1 #rE2,
 
        #fn ~ #r1 -> #r2,
        #x ~ 'Parser #str #r1 error { "First parser does not produce the correct type" },
-       merge {
+       join {
          #dullar   ~ (#r1 -> #r2) -> 'Parser #str #r1 -> 'Parser #str #r2,
          #firstOne ~ 'Parser #str #r1 -> 'Parser #str #r2,
          #firstTwo ~ 'Parser #str #r2
@@ -83,7 +83,7 @@ script fresh #fnTy #fn1 #fn2 #fnEnd #str #rTy #r1 #r2 #rE1 #rE2,
          fresh #rI1 #rI2,
          #rTy ~ #rI1 -> #rI2,
          #i ~ 'Parser #str #rI1 error { "Parser does not produce the correct type" },
-         merge {
+         join {
            #s ~ 'Parser #str (#rI1 -> #rI2) -> 'Parser #str #rI1 -> 'Parser #str #rI2,
            #o ~ 'Parser #str #rI1 -> 'Parser #str #rI2,
            #t ~ 'Parser #str #rI2
@@ -92,7 +92,7 @@ script fresh #fnTy #fn1 #fn2 #fnEnd #str #rTy #r1 #r2 #rE1 #rE2,
 
        #rTy ~ #rE1 -> #rE2,
        #z ~ 'Parser #str #rE1 error { "Last parser does not produce the correct type" },
-       merge {
+       join {
          #oStar ~ 'Parser #str (#rE1 -> #rE2) -> 'Parser #str #rE1 -> 'Parser #str #rE2,
          #oOne  ~ 'Parser #str #rE1 -> 'Parser #str #rE2,
          #this  ~ 'Parser #str #rE2

@@ -21,7 +21,7 @@ import singleton :: {a} a -> [a];
 rule strict singleton_on_eq
 match  #singl@(singleton) #thing
 check  $Eq #thing
-script merge {
+script join {
          #this ~ [#thing],
          constraints #thing,
          constraints #singl
@@ -40,7 +40,7 @@ import noRule :: 'Bool -> 'Int;
 
 rule   make_rule
 match  #fn@(noRule) #arg
-script merge {
+script join {
          constraints #fn,
          constraints #arg,
          #this ~ 'Int,
@@ -55,14 +55,15 @@ import map :: {a} {b} (a -> b) -> [a] -> [b];
 rule   map
 match  #intermediate@(#map@(map) #fn) #list
 script fresh #e #x #r,
-       merge { constraints #map,
+       join {
+         constraints #map,
          constraints #fn,
          constraints #list
        },
        #list ~ [#e]   error { "Second argument to map must be a list" },
        #fn ~ #x -> #r error { "First argument to map must be a function" },
        #x ~ #e        error { "The function does not have the correct domain" },
-       merge {
+       join {
          #intermediate ~ [#e] -> [#r],
          #this ~ [#r]
        };

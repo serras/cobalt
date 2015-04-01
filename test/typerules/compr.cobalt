@@ -15,7 +15,7 @@ rule   map2_on_lists
 match  #app1@(#map2@(map2) #fn) #arg
 check  #arg > {a} 'App 'List a
 script fresh #a1 #a2 #a3 #a4 #b1 #b2 #b3,
-       merge {
+       join {
          #map2 ~ (#a2 -> #b2) -> 'App 'List #a2 -> 'App 'List #b2,
          #app1 ~ 'App 'List #a1 -> 'App 'List #b1
        },
@@ -25,7 +25,7 @@ script fresh #a1 #a2 #a3 #a4 #b1 #b2 #b3,
        #fn ~ #a4 -> #b3      error { "First argument should be a function" },
        #a3 ~ #a4             error { "Parameters must coincide" },
        #this ~ 'App 'List #b3,
-       merge {
+       join {
          #a1 ~ #a2,
          #a2 ~ #a3,
          #b1 ~ #b2,
@@ -47,14 +47,14 @@ rule   map3_on_lists
 match  #appfn@(#map@(map3) #fn) #arg
 check  #arg > {a} 'App 'List a
 script fresh #e1 #e2 #r,
-       merge {
+       join {
          constraints #fn,
          constraints #arg,
          #arg ~ 'App 'List #e1
        },
        #fn ~ #e2 -> #r error { "First argument should be a function" },
        #e1 ~ #e2       error { "Argument type must be the list type" },
-       merge {
+       join {
          #this  ~ 'App 'List #r,
          #appfn ~ 'App 'List #e1 -> 'App 'List #r,
          constraints #map
