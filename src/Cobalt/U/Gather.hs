@@ -35,12 +35,10 @@ mainTypeRules = [ intLiteralRule
                 , caseRule
                 ]
 
-pattern SingletonC c     p = Label (Just p, Nothing) (Singleton c)
+pattern SingletonC c     p = Singleton c p Nothing
 pattern SingUnifyC m1 m2 p = SingletonC (Constraint_Unify m1 m2) p
 pattern SingInstC  m  s  p = SingletonC (Constraint_Inst  m  s ) p
 pattern SingEqualC m  s  p = SingletonC (Constraint_Equal m  s ) p
-pattern AsymJoinC  c1 c2 p = Label (Just p, Nothing) (AsymJoin c1 c2)
-pattern JoinC      cs    p = Label (Just p, Nothing) (Join cs)
 
 infix 4 .=!
 (.=!) :: (MonadState s m, Monad n) => ASetter s s a [n b] -> b -> m ()
@@ -97,7 +95,7 @@ absRule = rule $ \inner ->
     this.syn._Term.wanted .=. case innerSyn of
       GatherTerm _g [ity] [i] -> do
         gg@(GatherTermInfo w _ _ ) <- i
-        return $ gg { tree = AsymJoinC w (SingUnifyC (var thisTy) (var vty :-->: var (ty ity)) p) p }
+        return $ gg { tree = AsymJoin w (SingUnifyC (var thisTy) (var vty :-->: var (ty ity)) p) p }
       _ -> thisIsNotOk
 
 absAnnRule :: TypeRule
@@ -112,9 +110,9 @@ absAnnRule = rule $ \inner ->
       GatherTerm _g [ity] [i] -> do
         gg@(GatherTermInfo w _ _ ) <- i
         return $ gg { tree = case tyAnn of
-                        PolyType_Mono [] m -> AsymJoinC w (SingUnifyC (var thisTy) (m :-->: var (ty ity)) p) p
-                        _ -> AsymJoinC w (JoinC [ SingUnifyC (var thisTy) (var vty :-->: var (ty ity)) p
-                                                , SingEqualC (var vty) tyAnn vpos ] p) p }
+                        PolyType_Mono [] m -> AsymJoin w (SingUnifyC (var thisTy) (m :-->: var (ty ity)) p) p
+                        _ -> AsymJoin w (Join [ SingUnifyC (var thisTy) (var vty :-->: var (ty ity)) p
+                                              , SingEqualC (var vty) tyAnn vpos ] p) p }
       _ -> thisIsNotOk
 
 appRule :: TypeRule
@@ -129,7 +127,7 @@ appRule = rule $ \(e1, e2) ->
       (GatherTerm _g1 [ity1] [i1], GatherTerm _g2 [ity2] [i2]) -> do
          GatherTermInfo w1 c1 cv1 <- i1
          GatherTermInfo w2 c2 cv2 <- i2
-         return $ GatherTermInfo { tree = AsymJoinC (JoinC [w1,w2] p) (SingUnifyC (var (ty ity1)) (var (ty ity2) :-->: var thisTy) p) p
+         return $ GatherTermInfo { tree = AsymJoin (Join [w1,w2] p) (SingUnifyC (var (ty ity1)) (var (ty ity2) :-->: var thisTy) p) p
                                  , custom = c1 ++ c2
                                  , customVars = cv1 `union` cv2
                                  }
@@ -151,7 +149,7 @@ letRule = rule $ \(e1, e2) ->
       (GatherTerm _g1 _ity1 [i1], GatherTerm _g2 [ity2] [i2]) -> do
         GatherTermInfo w1 c1 cv1 <- i1
         GatherTermInfo w2 c2 cv2 <- i2
-        return $ GatherTermInfo { tree = JoinC [w1, w2, SingUnifyC (var thisTy) (var (ty ity2)) p] p
+        return $ GatherTermInfo { tree = Join [w1, w2, SingUnifyC (var thisTy) (var (ty ity2)) p] p
                                 , custom = c1 ++ c2
                                 , customVars = cv1 `union` cv2
                                 }
@@ -183,10 +181,13 @@ letAnnRule = rule $ \(e1, e2) ->
           GatherTermInfo w1 c1 cv1 <- i1
           GatherTermInfo w2 c2 cv2 <- i2
           return $ GatherTermInfo { tree = case isMono of
-                                      Just m  -> JoinC [ w1, SingUnifyC (var (ty ity1)) m p, w2, SingUnifyC (var thisTy) (var (ty ity2)) p ] p
+                                      Just m  -> Join [ w1
+                                                      , SingUnifyC (var (ty ity1)) m p, w2
+                                                      , SingUnifyC (var thisTy) (var (ty ity2)) p ] p
                                       Nothing -> let vars = insert (ty ity1) (fvScript w1) \\ nub (fv env)
-                                                  in JoinC [ Exists vars (q1 ++ g1) (JoinC [ w1, SingUnifyC (var (ty ity1)) t1 p ] p)
-                                                            , w2, SingUnifyC (var thisTy) (var (ty ity2)) p ] p
+                                                  in Join [ Exists vars (q1 ++ g1)
+                                                                   (Join [ w1, SingUnifyC (var (ty ity1)) t1 p ] p) p
+                                                          , w2, SingUnifyC (var thisTy) (var (ty ity2)) p ] p
                                   , custom = c1 ++ c2
                                   , customVars = cv1 `union` cv2
                                   }
@@ -227,8 +228,8 @@ matchRule = rule $ \(e, branches) ->
               [] -> do GatherTermInfo we c cv <- i
                        caseInfosJust <- sequence $ map (snd . fromJust) caseInfos
                        let (caseWs, caseCs, caseCVs) = unzip3 caseInfosJust
-                       return $ GatherTermInfo { tree = AsymJoinC (JoinC (we : caseWs) p)
-                                                                  (SingUnifyC (var (ty te)) mko p) p
+                       return $ GatherTermInfo { tree = AsymJoin (Join (we : caseWs) p)
+                                                                 (SingUnifyC (var (ty te)) mko p) p
                                                , custom = c ++ concat caseCs
                                                , customVars = cv ++ concat caseCVs
                                                }
@@ -241,15 +242,15 @@ generateCase :: [TyVar] -> TyVar -> (SourcePos,SourcePos) -> MonoType -> GatherC
 generateCase envVars thisTy p (MonoType_Con k vars) (GatherCaseInfo g betaVars q (MonoType_Con kc varsc) sc caseTy)
   | k == kc, [] <- betaVars, [] <- q =
      Just (g, do GatherTermInfo s c cv <- sc
-                 return ( AsymJoinC (foldr (\(MonoType_Var v1, v2) curS -> substScript v1 v2 curS) s (zip varsc vars))
-                                    (SingUnifyC (var thisTy) (var caseTy) p) p
+                 return ( AsymJoin (foldr (\(MonoType_Var v1, v2) curS -> substScript v1 v2 curS) s (zip varsc vars))
+                                   (SingUnifyC (var thisTy) (var caseTy) p) p
                         , c, cv) )
   | k == kc =  -- Existential case
      Just ([], do GatherTermInfo s c _cv <- sc
                   let evars = nub (union (fv varsc) (fvScript s)) \\ union envVars (fv vars)
                   return ( Exists evars (g ++ q ++ zipWith Constraint_Unify vars varsc)
-                                  (AsymJoinC (foldr (\(MonoType_Var v1, v2) curS -> substScript v1 v2 curS) s (zip varsc vars))
-                                             (SingUnifyC (var thisTy) (var caseTy) p) p)
+                                  (AsymJoin (foldr (\(MonoType_Var v1, v2) curS -> substScript v1 v2 curS) s (zip varsc vars))
+                                            (SingUnifyC (var thisTy) (var caseTy) p) p) p
                          , c, [] ) )
   | otherwise = Nothing
 generateCase _ _ _ _ _ = thisIsNotOk

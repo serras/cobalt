@@ -375,7 +375,7 @@ parseRuleScript = bind <$> (    id <$ reserved "fresh" <*> many1 parseRuleCaptur
                        <*> commaSep1 parseRuleInstrMsg
 
 parseRuleInstrMsg :: Parsec String s (RuleScriptInstr, Maybe RuleScriptMessage)
-parseRuleInstrMsg = (\msg -> (RuleScriptInstr_Constraint Constraint_Inconsistent, Just msg))
+parseRuleInstrMsg = (\msg -> (RuleScriptInstr_Constraint Constraint_Inconsistent Nothing, Just msg))
                         <$  reserved "repair"
                         <*> braces parseRuleMessage
                 <|> (,) <$> parseRuleInstr
@@ -383,26 +383,30 @@ parseRuleInstrMsg = (\msg -> (RuleScriptInstr_Constraint Constraint_Inconsistent
                                             <*> braces parseRuleMessage)
 
 parseRuleInstr :: Parsec String s RuleScriptInstr
-parseRuleInstr = RuleScriptInstr_Empty   <$  reserved "empty"
-             <|> RuleScriptInstr_Ref     <$  reserved "constraints"
-                                         <*> parseRuleCapture
-             <|> RuleScriptInstr_Ordered <$  reserved "ordered"
-                                         <*> braces parseRuleScript
-             <|> RuleScriptInstr_Join    <$  reserved "join"
-                                         <*> braces parseRuleScript
+parseRuleInstr = RuleScriptInstr_Empty    <$  reserved "empty"
+             <|> RuleScriptInstr_Ref      <$  reserved "constraints"
+                                          <*> parseRuleCapture
+             <|> RuleScriptInstr_Ordered  <$  reserved "ordered"
+                                          <*> braces parseRuleScript
+             <|> RuleScriptInstr_Sequence <$  reserved "sequence"
+                                          <*> braces parseRuleScript
+             <|> RuleScriptInstr_Join     <$  reserved "join"
+                                          <*> braces parseRuleScript
              <|> (\vars script -> let (inner, outer) = unzip vars
                                    in RuleScriptInstr_ForEach outer (bind inner script))
-                                         <$  reserved "foreach"
-                                         <*> ((,) <$> parseRuleCapture
-                                                  <*  reservedOp "<-"
-                                                  <*> parseRuleCaptureOrdering)
-                                             `sepBy1` (reservedOp "|")
-                                         <*> braces parseRuleScript
-             <|> RuleScriptInstr_Update  <$  reserved "update"
-                                         <*> parseRuleCapture
-                                         <*  reservedOp "<-"
-                                         <*> parseMonoType
+                                          <$  reserved "foreach"
+                                          <*> ((,) <$> parseRuleCapture
+                                                   <*  reservedOp "<-"
+                                                   <*> parseRuleCaptureOrdering)
+                                              `sepBy1` (reservedOp "|")
+                                          <*> braces parseRuleScript
+             <|> RuleScriptInstr_Update   <$  reserved "update"
+                                          <*> parseRuleCapture
+                                          <*  reservedOp "<-"
+                                          <*> parseMonoType
              <|> RuleScriptInstr_Constraint <$> parseConstraint
+                                            <*> optionMaybe (id <$  reserved "explain"
+                                                                <*> braces parseRuleMessage)
 
 parseRuleCaptureOrdering :: Parsec String s (TyVar,RuleScriptOrdering)
 parseRuleCaptureOrdering = (flip (,)) <$> (    RuleScriptOrdering_InToOut <$ reserved "inout"
@@ -464,8 +468,9 @@ lexer = T.makeTokenParser $ haskellDef { T.reservedNames = "rule" : "strict" : "
                                                            : "match" : "check" : "script" : "any"  -- Rule
                                                            : "type" : "expr" : "vcat" : "hcat"     -- Error msgs
                                                            : "fresh" : "constraints" : "repair"    -- Type tree
-                                                           : "join" : "ordered" : "foreach"        -- Type tree
-                                                           : "update" : "error"                    -- Type tree
+                                                           : "join" : "ordered" : "sequence"       -- Type tree
+                                                           : "foreach" : "update" : "error"        -- Type tree
+                                                           : "explain"                             -- Type tree
                                                            : "inout" : "outin"                     -- Type tree ordering
                                                            : "injective" : "defer" : "synonym"     -- Axioms
                                                            : "do" : "with"                         -- Syntax

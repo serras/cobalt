@@ -5,8 +5,10 @@ module Main where
 
 import Control.Lens hiding ((.=))
 import Data.Aeson hiding (json, Error)
+import Data.HashMap.Strict (insert)
 import Data.List (intercalate)
 import Data.Foldable (toList)
+import Data.String (fromString)
 import System.Console.ANSI
 import System.Environment
 import Text.Parsec (parse)
@@ -190,18 +192,22 @@ jsonTypechecked sourceCode ((n,_,_),ok) ((Solution _ rs _ _, errs, graph), term,
 showJsonScript :: TyScript -> Value
 showJsonScript Empty =
   object [ "text" .= ("∅" :: String) ]
-showJsonScript (Singleton c (_,t)) =
+showJsonScript (Label i s) =
+  let Object inner = showJsonScript s
+   in Object (insert "tags" (String (fromString i)) inner)
+showJsonScript (Singleton c _ i) =
   object [ "text" .= textJsonConstraint c
-         , "tags" .= toList t ]
-showJsonScript (Merge lst (_,t)) =
+         , "tags" .= toList i ]
+showJsonScript (Join lst _) =
   object [ "text"  .= ("merge" :: String)
-         , "tags"  .= toList t
          , "nodes" .= map showJsonScript lst ]
-showJsonScript (Asym e1 e2 (_,t)) =
-  object [ "text"  .= ("asym" :: String)
-         , "tags"  .= toList t
+showJsonScript (AsymJoin e1 e2 _) =
+  object [ "text"  .= ("asymjoin" :: String)
          , "nodes" .= map showJsonScript [e1, e2] ]
-showJsonScript (Exists v q w) =
+showJsonScript (Sequence e1 e2 _) =
+  object [ "text"  .= ("sequence" :: String)
+         , "nodes" .= map showJsonScript [e1, e2] ]
+showJsonScript (Exists v q w _) =
   object [ "text"  .= ("∃" ++ showWithGreek v :: String)
          , "nodes" .= [ object [ "text"  .= ("assume" :: String)
                                , "nodes" .= map (justText . textJsonConstraint) q ]

@@ -60,10 +60,10 @@ gDefn_ sat tchs (Env fn dat ax rules) (name,tyv,Just declaredType,Just (q1,t1,_)
   case eval (map (syntaxRuleToScriptRule ax) rules ++ mainTypeRules) (IndexIndependent (env',sat,tchs)) tyv of
     Error err -> return (Left err, tyv, [])
     GatherTerm g [e] [i] -> do GatherTermInfo w c cv <- i
-                               let v = snd (ann e)
+                               let (p,v) = ann e
                                    extra = Constraint_Unify (var v) t1
                                    simplifiedW = simplifyScript w
-                                   withExtra = Asym (Singleton extra (Nothing,Nothing)) simplifiedW (Nothing,Nothing)
+                                   withExtra = AsymJoin simplifiedW (Singleton extra p Nothing) p
                                -- Chose whether to apply exists removal or not -> look above
                                return (Right (g ++ q1, [e], GatherTermInfo withExtra c cv), tyv, v : fvScript simplifiedW)
     _ -> error "This should never happen"
@@ -86,6 +86,7 @@ tcDefn_ :: Maybe [Constraint] -> Maybe [TyVar] -> Env -> RawUnboundDefn
         -> FreshM (FinalSolution, AnnUTerm MonoType, Maybe PolyType)
 tcDefn_ extra tchs env@(Env _ _ ax _) defn@(_,_,annotation,_) = do
   (gatherResult, term, tch) <- gDefn_ (fromMaybe [] extra) (fromMaybe [] tchs) env defn  -- pass extra information
+  let (thePosition, _) = ann term
   case gatherResult of
     Left errs -> return ( (Solution [] [] [] [], map errorFromPreviousPhase errs, emptyGraph)
                          , atUAnn (\(pos, m) -> (pos, var m)) term
@@ -104,13 +105,18 @@ tcDefn_ extra tchs env@(Env _ _ ax _) defn@(_,_,annotation,_) = do
            finalCheck <- runExceptT $ tcCheckErrors restC finalT
            case finalCheck of
              Left missing@(SolverError_CouldNotDischarge missingRs) ->
-                                return ( (inn, makeManyExplanation missing missingRs Nothing Nothing graph : errs, graph)
+                                return ( (inn, makeManyExplanation missing missingRs
+                                                                   thePosition Nothing graph
+                                               : errs
+                                         , graph)
                                        , tyvTerm {- newTerm -}, Nothing )
              Left moreErrors -> return ((inn, emptySolverExplanation moreErrors : errs, graph), tyvTerm {- newTerm -}, Nothing)
              Right _ -> return (s, newTerm, Just finalT)
         _ -> -- Error, we could not discharge everything
              return ( ( inn
-                      , makeManyExplanation (SolverError_CouldNotDischarge rs) rs Nothing Nothing graph : errs
+                      , makeManyExplanation (SolverError_CouldNotDischarge rs)
+                                            rs thePosition Nothing graph
+                        : errs
                       , graph )
                     , tyvTerm {- newTerm -}, Nothing )
       -- do a second pass if needed

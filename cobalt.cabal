@@ -79,6 +79,7 @@ executable cobalt-u
                      fgl,
                      ansi-terminal > 0.6,
                      aeson,
+                     unordered-containers,
                      scotty
   main-is:           MainU.hs
   hs-source-dirs:    src

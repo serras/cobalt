@@ -10,7 +10,7 @@ import Control.Applicative
 import Control.Lens
 import Control.Lens.Extras (is)
 import Control.Monad.State
-import Data.Foldable (fold, foldMap)
+import Data.Foldable (fold)
 import Data.Function (on)
 import Data.List (elemIndex, transpose, union, sortBy)
 import Data.Maybe (fromJust)
@@ -110,7 +110,7 @@ syntaxRuleScriptToScript_ :: TranslationInfoEnv -> (SourcePos,SourcePos) -> TyVa
                           -> RuleScript -> FreshM GatherTermInfo
 syntaxRuleScriptToScript_ env p this s = do
   -- Execute like an "ordered" element
-  finalInfo <- execStateT (syntaxMergerInstrToScript s Nothing (asymMerger p))
+  finalInfo <- execStateT (syntaxMergerInstrToScript s Nothing (asymMerger AsymJoin p))
                           (env, syntaxMapToTy env, p, this, [], [], [])
   let [(finalScript,_)] = finalInfo ^. _scripts
   return $ GatherTermInfo finalScript
@@ -144,15 +144,20 @@ syntaxInstrToScript (RuleScriptInstr_Ref v, msg) = do
       _customV %=  (union customVarsThis)
     Just _   -> fail $ show v ++ " is not a single constraint"
     Nothing  -> fail $ "Cannot find " ++ show v
-syntaxInstrToScript (RuleScriptInstr_Constraint r, msg) = do
+syntaxInstrToScript (RuleScriptInstr_Constraint r expl, msg) = do
   c <- syntaxConstraintToScript r <$> use _this <*> use _types
-  _scripts %++ (Singleton c, syntaxMessageToScript <$> msg)
+  p <- use _pos
+  _scripts %++ ( Singleton c p (syntaxMessageToScript <$> expl)
+               , syntaxMessageToScript <$> msg )
 syntaxInstrToScript (RuleScriptInstr_Ordered s, msg) = do
   p <- use _pos
-  syntaxMergerInstrToScript s msg (asymMerger p)
+  syntaxMergerInstrToScript s msg (asymMerger AsymJoin p)
+syntaxInstrToScript (RuleScriptInstr_Sequence s, msg) = do
+  p <- use _pos
+  syntaxMergerInstrToScript s msg (asymMerger Sequence p)
 syntaxInstrToScript (RuleScriptInstr_Join s, msg) = do
   p <- use _pos
-  syntaxMergerInstrToScript s msg (foldMap fst)
+  syntaxMergerInstrToScript s msg (\xs -> Join (map fst xs) p)
 syntaxInstrToScript (RuleScriptInstr_Update v m, _msg) = do
   newMono <- syntaxMonoTypeToScript m <$> use _this <*> use _types
   -- Remove previous incarnations
@@ -194,12 +199,14 @@ syntaxInstrToScriptIter loopbody (itervars:rest) = do
   -- And do the rest
   syntaxInstrToScriptIter loopbody rest
 
-asymMerger :: (SourcePos,SourcePos) -> [(TyScript, Maybe String)] -> TyScript
-asymMerger p = foldl (\prev (new,msg) -> let scr = AsymJoin prev new
-                                          in case msg of
-                                              Nothing -> scr
-                                              _       -> Label (Just p, msg) scr)
-                     Empty
+asymMerger :: (TyScript -> TyScript -> (SourcePos,SourcePos) -> TyScript)
+           -> (SourcePos,SourcePos) -> [(TyScript, Maybe String)] -> TyScript
+asymMerger asym p =
+  foldl (\prev (new,msg) ->
+            let scr = asym prev new p in case msg of
+              Nothing   -> scr
+              Just msg' -> Label msg' scr)
+        Empty
 
 -- Get children ordered by its position -- ugly code, don't look much at it
 orderedChildren :: [(TyVar,RuleScriptOrdering)] -> TranslationInfoEnv -> [[Gathered]]

@@ -141,11 +141,12 @@ type RuleCheck = [Constraint]
 type RuleScript = Bind [TyVar] [(RuleScriptInstr, Maybe RuleScriptMessage)]
 data RuleScriptInstr = RuleScriptInstr_Empty
                      | RuleScriptInstr_Ref TyVar
-                     | RuleScriptInstr_Constraint Constraint
-                     | RuleScriptInstr_Ordered RuleScript
-                     | RuleScriptInstr_Join    RuleScript
-                     | RuleScriptInstr_ForEach [(TyVar, RuleScriptOrdering)] (Bind [TyVar] RuleScript)
-                     | RuleScriptInstr_Update  TyVar MonoType
+                     | RuleScriptInstr_Constraint Constraint (Maybe RuleScriptMessage)
+                     | RuleScriptInstr_Ordered  RuleScript
+                     | RuleScriptInstr_Sequence RuleScript
+                     | RuleScriptInstr_Join     RuleScript
+                     | RuleScriptInstr_ForEach  [(TyVar, RuleScriptOrdering)] (Bind [TyVar] RuleScript)
+                     | RuleScriptInstr_Update   TyVar MonoType
                      deriving Show
 
 data RuleScriptOrdering = RuleScriptOrdering_OutToIn
