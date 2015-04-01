@@ -21,6 +21,8 @@ import Cobalt.Core
 import qualified Cobalt.OutsideIn as OIn
 import Cobalt.U.Script
 
+import Debug.Trace
+
 type OInState = ([Constraint],[Constraint],[TyVar])
 -- First is a consistent solution
 -- Second, the list of errors found
@@ -37,7 +39,7 @@ solve_ :: [Axiom] -> [Constraint] -> [TyVar]
        -> Maybe TyScriptInfo -> TyScript
        -> FreshM FinalSolution
 solve_ ax g tch info w = do
-  (((simplG,rs,vars),err,graph), extraExists) <- simpl ax g tch info w
+  (((simplG,rs,vars),err,graph), extraExists) <- simpl ax g tch info Nothing w
   let s@(OIn.Solution _simplG' rs' subst' _vars') = OIn.toSolution simplG rs vars
   solveImpl ax (g ++ rs') (map (\(i_, s_) -> (i_, substsScript subst' s_)) extraExists) (s,err,graph)
 
@@ -58,21 +60,28 @@ solveImpl _ _ _ _ = error "This should never happen"
 
 -- Solve one layer of constraints
 -- and return the list of extra Exists.
-simpl :: [Axiom] -> [Constraint] -> [TyVar] -> Maybe TyScriptInfo -> TyScript
+simpl :: [Axiom] -> [Constraint] -> [TyVar]
+      -> Maybe TyScriptInfo    -- label information
+      -> Maybe ScriptSolution  -- previous solution (for sequencing)
+      -> TyScript
       -> FreshM (ScriptSolution, [(Maybe TyScriptInfo, TyScript)])
-simpl _ g tch _ Empty =
+simpl _ g tch _ _ Empty =
   return ((emptySolution g tch, [], emptyGraph), [])
-simpl _ g tch info me@(Exists { }) =
+simpl _ g tch info _ me@(Exists { }) =
   return ((emptySolution g tch, [], emptyGraph), [(info, me)])
-simpl ax g tch _ (Label i c) = simpl ax g tch (Just i) c
-simpl ax g tch cm (Singleton c pos expl) = do
+simpl ax g tch _ prev (Label i c) = simpl ax g tch (Just i) prev c
+simpl ax g tch cm prev (Singleton c pos expl) = do
   let comment = (Comment_Pos pos) : map Comment_String (maybeToList expl)
-  solved <- simplMany' ax [((g,[c],tch), [], singletonCommented c comment)]
+      prev' = maybeToList prev
+  solved <- simplMany' ax (((g,[c],tch), [], singletonCommented c comment) : prev')
   case solved of
-    (Left err, graph) -> return ((emptySolution g tch, [makeExplanation err pos cm graph], emptyGraph), [])
+    (Left err, graph) -> return ( ( emptySolution g tch
+                                  , [makeExplanation err pos cm graph]
+                                  , emptyGraph )
+                                , [] )
     (Right s,  graph) -> return ((s, [], graph), [])
-simpl ax g tch cm (Join lst pos) = do
-  simpls <- mapM (simpl ax g tch cm) lst
+simpl ax g tch cm prev (Join lst pos) = do
+  simpls <- mapM (simpl ax g tch cm prev) lst
   let (results, exs) = unzip simpls
       errs = map (\(_,e,_) -> e) results
   solved <- simplMany' ax results
@@ -80,10 +89,17 @@ simpl ax g tch cm (Join lst pos) = do
     (Left err, graph) ->
        -- TODO: should be changed to use an heuristic
        let (fstSol, _, fstGraph) = head results
-        in return ((fstSol, makeExplanation err pos cm graph : concat errs, fstGraph), concat exs)
+        in return ( ( fstSol
+                    , makeExplanation err pos cm graph : concat errs
+                    , fstGraph )
+                  , concat exs )
     (Right s, graph) -> return ((s, concat errs, graph), concat exs)
-simpl ax g tch cm (AsymJoin s1 s2 pos) = simpl ax g tch cm (Join [s1,s2] pos)
--- simpl ax g tch (pos,cm) (Sequence s1 s2)
+simpl ax g tch cm prev (AsymJoin s1 s2 pos) =
+  simpl ax g tch cm prev (Join [s1,s2] pos)
+simpl ax g tch cm prev (Sequence s1 s2 _pos) = do
+  (result1@(sol1,errs1,_), ex1) <- simpl ax g tch cm prev s1
+  ((sol2,errs2,g2), ex2) <- trace ("using: " ++ show sol1) simpl ax g tch cm (Just result1) s2
+  return ((sol2,errs2 ++ errs1,g2), ex1 ++ ex2)
 
 makeExplanation :: SolverError -> (SourcePos, SourcePos) -> Maybe String -> Graph -> ErrorExplanation
 makeExplanation err pos msg graph =

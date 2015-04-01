@@ -63,13 +63,15 @@ import then_  :: {a} {b} 'SqlQuery a -> 'SqlQuery b -> 'SqlQuery b;
 
 rule   then_rule
 match  #one@(#then_@(then_) #a) #b
-script constraints #a,
-       constraints #b,
-       join {
-         constraints #then_,
-         #then_ ~ #a -> #b -> #b,
-         #one   ~ #b -> #b,
-         #this  ~ #b
+script sequence {
+         constraints #a,
+         constraints #b,
+         join {
+           constraints #then_,
+           #then_ ~ #a -> #b -> #b,
+           #one   ~ #b -> #b,
+           #this  ~ #b
+         }
        };
 
 data 'Value a;
@@ -116,7 +118,7 @@ script fresh #v,
          foreach #u_ <- inout #u | #c0_ <- inout #c0 | #c1_ <- inout #c1 | #c2_ <- inout #c2 {
            fresh #w,
            ordered {
-             constraints #u_,
+             constraints #u_ error { "Incompatible use of entity" },
              #u_ ~ 'SqlExpr ('EUpdate #w) error { "Not an update operation" },
              #w ~ #v error { "Update does not refer to the right entity" },
              join {

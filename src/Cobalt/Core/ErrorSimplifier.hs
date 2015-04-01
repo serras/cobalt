@@ -4,7 +4,7 @@ module Cobalt.Core.ErrorSimplifier (
 ) where
 
 import Control.Applicative
-import Data.List (find)
+import Data.List (find, nub)
 import Data.Maybe (isNothing)
 import Unbound.LocallyNameless
 
@@ -54,9 +54,12 @@ noComments :: [Comment] -> Bool
 noComments = isNothing . find (\x -> case x of { Comment_String _ -> True; _ -> False })
 
 mixInfo :: [Comment] -> [Comment] -> [Comment]
-mixInfo [] bs = bs
-mixInfo (Comment_Pos (e,i) : rest)    bs = mixInfo rest (mixPos bs)
+mixInfo x y = nub (mixInfo_ x y)
+
+mixInfo_ :: [Comment] -> [Comment] -> [Comment]
+mixInfo_ [] bs = bs
+mixInfo_ (Comment_Pos (e,i) : rest)    bs = mixInfo_ rest (mixPos bs)
   where mixPos [] = [Comment_Pos (e,i)]
         mixPos (Comment_Pos (e2,i2) : rst) = Comment_Pos (min e e2, max i i2) : rst
         mixPos (comment : rst) = comment : mixPos rst
-mixInfo (c : rest) bs = c : mixInfo rest bs
+mixInfo_ (c : rest) bs = c : mixInfo_ rest bs
