@@ -1,6 +1,7 @@
-rule   three_is_integer
-match  3
-script #this ~ 'Int error { "3 is a number" };
+rule three_is_integer
+case 3 {
+  #this ~ 'Int error { "3 is a number" }
+};
 
 import example :: 'Int -> 'Bool;
 

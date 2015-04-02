@@ -23,7 +23,8 @@ import get :: {a} {b} {r} ^Elem ('Field a b) r ~ 'Yes => 'Field a b -> 'Record r
 f1 = get age alex;
 f2 = get age jur => fail;
 
-rule   field_not_found
-match  get #field #record
-check  ^ElemR #field #record ~ 'No
-script repair { "Cannot find field" };
+rule field_not_found
+case get #field #record
+when ^ElemR #field #record ~ 'No {
+  repair { "Cannot find field" }
+};

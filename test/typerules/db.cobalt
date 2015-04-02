@@ -34,56 +34,60 @@ sl2 :: ['Entity 'Person] = selectList (cons (equal PersonFirstName hello) nil);
 
 import get :: {e} 'Key e -> 'Maybe e;
 
-rule   get
-match  #get@(get) #key
-script fresh #e1 #e2,
-       join {
-         #get ~ 'Key #e1 -> 'Maybe #e2,
-         constraints #key
-       },
-       #key ~ 'Key #e1    error { "The given argument is not a key" },
-       #this ~ 'Maybe #e2 error { "Context does not expect an entity" },
-       #e1 ~ #e2          error { "The given value is not a key of the corresponding entity" };
+rule get
+case #get@(get) #key {
+  fresh #e1 #e2,
+  join {
+    #get ~ 'Key #e1 -> 'Maybe #e2,
+    constraints #key
+  },
+  #key ~ 'Key #e1    error { "The given argument is not a key" },
+  #this ~ 'Maybe #e2 error { "Context does not expect an entity" },
+  #e1 ~ #e2          error { "The given value is not a key of the corresponding entity" }
+};
 
 g1 = get (MkPersonKey 1);
 g2 = get 1 => fail;
 
 import get2 :: {e} 'Key e -> 'Maybe e;
 
-rule   get2
-match  #get@(get2) #key
-script fresh #e,
-       constraints #key,
-       #key ~ 'Key #e error { "The given argument is not a key" },
-       join {
-         constraints #get,
-         #this ~ 'Maybe #e
-       };
+rule get2
+case #get@(get2) #key {
+  fresh #e,
+  constraints #key,
+  #key ~ 'Key #e error { "The given argument is not a key" },
+  join {
+    constraints #get,
+    #this ~ 'Maybe #e
+  }
+};
 
 g1_ = get2 (MkPersonKey 1);
 g2_ = get2 1 => fail;
 
 import update_ :: {e} 'Key e -> e -> 'Result;
 
-rule   updateEntity
-match  #first@(#upd@(update_) #key) #val
-check  #val > {a} 'Entity a
-script repair { "You should provide a raw value, not an entity," };
+rule updateEntity
+case #first@(#upd@(update_) #key) #val
+when #val > {a} 'Entity a {
+  repair { "You should provide a raw value, not an entity," }
+};
 
-rule   update_
-match  #first@(#upd@(update_) #key) #val
-script fresh #s1,
-       join {
-         constraints #key,
-         constraints #val
-       },
-       #key ~ 'Key #s1 error { "The first argument is not a key" },
-       #s1 ~ #val error { "Key and entity types are not equal" },
-       join {
-         constraints #upd,
-         #first ~ #val -> 'Result,
-         #this ~ 'Result
-       };
+rule update_
+case #first@(#upd@(update_) #key) #val {
+  fresh #s1,
+  join {
+    constraints #key,
+    constraints #val
+  },
+  #key ~ 'Key #s1 error { "The first argument is not a key" },
+  #s1 ~ #val error { "Key and entity types are not equal" },
+  join {
+    constraints #upd,
+    #first ~ #val -> 'Result,
+    #this ~ 'Result
+  }
+};
 
 u1 = update_ (MkPersonKey 1) aPerson;
 u2 = update_ 1 aPerson => fail;

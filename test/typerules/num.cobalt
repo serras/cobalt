@@ -16,17 +16,18 @@ f2 = execute (plus (mult (lit aFloat) (lit aFloat)) (lit aFloat));
 f3 = execute (plus (mult (lit 3) (lit 2)) (lit aFloat))  => fail;
 f4 = execute (plus (mult (lit true) (lit 2)) (lit true)) => fail;
 
-rule   unsafe look_at_leaves
-match  execute [ #ap1@(#ap2@(#op@(plus) &k) &k)
+rule unsafe look_at_leaves
+case execute [ #ap1@(#ap2@(#op@(plus) &k) &k)
                | #ap1@(#ap2@(#op@(mult) &k) &k)
-               | #ap1@(#lit@(lit) #leaves) ]*k
-script fresh #e,
-       join { foreach #leaf <- inout #leaves { constraints #leaf } },
-       join { foreach #leaf <- inout #leaves { #leaf ~ #e } }
-              error { "All literals must be of the same type" },
-       $Num #e error { "Literals must be of class Num" },
-       join { foreach #a1 <- inout #ap1 { #a1 ~ 'Expr #e } },
-       join { foreach #a2 <- inout #ap2 { #a2 ~ 'Expr #e -> 'Expr #e } },
-       join { foreach #o <- inout #op  { constraints #o } },
-       join { foreach #l <- inout #lit { constraints #l } },
-       #this ~ #e;
+               | #ap1@(#lit@(lit) #leaves) ]*k {
+  fresh #e,
+  join { foreach #leaf <- inout #leaves { constraints #leaf } },
+  join { foreach #leaf <- inout #leaves { #leaf ~ #e } }
+       error { "All literals must be of the same type" },
+  $Num #e error { "Literals must be of class Num" },
+  join { foreach #a1 <- inout #ap1 { #a1 ~ 'Expr #e } },
+  join { foreach #a2 <- inout #ap2 { #a2 ~ 'Expr #e -> 'Expr #e } },
+  join { foreach #o <- inout #op  { constraints #o } },
+  join { foreach #l <- inout #lit { constraints #l } },
+  #this ~ #e
+};

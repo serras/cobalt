@@ -11,26 +11,27 @@ g = map plusThree listOfInts;
 
 import map2 :: {m} {a} {b} $Functor m => (a -> b) -> 'App m a -> 'App m b;
 
-rule   map2_on_lists
-match  #app1@(#map2@(map2) #fn) #arg
-check  #arg > {a} 'App 'List a
-script fresh #a1 #a2 #a3 #a4 #b1 #b2 #b3,
-       join {
-         #map2 ~ (#a2 -> #b2) -> 'App 'List #a2 -> 'App 'List #b2,
-         #app1 ~ 'App 'List #a1 -> 'App 'List #b1
-       },
-       constraints #arg,
-       #arg ~ 'App 'List #a3 error { "Second should be a list" },
-       constraints #fn,
-       #fn ~ #a4 -> #b3      error { "First argument should be a function" },
-       #a3 ~ #a4             error { "Parameters must coincide" },
-       #this ~ 'App 'List #b3,
-       join {
-         #a1 ~ #a2,
-         #a2 ~ #a3,
-         #b1 ~ #b2,
-         #b2 ~ #b3
-       };
+rule map2_on_lists
+case #app1@(#map2@(map2) #fn) #arg
+when #arg > {a} 'App 'List a {
+  fresh #a1 #a2 #a3 #a4 #b1 #b2 #b3,
+  join {
+    #map2 ~ (#a2 -> #b2) -> 'App 'List #a2 -> 'App 'List #b2,
+    #app1 ~ 'App 'List #a1 -> 'App 'List #b1
+  },
+  constraints #arg,
+  #arg ~ 'App 'List #a3 error { "Second should be a list" },
+  constraints #fn,
+  #fn ~ #a4 -> #b3      error { "First argument should be a function" },
+  #a3 ~ #a4             error { "Parameters must coincide" },
+  #this ~ 'App 'List #b3,
+  join {
+    #a1 ~ #a2,
+    #a2 ~ #a3,
+    #b1 ~ #b2,
+    #b2 ~ #b3
+  }
+};
 
 import maybeOfInts :: 'App 'Maybe 'Int;
 import listOfBool :: 'App 'List 'Bool;
@@ -43,22 +44,23 @@ test3 = map2 plusThree maybeOfInts;
 
 import map3 :: {m} {a} {b} $Functor m => (a -> b) -> 'App m a -> 'App m b;
 
-rule   map3_on_lists
-match  #appfn@(#map@(map3) #fn) #arg
-check  #arg > {a} 'App 'List a
-script fresh #e1 #e2 #r,
-       join {
-         constraints #fn,
-         constraints #arg,
-         #arg ~ 'App 'List #e1
-       },
-       #fn ~ #e2 -> #r error { "First argument should be a function" },
-       #e1 ~ #e2       error { "Argument type must be the list type" },
-       join {
-         #this  ~ 'App 'List #r,
-         #appfn ~ 'App 'List #e1 -> 'App 'List #r,
-         constraints #map
-       };
+rule map3_on_lists
+case #appfn@(#map@(map3) #fn) #arg
+when #arg > {a} 'App 'List a {
+  fresh #e1 #e2 #r,
+  join {
+    constraints #fn,
+    constraints #arg,
+    #arg ~ 'App 'List #e1
+  },
+  #fn ~ #e2 -> #r error { "First argument should be a function" },
+  #e1 ~ #e2       error { "Argument type must be the list type" },
+  join {
+    #this  ~ 'App 'List #r,
+    #appfn ~ 'App 'List #e1 -> 'App 'List #r,
+    constraints #map
+  }
+};
 
 test0_ = map3 plusThree;
 test1_ = map3 plusThree listOfInts;

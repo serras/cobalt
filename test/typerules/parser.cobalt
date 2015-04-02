@@ -1,21 +1,22 @@
 import dullar :: {a} {b} {s} (a -> b) -> 'Parser s a -> 'Parser s b;
 import star   :: {a} {b} {s} 'Parser s (a -> b) -> 'Parser s a -> 'Parser s b;
 
-rule   app_parser
-match  #first@(#dollar@(dullar) #fn) #arg
-script fresh #a1 #a2 #b1 #b2 #s1 #s2,
-       join {
-         #dollar ~ (#a1 -> #b1) -> 'Parser #s1 #a1 -> 'Parser #s1 #b1,
-         #first  ~ 'Parser #s1 #a1 -> 'Parser #s1 #b1
-       },
-       constraints #fn,
-       #fn ~ #a1 -> #b1        error { "Left operand is not a function" },
-       constraints #arg,
-       #arg ~ 'Parser #s1 #a2  error { "Right operand is not a parser" },
-       #this ~ 'Parser #s2 #b2 error { "Context does not accept a parser" },
-       #b1 ~ #b2               error { "Parser has an incorrect result type" },
-       #a1 ~ #a2               error { "Function cannot be applied to parser's result" },
-       #s1 ~ #s2               error { "Parser has an incorrect symbol type" };
+rule app_parser
+case #first@(#dollar@(dullar) #fn) #arg {
+  fresh #a1 #a2 #b1 #b2 #s1 #s2,
+  join {
+    #dollar ~ (#a1 -> #b1) -> 'Parser #s1 #a1 -> 'Parser #s1 #b1,
+    #first  ~ 'Parser #s1 #a1 -> 'Parser #s1 #b1
+  },
+  constraints #fn,
+  #fn ~ #a1 -> #b1        error { "Left operand is not a function" },
+  constraints #arg,
+  #arg ~ 'Parser #s1 #a2  error { "Right operand is not a parser" },
+  #this ~ 'Parser #s2 #b2 error { "Context does not accept a parser" },
+  #b1 ~ #b2               error { "Parser has an incorrect result type" },
+  #a1 ~ #a2               error { "Function cannot be applied to parser's result" },
+  #s1 ~ #s2               error { "Parser has an incorrect symbol type" }
+};
 
 import mapToUpper :: [a] -> [a];
 import helloWorld :: 'String;
