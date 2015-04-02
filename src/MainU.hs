@@ -8,7 +8,6 @@ import Data.Aeson hiding (json, Error)
 import Data.HashMap.Strict (insert)
 import Data.List (intercalate)
 import Data.Foldable (toList)
-import Data.String (fromString)
 import System.Console.ANSI
 import System.Environment
 import Text.Parsec (parse)
@@ -194,7 +193,7 @@ showJsonScript Empty =
   object [ "text" .= ("∅" :: String) ]
 showJsonScript (Label i s) =
   let Object inner = showJsonScript s
-   in Object (insert "tags" (String (fromString i)) inner)
+   in Object (insert "tags" (toJSON [i]) inner)
 showJsonScript (Singleton c _ i) =
   object [ "text" .= textJsonConstraint c
          , "tags" .= toList i ]

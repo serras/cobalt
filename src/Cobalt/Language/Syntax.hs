@@ -24,6 +24,7 @@ module Cobalt.Language.Syntax (
   -- * Rules
 , Rule(..)
 , RuleStrictness(..)
+, RuleBody
 , RuleRegexVar
 , RuleRegex(..)
 , RuleCheck
@@ -120,8 +121,8 @@ getAnn (Term_LetAnn _ _ t)   = t
 getAnn (Term_Match _ _ _ t)  = t
 getAnn (Term_StrLiteral _ t) = t
 
-data Rule = Rule RuleStrictness String (Bind [TyVar] (RuleRegex, RuleCheck, RuleScript)) deriving Show
-
+data Rule = Rule RuleStrictness String RuleBody deriving Show
+type RuleBody = Bind [TyVar] (RuleRegex, RuleCheck, RuleScript)
 data RuleStrictness = RuleStrictness_NonStrict | RuleStrictness_Strict | RuleStrictness_Unsafe deriving Show
 
 type RuleRegexVar = Name RuleRegex
@@ -145,8 +146,10 @@ data RuleScriptInstr = RuleScriptInstr_Empty
                      | RuleScriptInstr_Ordered  RuleScript
                      | RuleScriptInstr_Sequence RuleScript
                      | RuleScriptInstr_Join     RuleScript
-                     | RuleScriptInstr_ForEach  [(TyVar, RuleScriptOrdering)] (Bind [TyVar] RuleScript)
-                     | RuleScriptInstr_Update   TyVar MonoType
+                     | RuleScriptInstr_ForEach  (TyVar, RuleScriptOrdering) (Bind TyVar RuleScript)
+                     | RuleScriptInstr_Iter     TyVar RuleScript
+                     | RuleScriptInstr_Continue TyVar
+                     | RuleScriptInstr_Match    TyVar [RuleBody]
                      deriving Show
 
 data RuleScriptOrdering = RuleScriptOrdering_OutToIn
@@ -154,12 +157,12 @@ data RuleScriptOrdering = RuleScriptOrdering_OutToIn
                         deriving Show
 
 data RuleScriptMessage = RuleScriptMessage_Literal    String
-                       | RuleScriptMessage_Type       TyVar
-                       | RuleScriptMessage_Expression TyVar
-                       | RuleScriptMessage_VConcat    TyVar (Bind TyVar RuleScriptMessage) RuleScriptMessage
-                       | RuleScriptMessage_HConcat    TyVar (Bind TyVar RuleScriptMessage)
-                       | RuleScriptMessage_Vertical   RuleScriptMessage RuleScriptMessage
-                       | RuleScriptMessage_Horizontal RuleScriptMessage RuleScriptMessage
+                       -- | RuleScriptMessage_Type       TyVar
+                       -- | RuleScriptMessage_Expression TyVar
+                       -- | RuleScriptMessage_VConcat    TyVar (Bind TyVar RuleScriptMessage) RuleScriptMessage
+                       -- | RuleScriptMessage_HConcat    TyVar (Bind TyVar RuleScriptMessage)
+                       -- | RuleScriptMessage_Vertical   RuleScriptMessage RuleScriptMessage
+                       -- | RuleScriptMessage_Horizontal RuleScriptMessage RuleScriptMessage
                        deriving Show
 
 type FnEnv    = [(RawTermVar, PolyType)]
@@ -355,6 +358,7 @@ instance Alpha RuleScriptInstr
 instance Alpha RuleScriptOrdering
 instance Alpha RuleScriptMessage
 
+instance Subst MonoType RuleRegex
 instance Subst MonoType RuleScriptInstr
 instance Subst MonoType RuleScriptOrdering
 instance Subst MonoType RuleScriptMessage

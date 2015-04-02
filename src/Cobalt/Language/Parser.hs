@@ -323,13 +323,7 @@ parseRule = do reserved "rule"
                          <*> pure RuleStrictness_Unsafe
                   <|> pure RuleStrictness_NonStrict
                nm <- identifier
-               reserved "match"
-               rx <- parseRuleRegex
-               ch <-  id <$  reserved "check"
-                         <*> commaSep1 parseConstraint
-                  <|> pure []
-               reserved "script"
-               sc <- parseRuleScript
+               (rx,ch,sc) <- parseRuleBody
                reservedOp ";"
                createRule st nm rx ch sc
 
@@ -343,6 +337,13 @@ createRule st nm rx ch sc = do
     (_:_, [])  -> fail ("`check` blocks may not have unbound variables: " ++ show chVars)
     ([] , _:_) -> fail ("`script` blocks may not have unbound variables (use `fresh`): " ++ show scVars)
     ([] , [])  -> return $ Rule st nm (bind rxVars (rx, ch, sc))
+
+parseRuleBody :: Parsec String s (RuleRegex, [Constraint], RuleScript)
+parseRuleBody = (,,) <$  reserved "case"
+                     <*> parseRuleRegex
+                     <*> (    id <$ reserved "when" <*> commaSep1 parseConstraint
+                          <|> pure [])
+                     <*> braces parseRuleScript
 
 parseRuleCapture :: Parsec String s TyVar
 parseRuleCapture = s2n . ('#' :) <$ char '#' <*> identifier
@@ -392,18 +393,23 @@ parseRuleInstr = RuleScriptInstr_Empty    <$  reserved "empty"
                                           <*> braces parseRuleScript
              <|> RuleScriptInstr_Join     <$  reserved "join"
                                           <*> braces parseRuleScript
-             <|> (\vars script -> let (inner, outer) = unzip vars
-                                   in RuleScriptInstr_ForEach outer (bind inner script))
+             <|> (\inner outer script -> RuleScriptInstr_ForEach outer (bind inner script))
                                           <$  reserved "foreach"
-                                          <*> ((,) <$> parseRuleCapture
-                                                   <*  reservedOp "<-"
-                                                   <*> parseRuleCaptureOrdering)
-                                              `sepBy1` (reservedOp "|")
-                                          <*> braces parseRuleScript
-             <|> RuleScriptInstr_Update   <$  reserved "update"
                                           <*> parseRuleCapture
                                           <*  reservedOp "<-"
-                                          <*> parseMonoType
+                                          <*> parseRuleCaptureOrdering
+                                          <*> braces parseRuleScript
+             <|> RuleScriptInstr_Iter     <$  reserved "iter"
+                                          <*> parseRuleCapture
+                                          <*> braces parseRuleScript
+             <|> RuleScriptInstr_Continue <$  reserved "continue"
+                                          <*> parseRuleCapture
+             <|> RuleScriptInstr_Match    <$  reserved "match"
+                                          <*> parseRuleCapture
+                                          <*> braces (
+                                                commaSep1 (
+                                                  (\(rx,ch,sc) -> bind (fv rx) (rx,ch,sc))
+                                                    <$> parseRuleBody ) )
              <|> RuleScriptInstr_Constraint <$> parseConstraint
                                             <*> optionMaybe (id <$  reserved "explain"
                                                                 <*> braces parseRuleMessage)
@@ -414,12 +420,17 @@ parseRuleCaptureOrdering = (flip (,)) <$> (    RuleScriptOrdering_InToOut <$ res
                                       <*> parseRuleCapture
 
 parseRuleMessage :: Parsec String s RuleScriptMessage
+parseRuleMessage = parseRuleMessageAtom
+{-
+parseRuleMessage :: Parsec String s RuleScriptMessage
 parseRuleMessage = parseRuleMessageAtom `chainl1` (   RuleScriptMessage_Vertical   <$ reservedOp "<|>"
                                                   <|> RuleScriptMessage_Horizontal <$ reservedOp "<->")
+-}
 
 parseRuleMessageAtom :: Parsec String s RuleScriptMessage
 parseRuleMessageAtom = parens parseRuleMessage
                    <|> RuleScriptMessage_Literal    <$> stringLiteral
+                   {-
                    <|> RuleScriptMessage_Type       <$  reserved "type" <*> parseRuleCapture
                    <|> RuleScriptMessage_Expression <$  reserved "expr" <*> parseRuleCapture
                    <|> (\x xs s sep -> RuleScriptMessage_VConcat xs (bind x s) sep)
@@ -434,7 +445,7 @@ parseRuleMessageAtom = parens parseRuleMessage
                                                     <*> parseRuleCapture
                                                     <*  reservedOp "<-"
                                                     <*> parseRuleCapture
-                                                    <*> parseRuleMessage
+                                                    <*> parseRuleMessage -}
 
 data DeclType = AData   (String, [TyVar])
               | AnAxiom [Axiom]
@@ -465,12 +476,12 @@ parseFile = buildProgram <$> many parseDecl
 
 lexer :: T.TokenParser t
 lexer = T.makeTokenParser $ haskellDef { T.reservedNames = "rule" : "strict" : "unsafe"            -- Rule
-                                                           : "match" : "check" : "script" : "any"  -- Rule
+                                                           : "match" : "when" : "any"              -- Rule
                                                            : "type" : "expr" : "vcat" : "hcat"     -- Error msgs
                                                            : "fresh" : "constraints" : "repair"    -- Type tree
                                                            : "join" : "ordered" : "sequence"       -- Type tree
-                                                           : "foreach" : "update" : "error"        -- Type tree
-                                                           : "explain"                             -- Type tree
+                                                           : "foreach" : "error" : "explain"       -- Type tree
+                                                           : "iter" : "case" : "continue"          -- Type tree
                                                            : "inout" : "outin"                     -- Type tree ordering
                                                            : "injective" : "defer" : "synonym"     -- Axioms
                                                            : "do" : "with"                         -- Syntax

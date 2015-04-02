@@ -112,28 +112,32 @@ import add    :: {val} {typ} $PersistField typ => ^EntityField val typ -> 'SqlEx
 rule   update_rule
 match  #one@(#set@(set) #e) [ #c2@(#c1@(#c0@(cons) #u) &k) | #nil@(nil) ]*k
 script fresh #v,
-       constraints #e,
-       #e ~ 'SqlExpr ('Entity #v) error { "First argument is not an entity" },
-       join {
-         foreach #u_ <- inout #u | #c0_ <- inout #c0 | #c1_ <- inout #c1 | #c2_ <- inout #c2 {
-           fresh #w,
-           ordered {
-             constraints #u_ error { "Incompatible use of entity" },
-             #u_ ~ 'SqlExpr ('EUpdate #w) error { "Not an update operation" },
-             #w ~ #v error { "Update does not refer to the right entity" },
-             join {
-               #c0_ ~ 'SqlExpr ('EUpdate #v) -> ['SqlExpr ('EUpdate #v)] -> ['SqlExpr ('EUpdate #v)],
-               #c1_ ~ ['SqlExpr ('EUpdate #v)] -> ['SqlExpr ('EUpdate #v)],
-               #c2_ ~ ['SqlExpr ('EUpdate #v)]
+       sequence {
+         ordered {
+           constraints #e,
+           #e ~ 'SqlExpr ('Entity #v) error { "First argument is not an entity" }
+         },
+         join {
+           foreach #u_ <- inout #u | #c0_ <- inout #c0 | #c1_ <- inout #c1 | #c2_ <- inout #c2 {
+             fresh #w,
+             ordered {
+               constraints #u_ error { "Incompatible use of entity" },
+               #u_ ~ 'SqlExpr ('EUpdate #w) error { "Not an update operation" },
+               #w ~ #v error { "Update does not refer to the right entity" },
+               join {
+                 #c0_ ~ 'SqlExpr ('EUpdate #v) -> ['SqlExpr ('EUpdate #v)] -> ['SqlExpr ('EUpdate #v)],
+                 #c1_ ~ ['SqlExpr ('EUpdate #v)] -> ['SqlExpr ('EUpdate #v)],
+                 #c2_ ~ ['SqlExpr ('EUpdate #v)]
+               }
              }
            }
+         },
+         join {
+           #nil ~ ['SqlExpr ('EUpdate #v)],
+           #set ~ 'SqlExpr ('Entity #v) -> ['SqlExpr ('EUpdate #v)] -> 'SqlQuery 'Unit,
+           #one ~ ['SqlExpr ('EUpdate #v)] -> 'SqlQuery 'Unit,
+           #this ~ 'SqlQuery 'Unit
          }
-       },
-       join {
-         #nil ~ ['SqlExpr ('EUpdate #v)],
-         #set ~ 'SqlExpr ('Entity #v) -> ['SqlExpr ('EUpdate #v)] -> 'SqlQuery 'Unit,
-         #one ~ ['SqlExpr ('EUpdate #v)] -> 'SqlQuery 'Unit,
-         #this ~ 'SqlQuery 'Unit
        };
 
 axiom {a} $From ('SqlExpr ('Entity a));

@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Cobalt.U.Rules.Translation (
   TypeRule
 , syntaxRuleToScriptRule
@@ -10,9 +11,9 @@ import Control.Applicative
 import Control.Lens
 import Control.Lens.Extras (is)
 import Control.Monad.State
-import Data.Foldable (fold)
+import Data.Foldable (fold, foldMap)
 import Data.Function (on)
-import Data.List (elemIndex, transpose, union, sortBy)
+import Data.List (elemIndex, union, sortBy)
 import Data.Maybe (fromJust)
 import Data.Monoid
 import Data.Regex.MultiGenerics hiding (var)
@@ -34,24 +35,34 @@ type CaptureVarList = [TyVar]
 type TranslationInfoEnv = [(TyVar, Gathered)]
 type TranslationTypeEnv = [(TyVar, [MonoType])]
 
-type TranslationEnv = ( TranslationInfoEnv, TranslationTypeEnv
-                      , (SourcePos,SourcePos), TyVar
-                      , [(TyScript, Maybe String)], [Constraint], [TyVar])
+newtype TranslationEnv = TranslationEnv
+                           ( TranslationInfoEnv, TranslationTypeEnv
+                           , (SourcePos,SourcePos), TyVar
+                           , [(TyScript, Maybe String)], [Constraint], [TyVar]
+                           , Maybe (Gathered -> StateT TranslationEnv FreshM ()) )
 
+_tenv    :: Iso' TranslationEnv
+                  ( TranslationInfoEnv, TranslationTypeEnv
+                  , (SourcePos,SourcePos), TyVar
+                  , [(TyScript, Maybe String)], [Constraint], [TyVar]
+                  , Maybe (Gathered -> StateT TranslationEnv FreshM ()) )
+_tenv    = iso (\(TranslationEnv v) -> v) TranslationEnv
 _info    :: Lens' TranslationEnv TranslationInfoEnv
-_info    = _1
+_info    = _tenv . _1
 _types   :: Lens' TranslationEnv TranslationTypeEnv
-_types   = _2
+_types   = _tenv . _2
 _pos     :: Lens' TranslationEnv (SourcePos, SourcePos)
-_pos     = _3
+_pos     = _tenv . _3
 _this    :: Lens' TranslationEnv TyVar
-_this    = _4
+_this    = _tenv . _4
 _scripts :: Lens' TranslationEnv [(TyScript, Maybe String)]
-_scripts = _5
+_scripts = _tenv . _5
 _custom  :: Lens' TranslationEnv [Constraint]
-_custom  = _6
+_custom  = _tenv . _6
 _customV :: Lens' TranslationEnv [TyVar]
-_customV = _7
+_customV = _tenv . _7
+_cont    :: Lens' TranslationEnv (Maybe (Gathered -> StateT TranslationEnv FreshM ()))
+_cont    = _tenv . _8
 
 (%++) :: MonadState s m => Setting (->) s s [a] [a] -> a -> m ()
 xs %++ x = xs %= (++ [x])
@@ -68,7 +79,7 @@ syntaxRuleToScriptRule ax (Rule _ _ i) = runFreshM $ do
                          checkW      = syntaxConstraintListToScript check thisTy (syntaxMapToTy rightSyns)
                          wanteds     = syntaxRuleScriptToScript_ rightSyns p thisTy script
                       in ( null check || entails ax sat checkW tchs
-                         , [Rx.Child (Wrap n) [envAndSat] | n <- [0 .. (toEnum $ length vars)]]
+                         , [ Rx.Child (Wrap n) [envAndSat] | n <- [0 .. (toEnum $ length vars)]]
                          , case foldr (mappend . snd) mempty childrenMap of  -- fold all children
                              GatherTerm g _ _ -> GatherTerm g [term] [wanteds]
                              anError -> anError  -- Float errors upwards
@@ -111,7 +122,7 @@ syntaxRuleScriptToScript_ :: TranslationInfoEnv -> (SourcePos,SourcePos) -> TyVa
 syntaxRuleScriptToScript_ env p this s = do
   -- Execute like an "ordered" element
   finalInfo <- execStateT (syntaxMergerInstrToScript s Nothing (asymMerger AsymJoin p))
-                          (env, syntaxMapToTy env, p, this, [], [], [])
+                          (TranslationEnv (env, syntaxMapToTy env, p, this, [], [], [], Nothing))
   let [(finalScript,_)] = finalInfo ^. _scripts
   return $ GatherTermInfo finalScript
                           (finalInfo ^. _custom)
@@ -124,12 +135,13 @@ syntaxRuleScriptToScript script = do
   freshed <- mapM (fresh . s2n . tail . name2String) vars
   let varsFreshed = zipWith (\v f -> (v, [var f])) vars freshed
   -- Add the new variables to typing environment
+  oldTypes <- use _types
   _types   %= (varsFreshed ++)
   _customV %= (union freshed)
   -- Execute script
   mapM_ syntaxInstrToScript instrs
-  -- Delete variables which go out of bounds
-  _types %= (filter (\(v,_) -> v `notElem` vars))
+  -- Revert to previous state
+  _types .= oldTypes
 
 syntaxInstrToScript :: (RuleScriptInstr, Maybe RuleScriptMessage)
                     -> StateT TranslationEnv FreshM ()
@@ -158,6 +170,13 @@ syntaxInstrToScript (RuleScriptInstr_Sequence s, msg) = do
 syntaxInstrToScript (RuleScriptInstr_Join s, msg) = do
   p <- use _pos
   syntaxMergerInstrToScript s msg (\xs -> Join (map fst xs) p)
+syntaxInstrToScript (RuleScriptInstr_Match v cases, _) = do
+  constr <- uses _info (lookup v)
+  case constr of
+    Just (GatherTerm _ [expr] _) -> syntaxInstrToScriptMatch expr cases
+    Just _   -> fail $ show v ++ " is not a single constraint"
+    Nothing  -> fail $ "Cannot find " ++ show v
+{-
 syntaxInstrToScript (RuleScriptInstr_Update v m, _msg) = do
   newMono <- syntaxMonoTypeToScript m <$> use _this <*> use _types
   -- Remove previous incarnations
@@ -165,9 +184,34 @@ syntaxInstrToScript (RuleScriptInstr_Update v m, _msg) = do
   _types %= (filter (\(k,_) -> v /= k))
   -- Add new type
   _types %= ((v, [newMono]) :)
-syntaxInstrToScript (RuleScriptInstr_ForEach vars loop, _msg) = do
-  oChildren <- orderedChildren vars <$> use _info
+-}
+syntaxInstrToScript (RuleScriptInstr_ForEach oneVar loop, _msg) = do
+  oChildren <- orderedChildren oneVar <$> use _info
   syntaxInstrToScriptIter loop oChildren
+syntaxInstrToScript (RuleScriptInstr_Iter v s, _msg) = do
+  oldCont <- use _cont
+  _cont .= Just (\g -> do -- Compute new variables
+                          oldInfo <- use _info
+                          oldTys  <- use _types
+                          let newInfo = (v,g) : filter (\(w,_) -> w /= v) oldInfo
+                              newTys  = syntaxMapToTy [(v,g)] ++ filter (\(w,_) -> w /= v) oldTys
+                          _info  .= newInfo
+                          _types .= newTys
+                          -- Call the continuation
+                          syntaxRuleScriptToScript s
+                          -- Put everything back in place
+                          _info  .= oldInfo
+                          _types .= oldTys)
+  syntaxRuleScriptToScript s  -- Run with continuation
+  _cont .= oldCont
+syntaxInstrToScript (RuleScriptInstr_Continue v, _msg) = do
+  cont <- use _cont
+  case cont of
+    Nothing -> fail "continue without iter"
+    Just c  -> do info <- uses _info (lookup v)
+                  case info of
+                    Nothing -> fail $ "Cannot find " ++ show v
+                    Just g  -> c g
 
 syntaxMergerInstrToScript :: RuleScript -> Maybe RuleScriptMessage
                           -> ([(TyScript, Maybe String)] -> TyScript)
@@ -180,25 +224,65 @@ syntaxMergerInstrToScript s msg merger = do
   _scripts .= prevScripts ++ [(merger newScripts, syntaxMessageToScript <$> msg)]
                                -- Put back updated old script list
 
-syntaxInstrToScriptIter :: Bind [TyVar] RuleScript -> [[Gathered]]
+syntaxInstrToScriptIter :: Bind TyVar RuleScript -> [Gathered]
                         -> StateT TranslationEnv FreshM ()
 syntaxInstrToScriptIter _ [] = return ()
-syntaxInstrToScriptIter loopbody (itervars:rest) = do
-  (loopvars, body) <- unbind loopbody
-  let newInfo = zip loopvars itervars
+syntaxInstrToScriptIter loopbody (itervar:rest) = do
+  (loopvar, body) <- unbind loopbody
+  let newInfo = [(loopvar, itervar)]
       newTys  = syntaxMapToTy newInfo
-  _customV %= (union loopvars)
+  _customV %= (union [loopvar])
   -- Add new variables
+  oldInfo  <- use _info
+  oldTypes <- use _types
   _info  %= (newInfo ++)
   _types %= (newTys ++)
   -- Run the inner loop
   syntaxRuleScriptToScript body
-  -- Delete the variables
-  _info  %= (filter (\(v,_) -> v `notElem` loopvars))
-  _types %= (filter (\(v,_) -> v `notElem` loopvars))
+  -- Revert to previous state
+  _info  .= oldInfo
+  _types .= oldTypes
   -- And do the rest
   syntaxInstrToScriptIter loopbody rest
 
+syntaxInstrToScriptMatch :: UTerm ((SourcePos,SourcePos),TyVar) -> [RuleBody]
+                         -> StateT TranslationEnv FreshM ()
+syntaxInstrToScriptMatch _ [] = return ()
+syntaxInstrToScriptMatch expr (c:rest) = do
+  (vars, (rx, _, script)) <- unbind c
+  oldInfo <- use _info
+  oldTys  <- use _types
+  case match (Regex $ syntaxRegexToScriptRegex rx [] vars) expr of
+    Nothing -> syntaxInstrToScriptMatch expr rest
+    Just cg -> do let newInfos = zipWith (\n v -> case lookupGroup (Wrap n) cg of
+                                                    Nothing -> (v, mempty)
+                                                    Just (elts :: [UTerm ((SourcePos,SourcePos),TyVar)])
+                                                      -> (v, foldMap (getInfo oldInfo . snd . ann) elts))
+                                         [0 ..] vars
+                      newTys   = syntaxMapToTy newInfos
+                  -- Add new information
+                  _info  %= (newInfos ++)
+                  _types %= (newTys ++)
+                  syntaxRuleScriptToScript script
+                  -- Get back to old
+                  _info  .= oldInfo
+                  _types .= oldTys
+
+getInfo :: TranslationInfoEnv -> TyVar -> Gathered
+getInfo [] _ = error "Variable not found"
+getInfo ((_, GatherTerm _ terms infos) : rst) vr =
+  case searchInfo terms infos of
+    Nothing -> getInfo rst vr
+    Just (term,info) -> GatherTerm [] [term] [info]
+  where searchInfo []     _      = Nothing
+        searchInfo _      []     = Nothing
+        searchInfo (t:ts) (i:rs) = if vr == snd (ann t)
+                                   then Just (t, i)
+                                   else searchInfo ts rs
+getInfo (_ : _) _ = error "This should never happen, a non-GatherTerm variable"
+
+
+-- For ASYMJOIN and SEQUENCE
 asymMerger :: (TyScript -> TyScript -> (SourcePos,SourcePos) -> TyScript)
            -> (SourcePos,SourcePos) -> [(TyScript, Maybe String)] -> TyScript
 asymMerger asym p =
@@ -208,15 +292,14 @@ asymMerger asym p =
               Just msg' -> Label msg' scr)
         Empty
 
+-- For FOREACH
 -- Get children ordered by its position -- ugly code, don't look much at it
-orderedChildren :: [(TyVar,RuleScriptOrdering)] -> TranslationInfoEnv -> [[Gathered]]
-orderedChildren vars env =
-  let varInfos = flip map vars $ \(v, order) -> case lookup v env of
-                   Just (GatherTerm _ terms gs) -> sortBy (orderSourcePos order `on` (fst . ann . fst) ) (zip terms gs)
-                   Nothing -> []
-                   _       -> error ("This should never happen, we are zipping " ++ show v ++ " incorrectly")
-      minLength = minimum (map length varInfos)
-   in transpose $ map (take minLength) $ map (map (\(x,y) -> GatherTerm [] [x] [y])) varInfos
+orderedChildren :: (TyVar,RuleScriptOrdering) -> TranslationInfoEnv -> [Gathered]
+orderedChildren (v, order) env = case lookup v env of
+  Just (GatherTerm _ terms gs) -> let search = sortBy (orderSourcePos order `on` (fst . ann . fst) ) (zip terms gs)
+                                   in map (\(x,y) -> GatherTerm [] [x] [y]) search
+  Nothing -> []
+  _       -> error ("This should never happen, we are zipping " ++ show v ++ " incorrectly")
 
 orderSourcePos :: RuleScriptOrdering -> (SourcePos,SourcePos) -> (SourcePos,SourcePos) -> Ordering
 orderSourcePos _ (xi,xe) (yi,ye) | xi < yi, xe < ye = LT
@@ -284,4 +367,4 @@ syntaxPolyTypeToScript PolyType_Bottom _ _ = return PolyType_Bottom
 -- Translation of messages
 syntaxMessageToScript :: RuleScriptMessage -> String
 syntaxMessageToScript (RuleScriptMessage_Literal l) = l
-syntaxMessageToScript _                             = error "Only literals are supported"
+-- syntaxMessageToScript _                             = error "Only literals are supported"
