@@ -1,0 +1,12 @@
+import runST  :: {a} {s} s = {s} 'ST s a => s -> a;
+import return :: {a} {s} a -> 'ST s a;
+import app    :: {p} {q} (p -> q) -> p -> q;
+import id     :: {a} a -> a;
+import true   :: 'Bool;
+
+example = app runST (id (return true));
+
+t :: {alpha} alpha > {a} a -> a => alpha -> 'Int = \x -> 3;
+
+g1 = let f :: {alpha} alpha > {a} a -> a => alpha -> 'Int = \x -> 3 in f;
+g2 = let f = \x -> 3 in f;
