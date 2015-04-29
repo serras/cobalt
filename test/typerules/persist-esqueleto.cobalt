@@ -62,17 +62,18 @@ import bind_  :: {a} {b} 'SqlQuery a -> 'SqlQuery (a -> 'SqlQuery b) -> 'SqlQuer
 import then_  :: {a} {b} 'SqlQuery a -> 'SqlQuery b -> 'SqlQuery b;
 
 rule   then_rule
-match  #one@(#then_@(then_) #a) #b
-script sequence {
-         constraints #a,
-         constraints #b,
-         join {
-           constraints #then_,
-           #then_ ~ #a -> #b -> #b,
-           #one   ~ #b -> #b,
-           #this  ~ #b
-         }
-       };
+case  #one@(#then_@(then_) #a) #b {
+  sequence {
+    constraints #a,
+    constraints #b,
+    join {
+      constraints #then_,
+      #then_ ~ #a -> #b -> #b,
+      #one   ~ #b -> #b,
+      #this  ~ #b
+    }
+  }
+};
 
 data 'Value a;
 data 'ValueList a;
@@ -109,9 +110,9 @@ import set    :: {val} 'SqlExpr ('Entity val) -> ['SqlExpr ('EUpdate val)] -> 'S
 import assign :: {val} {typ} $PersistField typ => ^EntityField val typ -> 'SqlExpr ('Value typ) -> 'SqlExpr ('EUpdate val);
 import add    :: {val} {typ} $PersistField typ => ^EntityField val typ -> 'SqlExpr ('Value typ) -> 'SqlExpr ('EUpdate val);
 
-rule   update_rule
-match  #one@(#set@(set) #e) [ #c2@(#c1@(#c0@(cons) #u) &k) | #nil@(nil) ]*k
-script fresh #v,
+rule update_rule
+case #one@(#set@(set) #e) [ #c2@(#c1@(#c0@(cons) #u) &k) | #nil@(nil) ]*k {
+       fresh #v,
        sequence {
          ordered {
            constraints #e,
@@ -138,7 +139,8 @@ script fresh #v,
            #one ~ ['SqlExpr ('EUpdate #v)] -> 'SqlQuery 'Unit,
            #this ~ 'SqlQuery 'Unit
          }
-       };
+       }
+};
 
 axiom {a} $From ('SqlExpr ('Entity a));
 axiom {a} $From ('SqlExpr ('Maybe ('Entity a)));

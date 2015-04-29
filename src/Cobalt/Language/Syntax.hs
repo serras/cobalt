@@ -122,7 +122,7 @@ getAnn (Term_Match _ _ _ t)  = t
 getAnn (Term_StrLiteral _ t) = t
 
 data Rule = Rule RuleStrictness String RuleBody deriving Show
-type RuleBody = Bind [TyVar] (RuleRegex, RuleCheck, RuleScript)
+type RuleBody = Bind (TyVar,[TyVar]) (RuleRegex, RuleCheck, RuleScript)
 data RuleStrictness = RuleStrictness_NonStrict | RuleStrictness_Strict | RuleStrictness_Unsafe deriving Show
 
 type RuleRegexVar = Name RuleRegex
@@ -146,10 +146,11 @@ data RuleScriptInstr = RuleScriptInstr_Empty
                      | RuleScriptInstr_Ordered  RuleScript
                      | RuleScriptInstr_Sequence RuleScript
                      | RuleScriptInstr_Join     RuleScript
-                     | RuleScriptInstr_ForEach  (TyVar, RuleScriptOrdering) (Bind TyVar RuleScript)
-                     | RuleScriptInstr_Iter     TyVar RuleScript
-                     | RuleScriptInstr_Continue TyVar
                      | RuleScriptInstr_Match    TyVar [RuleBody]
+                     | RuleScriptInstr_ForEach  (TyVar, RuleScriptOrdering) (Bind TyVar RuleScript)
+                     | RuleScriptInstr_Rec      (Maybe MonoType) TyVar (Bind TyVar RuleScript)
+                     | RuleScriptInstr_Call     (Maybe MonoType) TyVar
+                     | RuleScriptInstr_Return   MonoType
                      deriving Show
 
 data RuleScriptOrdering = RuleScriptOrdering_OutToIn

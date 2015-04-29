@@ -33,11 +33,13 @@ test5 = dullar mapToUpper parser2 => fail;
 
 
 rule unsafe mega_app_parser
-match  #oOne@(#oStar@(star)
+match  
+
+#oOne@(#oStar@(star)
               [ #firstTwo@(#firstOne@(#dullar@(dullar) #fn) #x)
               | #two@(#one@(#star@(star) &k) #y)]*k)
              #z
-script fresh #fnTy #fn1 #fn2 #fnEnd #str #rTy #r1 #r2 #rE1 #rE2,
+script fresh #fnTy,
 
        constraints #fn,
 

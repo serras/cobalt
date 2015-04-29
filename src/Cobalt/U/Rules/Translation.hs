@@ -37,15 +37,17 @@ type TranslationTypeEnv = [(TyVar, [MonoType])]
 
 newtype TranslationEnv = TranslationEnv
                            ( TranslationInfoEnv, TranslationTypeEnv
-                           , (SourcePos,SourcePos), TyVar
+                           , (SourcePos,SourcePos) --, TyVar
                            , [(TyScript, Maybe String)], [Constraint], [TyVar]
-                           , Maybe (Gathered -> StateT TranslationEnv FreshM ()) )
+                           , Maybe (TyVar -> StateT TranslationEnv FreshM ())
+                           , Maybe MonoType )
 
 _tenv    :: Iso' TranslationEnv
                   ( TranslationInfoEnv, TranslationTypeEnv
-                  , (SourcePos,SourcePos), TyVar
+                  , (SourcePos,SourcePos) --, TyVar
                   , [(TyScript, Maybe String)], [Constraint], [TyVar]
-                  , Maybe (Gathered -> StateT TranslationEnv FreshM ()) )
+                  , Maybe (TyVar -> StateT TranslationEnv FreshM ())
+                  , Maybe MonoType )
 _tenv    = iso (\(TranslationEnv v) -> v) TranslationEnv
 _info    :: Lens' TranslationEnv TranslationInfoEnv
 _info    = _tenv . _1
@@ -53,16 +55,18 @@ _types   :: Lens' TranslationEnv TranslationTypeEnv
 _types   = _tenv . _2
 _pos     :: Lens' TranslationEnv (SourcePos, SourcePos)
 _pos     = _tenv . _3
-_this    :: Lens' TranslationEnv TyVar
-_this    = _tenv . _4
+-- _this    :: Lens' TranslationEnv TyVar
+-- _this    = _tenv . _4
 _scripts :: Lens' TranslationEnv [(TyScript, Maybe String)]
-_scripts = _tenv . _5
+_scripts = _tenv . _4
 _custom  :: Lens' TranslationEnv [Constraint]
-_custom  = _tenv . _6
+_custom  = _tenv . _5
 _customV :: Lens' TranslationEnv [TyVar]
-_customV = _tenv . _7
-_cont    :: Lens' TranslationEnv (Maybe (Gathered -> StateT TranslationEnv FreshM ()))
-_cont    = _tenv . _8
+_customV = _tenv . _6
+_cont    :: Lens' TranslationEnv (Maybe (TyVar -> StateT TranslationEnv FreshM ()))
+_cont    = _tenv . _7
+_return  :: Lens' TranslationEnv (Maybe MonoType)
+_return  = _tenv . _8
 
 (%++) :: MonadState s m => Setting (->) s s [a] [a] -> a -> m ()
 xs %++ x = xs %= (++ [x])
@@ -70,14 +74,16 @@ xs %++ x = xs %= (++ [x])
 -- Translation
 syntaxRuleToScriptRule :: [Axiom] -> Rule -> TypeRule
 syntaxRuleToScriptRule ax (Rule _ _ i) = runFreshM $ do
-  (vars, (rx, check, script)) <- unbind i
+  ((thisVar, vars), (rx, check, script)) <- unbind i
   return $ Rx.Rule (Regex $ syntaxRegexToScriptRegex rx [] vars)
                    (\term envAndSat@(Rx.IndexIndependent (_,sat,tchs)) synChildren ->
-                     let (p,thisTy)  = ann term
+                     let (p,_thisTy) = ann term
                          childrenMap = syntaxSynToMap vars synChildren
                          rightSyns   = filter (is _Term . snd) childrenMap  -- non-Error info
-                         checkW      = syntaxConstraintListToScript check thisTy (syntaxMapToTy rightSyns)
-                         wanteds     = syntaxRuleScriptToScript_ rightSyns p thisTy script
+                         thisInfo    = GatherTerm [] [term] [return $ GatherTermInfo (error "Use of #this disallowed") [] []]
+                         finalSyns   = (thisVar, thisInfo) : rightSyns
+                         checkW      = syntaxConstraintListToScript check (syntaxMapToTy finalSyns)
+                         wanteds     = syntaxRuleScriptToScript_ finalSyns p script
                       in ( null check || entails ax sat checkW tchs
                          , [ Rx.Child (Wrap n) [envAndSat] | n <- [0 .. (toEnum $ length vars)]]
                          , case foldr (mappend . snd) mempty childrenMap of  -- fold all children
@@ -93,7 +99,7 @@ syntaxSynToMap tyvars = map (\(Rx.Child (Wrap n) info) ->
 syntaxMapToTy :: TranslationInfoEnv -> TranslationTypeEnv
 syntaxMapToTy = map (\(v, GatherTerm _ exprs _) -> (v, map (var . snd . ann) exprs))
 
--- Translation of "match" block
+-- Translation of "case" block
 syntaxRegexToScriptRegex :: RuleRegex -> [(RuleRegexVar, c IsATerm)]
                          -> CaptureVarList -> Regex' c WI UTermWithPos IsATerm
 syntaxRegexToScriptRegex (RuleRegex_Square v) capturevars _tyvars =
@@ -117,12 +123,12 @@ syntaxRegexToScriptRegex (RuleRegex_Capture n (Just r)) capturevars tyvars =
   (Wrap $ toEnum $ fromJust $ elemIndex n tyvars) <<- syntaxRegexToScriptRegex r capturevars tyvars
 
 -- Translation of "script" block
-syntaxRuleScriptToScript_ :: TranslationInfoEnv -> (SourcePos,SourcePos) -> TyVar
+syntaxRuleScriptToScript_ :: TranslationInfoEnv -> (SourcePos,SourcePos) -- -> TyVar
                           -> RuleScript -> FreshM GatherTermInfo
-syntaxRuleScriptToScript_ env p this s = do
+syntaxRuleScriptToScript_ env p s = do
   -- Execute like an "ordered" element
   finalInfo <- execStateT (syntaxMergerInstrToScript s Nothing (asymMerger AsymJoin p))
-                          (TranslationEnv (env, syntaxMapToTy env, p, this, [], [], [], Nothing))
+                          (TranslationEnv (env, syntaxMapToTy env, p, [], [], [], Nothing, Nothing))
   let [(finalScript,_)] = finalInfo ^. _scripts
   return $ GatherTermInfo finalScript
                           (finalInfo ^. _custom)
@@ -157,7 +163,7 @@ syntaxInstrToScript (RuleScriptInstr_Ref v, msg) = do
     Just _   -> fail $ show v ++ " is not a single constraint"
     Nothing  -> fail $ "Cannot find " ++ show v
 syntaxInstrToScript (RuleScriptInstr_Constraint r expl, msg) = do
-  c <- syntaxConstraintToScript r <$> use _this <*> use _types
+  c <- syntaxConstraintToScript r <$> use _types
   p <- use _pos
   _scripts %++ ( Singleton c p (syntaxMessageToScript <$> expl)
                , syntaxMessageToScript <$> msg )
@@ -176,42 +182,39 @@ syntaxInstrToScript (RuleScriptInstr_Match v cases, _) = do
     Just (GatherTerm _ [expr] _) -> syntaxInstrToScriptMatch expr cases
     Just _   -> fail $ show v ++ " is not a single constraint"
     Nothing  -> fail $ "Cannot find " ++ show v
-{-
-syntaxInstrToScript (RuleScriptInstr_Update v m, _msg) = do
-  newMono <- syntaxMonoTypeToScript m <$> use _this <*> use _types
-  -- Remove previous incarnations
-  _info  %= (filter (\(k,_) -> v /= k))
-  _types %= (filter (\(k,_) -> v /= k))
-  -- Add new type
-  _types %= ((v, [newMono]) :)
--}
 syntaxInstrToScript (RuleScriptInstr_ForEach oneVar loop, _msg) = do
   oChildren <- orderedChildren oneVar <$> use _info
   syntaxInstrToScriptIter loop oChildren
-syntaxInstrToScript (RuleScriptInstr_Iter v s, _msg) = do
-  oldCont <- use _cont
-  _cont .= Just (\g -> do -- Compute new variables
-                          oldInfo <- use _info
-                          oldTys  <- use _types
-                          let newInfo = (v,g) : filter (\(w,_) -> w /= v) oldInfo
-                              newTys  = syntaxMapToTy [(v,g)] ++ filter (\(w,_) -> w /= v) oldTys
-                          _info  .= newInfo
-                          _types .= newTys
-                          -- Call the continuation
-                          syntaxRuleScriptToScript s
-                          -- Put everything back in place
-                          _info  .= oldInfo
-                          _types .= oldTys)
-  syntaxRuleScriptToScript s  -- Run with continuation
+syntaxInstrToScript (RuleScriptInstr_Rec m v s, _msg) = do
+  oldCont   <- use _cont
+  -- The continuation to run on each iteration
+  let thecont = \g -> do info <- uses _info (lookup g)
+                         case info of
+                           Nothing  -> fail $ "Cannot find " ++ show v
+                           Just elt -> do (cv,cs) <- unbind s
+                                          -- Save for later
+                                          oldInfo <- use _info
+                                          oldTys  <- use _types
+                                          -- Add new info
+                                          _info  %= ((cv,elt) :)
+                                          _types %= (syntaxMapToTy [(cv,elt)] ++)
+                                          -- Call the continuation
+                                          syntaxRuleScriptToScript cs
+                                          -- Put everything back in place
+                                          _info  .= oldInfo
+                                          _types .= oldTys
+  _cont .= Just thecont
+  -- Run with continuation
+  syntaxInstrRecReturn m (thecont v)
+  -- Return to old state
   _cont .= oldCont
-syntaxInstrToScript (RuleScriptInstr_Continue v, _msg) = do
+syntaxInstrToScript (RuleScriptInstr_Call m v, _msg) = do
   cont <- use _cont
   case cont of
-    Nothing -> fail "continue without iter"
-    Just c  -> do info <- uses _info (lookup v)
-                  case info of
-                    Nothing -> fail $ "Cannot find " ++ show v
-                    Just g  -> c g
+    Nothing -> fail "call without rec"
+    Just c  -> do syntaxInstrRecReturn m (c v)
+syntaxInstrToScript (RuleScriptInstr_Return m, _msg) = do
+  _return .= Just m
 
 syntaxMergerInstrToScript :: RuleScript -> Maybe RuleScriptMessage
                           -> ([(TyScript, Maybe String)] -> TyScript)
@@ -249,7 +252,7 @@ syntaxInstrToScriptMatch :: UTerm ((SourcePos,SourcePos),TyVar) -> [RuleBody]
                          -> StateT TranslationEnv FreshM ()
 syntaxInstrToScriptMatch _ [] = return ()
 syntaxInstrToScriptMatch expr (c:rest) = do
-  (vars, (rx, _, script)) <- unbind c
+  ((_, vars), (rx, _, script)) <- unbind c
   oldInfo <- use _info
   oldTys  <- use _types
   case match (Regex $ syntaxRegexToScriptRegex rx [] vars) expr of
@@ -267,6 +270,20 @@ syntaxInstrToScriptMatch expr (c:rest) = do
                   -- Get back to old
                   _info  .= oldInfo
                   _types .= oldTys
+
+syntaxInstrRecReturn :: Maybe MonoType -> StateT TranslationEnv FreshM () -> StateT TranslationEnv FreshM ()
+syntaxInstrRecReturn m s = do
+  oldReturn <- use _return
+  _return .= Nothing
+  s -- Run computation
+  thisRet <- use _return
+  _return .= oldReturn
+  -- Push constraint if needed
+  case (m, thisRet) of
+    (Just m1, Just m2) -> syntaxInstrToScript ( RuleScriptInstr_Constraint (Constraint_Unify m1 m2)
+                                                                          Nothing
+                                              , Nothing )
+    _                  -> return ()
 
 getInfo :: TranslationInfoEnv -> TyVar -> Gathered
 getInfo [] _ = error "Variable not found"
@@ -311,58 +328,58 @@ orderSourcePos RuleScriptOrdering_InToOut (xi,xe) (yi,ye) | xi < yi || ye < xe =
 orderSourcePos _ _ _ = EQ
 
 -- Translation of types and constraints -- used in "check" block
-syntaxConstraintListToScript :: [Constraint] -> TyVar -> TranslationTypeEnv -> [Constraint]
-syntaxConstraintListToScript cs this captures =
-  map (\c -> syntaxConstraintToScript c this captures) cs
+syntaxConstraintListToScript :: [Constraint] -> TranslationTypeEnv -> [Constraint]
+syntaxConstraintListToScript cs captures =
+  map (\c -> syntaxConstraintToScript c captures) cs
 
-syntaxConstraintToScript :: Constraint -> TyVar -> TranslationTypeEnv -> Constraint
-syntaxConstraintToScript (Constraint_Unify m1 m2) this captures =
-  Constraint_Unify (syntaxMonoTypeToScript m1 this captures)
-                   (syntaxMonoTypeToScript m2 this captures)
-syntaxConstraintToScript (Constraint_Inst m1 m2) this captures =
-  Constraint_Inst  (syntaxMonoTypeToScript m1 this captures)
-                   (runFreshM $ syntaxPolyTypeToScript m2 this captures)
-syntaxConstraintToScript (Constraint_Equal m1 m2) this captures =
-  Constraint_Equal (syntaxMonoTypeToScript m1 this captures)
-                   (runFreshM $ syntaxPolyTypeToScript m2 this captures)
-syntaxConstraintToScript (Constraint_Class c ms) this captures =
-  Constraint_Class c (map (\m -> syntaxMonoTypeToScript m this captures) ms)
-syntaxConstraintToScript (Constraint_Exists _) _ _ =
+syntaxConstraintToScript :: Constraint -> TranslationTypeEnv -> Constraint
+syntaxConstraintToScript (Constraint_Unify m1 m2) captures =
+  Constraint_Unify (syntaxMonoTypeToScript m1 captures)
+                   (syntaxMonoTypeToScript m2 captures)
+syntaxConstraintToScript (Constraint_Inst m1 m2) captures =
+  Constraint_Inst  (syntaxMonoTypeToScript m1 captures)
+                   (runFreshM $ syntaxPolyTypeToScript m2 captures)
+syntaxConstraintToScript (Constraint_Equal m1 m2) captures =
+  Constraint_Equal (syntaxMonoTypeToScript m1 captures)
+                   (runFreshM $ syntaxPolyTypeToScript m2 captures)
+syntaxConstraintToScript (Constraint_Class c ms) captures =
+  Constraint_Class c (map (\m -> syntaxMonoTypeToScript m captures) ms)
+syntaxConstraintToScript (Constraint_Exists _) _ =
   error "Existential constraints not allowed"
-syntaxConstraintToScript Constraint_Inconsistent _ _ =
+syntaxConstraintToScript Constraint_Inconsistent _ =
   Constraint_Inconsistent
 
-syntaxMonoTypeToScript :: MonoType -> TyVar -> TranslationTypeEnv -> MonoType
-syntaxMonoTypeToScript f@(MonoType_Fam _ []) _ _ = f
-syntaxMonoTypeToScript (MonoType_Fam f ms) this captures =
-  MonoType_Fam f (map (\m -> syntaxMonoTypeToScript m this captures) ms)
-syntaxMonoTypeToScript f@(MonoType_Con _ []) _ _ = f
-syntaxMonoTypeToScript (MonoType_Con f ms) this captures =
-  MonoType_Con f (map (\m -> syntaxMonoTypeToScript m this captures) ms)
-syntaxMonoTypeToScript (MonoType_Var v) this captures =
+syntaxMonoTypeToScript :: MonoType -> TranslationTypeEnv -> MonoType
+syntaxMonoTypeToScript f@(MonoType_Fam _ []) _ = f
+syntaxMonoTypeToScript (MonoType_Fam f ms) captures =
+  MonoType_Fam f (map (\m -> syntaxMonoTypeToScript m captures) ms)
+syntaxMonoTypeToScript f@(MonoType_Con _ []) _ = f
+syntaxMonoTypeToScript (MonoType_Con f ms) captures =
+  MonoType_Con f (map (\m -> syntaxMonoTypeToScript m captures) ms)
+syntaxMonoTypeToScript (MonoType_Var v) captures =
   case name2String v of
     -- Variables starting with # refer to captured variables
-    "#this" -> MonoType_Var this
+    -- "#this" -> MonoType_Var this
     '#':_   -> case lookup v captures of
                  Nothing  -> error $ (show v) ++ " does not contain any type"
                  Just [m] -> m
                  Just _   -> error $ (show v) ++ " has multiple types, whereas only one is expected"
     _       -> MonoType_Var v
-syntaxMonoTypeToScript (MonoType_Arrow t1 t2) this captures = do
-  MonoType_Arrow (syntaxMonoTypeToScript t1 this captures)
-                 (syntaxMonoTypeToScript t2 this captures)
+syntaxMonoTypeToScript (MonoType_Arrow t1 t2) captures = do
+  MonoType_Arrow (syntaxMonoTypeToScript t1 captures)
+                 (syntaxMonoTypeToScript t2 captures)
 
-syntaxPolyTypeToScript :: PolyType -> TyVar -> TranslationTypeEnv -> FreshM PolyType
-syntaxPolyTypeToScript (PolyType_Bind b) this captures = do
+syntaxPolyTypeToScript :: PolyType -> TranslationTypeEnv -> FreshM PolyType
+syntaxPolyTypeToScript (PolyType_Bind b) captures = do
   (v,p) <- unbind b
-  inn   <- syntaxPolyTypeToScript p this captures
+  inn   <- syntaxPolyTypeToScript p captures
   return $ PolyType_Bind (bind v inn)
-syntaxPolyTypeToScript (PolyType_Mono [] m) this captures =
-  return $ PolyType_Mono [] (syntaxMonoTypeToScript m this captures)
-syntaxPolyTypeToScript (PolyType_Mono cs m) this captures =
-  return $ PolyType_Mono (map (\c -> syntaxConstraintToScript c this captures) cs)
-                         (syntaxMonoTypeToScript m this captures)
-syntaxPolyTypeToScript PolyType_Bottom _ _ = return PolyType_Bottom
+syntaxPolyTypeToScript (PolyType_Mono [] m) captures =
+  return $ PolyType_Mono [] (syntaxMonoTypeToScript m captures)
+syntaxPolyTypeToScript (PolyType_Mono cs m) captures =
+  return $ PolyType_Mono (map (\c -> syntaxConstraintToScript c captures) cs)
+                         (syntaxMonoTypeToScript m captures)
+syntaxPolyTypeToScript PolyType_Bottom _ = return PolyType_Bottom
 
 -- Translation of messages
 syntaxMessageToScript :: RuleScriptMessage -> String
