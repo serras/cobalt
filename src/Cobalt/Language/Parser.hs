@@ -398,7 +398,7 @@ parseRuleInstr = RuleScriptInstr_Empty    <$  reserved "empty"
                                           <$  reserved "foreach"
                                           <*> parseRuleCapture
                                           <*  reservedOp "<-"
-                                          <*> parseRuleCaptureOrdering
+                                          <*> parseRuleCaptureOrdering `sepBy1` (reservedOp "++")
                                           <*> braces parseRuleScript
              <|> try ((\x inner outer script -> RuleScriptInstr_Rec (Just x) outer (bind inner script))
                                           <$> parseMonoType
@@ -427,7 +427,8 @@ parseRuleInstr = RuleScriptInstr_Empty    <$  reserved "empty"
                                           <*> parseRuleCapture
                                           <*> braces (
                                                commaSep1 (
-                                                 (\(rx,ch,sc) -> bind (error "No #this here", fv rx) (rx,ch,sc))
+                                                 -- HACK: use a name which no one would use
+                                                 (\(rx,ch,sc) -> bind (s2n "#qwertyuiop", fv rx) (rx,ch,sc))
                                                    <$> parseRuleBody ) )
              <|> RuleScriptInstr_Constraint <$> parseConstraint
                                             <*> optionMaybe (id <$  reserved "explain"

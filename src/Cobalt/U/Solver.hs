@@ -21,7 +21,7 @@ import Cobalt.Core
 import qualified Cobalt.OutsideIn as OIn
 import Cobalt.U.Script
 
-import Debug.Trace
+-- import Debug.Trace
 
 type OInState = ([Constraint],[Constraint],[TyVar])
 -- First is a consistent solution
@@ -97,8 +97,8 @@ simpl ax g tch cm prev (Join lst pos) = do
 simpl ax g tch cm prev (AsymJoin s1 s2 pos) =
   simpl ax g tch cm prev (Join [s1,s2] pos)
 simpl ax g tch cm prev (Sequence s1 s2 _pos) = do
-  (result1@(sol1,errs1,_), ex1) <- simpl ax g tch cm prev s1
-  ((sol2,errs2,g2), ex2) <- trace ("using: " ++ show sol1) simpl ax g tch cm (Just result1) s2
+  (result1@(_sol1,errs1,_), ex1) <- simpl ax g tch cm prev s1
+  ((sol2,errs2,g2), ex2) <- {- trace ("using: " ++ show sol1) -} simpl ax g tch cm (Just result1) s2
   return ((sol2,errs2 ++ errs1,g2), ex1 ++ ex2)
 
 makeExplanation :: SolverError -> (SourcePos, SourcePos) -> Maybe String -> Graph -> ErrorExplanation

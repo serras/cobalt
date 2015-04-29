@@ -147,7 +147,7 @@ data RuleScriptInstr = RuleScriptInstr_Empty
                      | RuleScriptInstr_Sequence RuleScript
                      | RuleScriptInstr_Join     RuleScript
                      | RuleScriptInstr_Match    TyVar [RuleBody]
-                     | RuleScriptInstr_ForEach  (TyVar, RuleScriptOrdering) (Bind TyVar RuleScript)
+                     | RuleScriptInstr_ForEach  [(TyVar, RuleScriptOrdering)] (Bind TyVar RuleScript)
                      | RuleScriptInstr_Rec      (Maybe MonoType) TyVar (Bind TyVar RuleScript)
                      | RuleScriptInstr_Call     (Maybe MonoType) TyVar
                      | RuleScriptInstr_Return   MonoType

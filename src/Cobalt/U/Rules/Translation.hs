@@ -160,8 +160,8 @@ syntaxInstrToScript (RuleScriptInstr_Ref v, msg) = do
       _scripts %++ (treeThis, syntaxMessageToScript <$> msg)
       _custom  %=  (union customThis)
       _customV %=  (union customVarsThis)
-    Just _   -> fail $ show v ++ " is not a single constraint"
-    Nothing  -> fail $ "Cannot find " ++ show v
+    Just _   -> error $ show v ++ " is not a single constraint"
+    Nothing  -> error $ "Cannot find " ++ show v
 syntaxInstrToScript (RuleScriptInstr_Constraint r expl, msg) = do
   c <- syntaxConstraintToScript r <$> use _types
   p <- use _pos
@@ -180,17 +180,17 @@ syntaxInstrToScript (RuleScriptInstr_Match v cases, _) = do
   constr <- uses _info (lookup v)
   case constr of
     Just (GatherTerm _ [expr] _) -> syntaxInstrToScriptMatch expr cases
-    Just _   -> fail $ show v ++ " is not a single constraint"
-    Nothing  -> fail $ "Cannot find " ++ show v
-syntaxInstrToScript (RuleScriptInstr_ForEach oneVar loop, _msg) = do
-  oChildren <- orderedChildren oneVar <$> use _info
+    Just _   -> error $ show v ++ " is not a single constraint"
+    Nothing  -> error $ "Cannot find " ++ show v
+syntaxInstrToScript (RuleScriptInstr_ForEach vars loop, _msg) = do
+  oChildren <- orderedChildren vars <$> use _info
   syntaxInstrToScriptIter loop oChildren
-syntaxInstrToScript (RuleScriptInstr_Rec m v s, _msg) = do
-  oldCont   <- use _cont
+syntaxInstrToScript (RuleScriptInstr_Rec m v s, msg) = do
+  oldCont <- use _cont
   -- The continuation to run on each iteration
   let thecont = \g -> do info <- uses _info (lookup g)
                          case info of
-                           Nothing  -> fail $ "Cannot find " ++ show v
+                           Nothing  -> error $ "Cannot find " ++ show v
                            Just elt -> do (cv,cs) <- unbind s
                                           -- Save for later
                                           oldInfo <- use _info
@@ -205,16 +205,17 @@ syntaxInstrToScript (RuleScriptInstr_Rec m v s, _msg) = do
                                           _types .= oldTys
   _cont .= Just thecont
   -- Run with continuation
-  syntaxInstrRecReturn m (thecont v)
+  syntaxInstrRecReturn m (thecont v) msg
   -- Return to old state
   _cont .= oldCont
-syntaxInstrToScript (RuleScriptInstr_Call m v, _msg) = do
+syntaxInstrToScript (RuleScriptInstr_Call m v, msg) = do
   cont <- use _cont
   case cont of
-    Nothing -> fail "call without rec"
-    Just c  -> do syntaxInstrRecReturn m (c v)
+    Nothing -> error "call without rec"
+    Just c  -> do syntaxInstrRecReturn m (c v) msg
 syntaxInstrToScript (RuleScriptInstr_Return m, _msg) = do
-  _return .= Just m
+  mm <- syntaxMonoTypeToScript m <$> use _types
+  _return .= Just mm
 
 syntaxMergerInstrToScript :: RuleScript -> Maybe RuleScriptMessage
                           -> ([(TyScript, Maybe String)] -> TyScript)
@@ -250,7 +251,7 @@ syntaxInstrToScriptIter loopbody (itervar:rest) = do
 
 syntaxInstrToScriptMatch :: UTerm ((SourcePos,SourcePos),TyVar) -> [RuleBody]
                          -> StateT TranslationEnv FreshM ()
-syntaxInstrToScriptMatch _ [] = return ()
+syntaxInstrToScriptMatch _ [] = error "No match was found"
 syntaxInstrToScriptMatch expr (c:rest) = do
   ((_, vars), (rx, _, script)) <- unbind c
   oldInfo <- use _info
@@ -271,8 +272,9 @@ syntaxInstrToScriptMatch expr (c:rest) = do
                   _info  .= oldInfo
                   _types .= oldTys
 
-syntaxInstrRecReturn :: Maybe MonoType -> StateT TranslationEnv FreshM () -> StateT TranslationEnv FreshM ()
-syntaxInstrRecReturn m s = do
+syntaxInstrRecReturn :: Maybe MonoType -> StateT TranslationEnv FreshM ()
+                     -> Maybe RuleScriptMessage -> StateT TranslationEnv FreshM ()
+syntaxInstrRecReturn m s msg = do
   oldReturn <- use _return
   _return .= Nothing
   s -- Run computation
@@ -281,8 +283,8 @@ syntaxInstrRecReturn m s = do
   -- Push constraint if needed
   case (m, thisRet) of
     (Just m1, Just m2) -> syntaxInstrToScript ( RuleScriptInstr_Constraint (Constraint_Unify m1 m2)
-                                                                          Nothing
-                                              , Nothing )
+                                                                           Nothing
+                                              , msg )
     _                  -> return ()
 
 getInfo :: TranslationInfoEnv -> TyVar -> Gathered
@@ -311,8 +313,11 @@ asymMerger asym p =
 
 -- For FOREACH
 -- Get children ordered by its position -- ugly code, don't look much at it
-orderedChildren :: (TyVar,RuleScriptOrdering) -> TranslationInfoEnv -> [Gathered]
-orderedChildren (v, order) env = case lookup v env of
+orderedChildren :: [(TyVar,RuleScriptOrdering)] -> TranslationInfoEnv -> [Gathered]
+orderedChildren vs env = concatMap (\v -> orderedChildren_ v env) vs
+
+orderedChildren_ :: (TyVar,RuleScriptOrdering) -> TranslationInfoEnv -> [Gathered]
+orderedChildren_ (v, order) env = case lookup v env of
   Just (GatherTerm _ terms gs) -> let search = sortBy (orderSourcePos order `on` (fst . ann . fst) ) (zip terms gs)
                                    in map (\(x,y) -> GatherTerm [] [x] [y]) search
   Nothing -> []

@@ -33,73 +33,69 @@ test5 = dullar mapToUpper parser2 => fail;
 
 
 rule unsafe mega_app_parser
-match  
+case #oOne@(#oStar@(star)
+           [ #firstTwo@(#firstOne@(#dullar@(dullar) #fn) #x)
+           | #two@(#one@(#star@(star) &k) #y)]*k) #z {
+  fresh #str #end,
 
-#oOne@(#oStar@(star)
-              [ #firstTwo@(#firstOne@(#dullar@(dullar) #fn) #x)
-              | #two@(#one@(#star@(star) &k) #y)]*k)
-             #z
-script fresh #fnTy,
+  constraints #fn,
+  sequence {
+    #fn ~ rec #visitor <- #this {
+      match #visitor {
+        case star #i any {
+          fresh #m #n,
+          #n ~ call #i,
+          returning #m -> #n
+        },
+        case dullar any any {
+          fresh #f1 #f2,
+          returning #f1 -> #f2
+        }
+      }
+    }
+  } error { "Function does not take enough arguments" },
+  join {
+    foreach #i <- inout #x ++ inout #y ++ inout #z {
+      ordered {
+        constraints #i,
+        #i > {s} {a} 'Parser s a error { "Argument is not a parser" }
+      }
+    }
+  },
+  join {
+    foreach #i <- inout #x ++ inout #y ++ inout #z {
+      #i > {a} 'Parser #str a
+    }
+  } error { "Not all parsers consume the same type" },
 
-       constraints #fn,
-
-       update #fnTy <- #fn1 -> #fn2,
-       foreach #i <- inout #y {
-         fresh #fnI,
-         update #fnTy <- #fnI -> #fnTy
-       },
-       update #fnTy <- #fnEnd -> #fnTy,
-
-       join {
-         ordered {
-           constraints #x,
-           #x > {s} {a} 'Parser s a error { "First argument is not a parser" }
-         },
-         foreach #i <- inout #y {
-           ordered {
-             constraints #i,
-             #i > {s} {a} 'Parser s a error { "Argument is not a parser" }
-           }
-         },
-         ordered {
-           constraints #z,
-           #z > {s} {a} 'Parser s a error { "Last argument is not a parser" }
-         }
-       },
-
-       join {
-         #x > {a} 'Parser #str a,
-         foreach #i <- inout #y { #i > {a} 'Parser #str a },
-         #z > {a} 'Parser #str a
-       } error { "Not all parsers consume the same type" },
-
-       #fn ~ #r1 -> #r2,
-       #x ~ 'Parser #str #r1 error { "First parser does not produce the correct type" },
-       join {
-         #dullar   ~ (#r1 -> #r2) -> 'Parser #str #r1 -> 'Parser #str #r2,
-         #firstOne ~ 'Parser #str #r1 -> 'Parser #str #r2,
-         #firstTwo ~ 'Parser #str #r2
-       },
-
-       update #rTy <- #r2,
-       foreach #i <- inout #y | #s <- inout #star | #o <- inout #one | #t <- inout #two {
-         fresh #rI1 #rI2,
-         #rTy ~ #rI1 -> #rI2,
-         #i ~ 'Parser #str #rI1 error { "Parser does not produce the correct type" },
-         join {
-           #s ~ 'Parser #str (#rI1 -> #rI2) -> 'Parser #str #rI1 -> 'Parser #str #rI2,
-           #o ~ 'Parser #str #rI1 -> 'Parser #str #rI2,
-           #t ~ 'Parser #str #rI2
-         }
-       },
-
-       #rTy ~ #rE1 -> #rE2,
-       #z ~ 'Parser #str #rE1 error { "Last parser does not produce the correct type" },
-       join {
-         #oStar ~ 'Parser #str (#rE1 -> #rE2) -> 'Parser #str #rE1 -> 'Parser #str #rE2,
-         #oOne  ~ 'Parser #str #rE1 -> 'Parser #str #rE2,
-         #this  ~ 'Parser #str #rE2
-       };
+  #end ~ rec #visitor <- #this {
+    match #visitor {
+      case #a@(#d@(dullar) #fn) #arg {
+        fresh #r1 #r2,
+        #fn ~ #r1 -> #r2,
+        #arg ~ 'Parser #str #r1 error { "Parser does not produce the correct type" },
+        join {
+          #d ~ (#r1 -> #r2) -> 'Parser #str #r1 -> 'Parser #str #r2,
+          #a ~ 'Parser #str #r1 -> 'Parser #str #r2
+        },
+        returning #r2
+      },
+      case #a@(#s@(star) #rest) #arg {
+        fresh #r #r1 #r2,
+        #r ~ call #rest,
+        #r ~ #r1 -> #r2,
+        #arg ~ 'Parser #str #r1 error { "Parser does not produce the correct type" },
+        join {
+          #s    ~ 'Parser #str #r -> 'Parser #str #r1 -> 'Parser #str #r2,
+          #rest ~ 'Parser #str #r,
+          #a    ~ 'Parser #str #r1 -> 'Parser #str #r2
+        },
+        returning #r2
+      }
+    }
+  },
+  #this ~ 'Parser #str #end
+};
 
 import twoArgFn   :: ['Int] -> 'Bool -> 'Result;
 import threeArgFn :: ['Int] -> 'Bool -> 'Bool -> 'Result;
