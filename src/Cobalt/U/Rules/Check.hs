@@ -93,8 +93,8 @@ okRule name strictness (Env fn dat ax _) (Rx.Rule rx action) term =
       -- 2. Generate a new rule which is always applicable
       rule          = Rx.Rule rx (\x y z -> let (_,u,v) = action x y z in (True,u,v))
       -- 3. Obtain the constraints
-      evalWith      = Rx.eval (rule : mainTypeRules) (Rx.IndexIndependent (newEnv,[],[])) term
-      evalWithout   = Rx.eval mainTypeRules (Rx.IndexIndependent (newEnv,[],[])) term
+      evalWith      = Rx.eval (rule : mainTypeRules TreeScheme) (Rx.IndexIndependent (newEnv,[],[])) term
+      evalWithout   = Rx.eval (mainTypeRules TreeScheme) (Rx.IndexIndependent (newEnv,[],[])) term
       printError from to rss errs = intercalate "\n" [ "term:",         show (atUAnn snd term)
                                                      , "given:",        show from
                                                      , "wanted:",       show to

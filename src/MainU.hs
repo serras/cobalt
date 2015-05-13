@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Main where
 
 import Control.Lens hiding ((.=))
@@ -39,11 +40,13 @@ mainCmd = do
     Right (env, defns) ->
       let env' =  env & dataE %~ (++ initialDataEnv)
        in case todo of
-            "parse"  -> do print env
-                           putStrLn ""
-                           mapM_ print defns
-            "solve"  -> solveDefns env' defns
-            "gather" -> gatherDefns env' defns
+            "parse"   -> do print env
+                            putStrLn ""
+                            mapM_ print defns
+            "solve"   -> solveDefns  TreeScheme env' defns
+            "gather"  -> gatherDefns TreeScheme env' defns
+            "rsolve"  -> solveDefns  FlatScheme env' defns
+            "rgather" -> gatherDefns FlatScheme env' defns
             _ -> putStrLn "Unrecognized command"
 
 mainServe :: IO ()
@@ -55,6 +58,8 @@ mainServe = do
       file "static/editor.html"
     post "/typecheck" $ do
       code <- param "code"
+      (scheme :: String) <- param "scheme"
+      let gs = if scheme == "flat" then FlatScheme else TreeScheme
       case parse parseFile "code" code of
        Left ep -> json $ object [ "status"  .= ("error" :: String)
                                 , "message" .= show ep ]
@@ -63,12 +68,14 @@ mainServe = do
           in case checkEnv env' of
               Left rulesErr -> json $ object [ "status"  .= ("error" :: String)
                                              , "message" .= intercalate "\n\n" rulesErr ]
-              Right _ -> let tcs  = tcDefns env' defns
+              Right _ -> let tcs  = tcDefns gs env' defns
                              vals = zipWith (jsonTypechecked code) defns tcs
                           in json $ object [ "status" .= ("ok" :: String)
                                            , "values" .= vals ]
     post "/gather" $ do
       code <- param "code"
+      (scheme :: String) <- param "scheme"
+      let gs = if scheme == "flat" then FlatScheme else TreeScheme
       case parse parseFile "code" code of
        Left ep -> json $ object [ "status"  .= ("error" :: String)
                                 , "message" .= show ep ]
@@ -77,7 +84,7 @@ mainServe = do
           in case checkEnv env' of
               Left rulesErr -> json $ object [ "status"  .= ("error" :: String)
                                              , "message" .= intercalate "\n\n" rulesErr ]
-              Right _ -> let gath = gDefns env' defns
+              Right _ -> let gath = gDefns gs env' defns
                              vals = zipWith jsonScript defns gath
                           in json $ object [ "status" .= ("ok" :: String)
                                            , "values" .= vals ]
@@ -98,14 +105,14 @@ mainServe = do
 
 -- COMMAND LINE PART
 
-gatherDefns :: Env -> [(RawDefn,Bool)] -> IO ()
-gatherDefns env defns = do
-  let gaths = gDefns env defns
+gatherDefns :: GatheringScheme -> Env -> [(RawDefn,Bool)] -> IO ()
+gatherDefns gs env defns = do
+  let gaths = gDefns gs env defns
   mapM_ showGathered (zip defns gaths)
 
-solveDefns :: Env -> [(RawDefn,Bool)] -> IO ()
-solveDefns env defns = do
-  let sols = tcDefns env defns
+solveDefns :: GatheringScheme -> Env -> [(RawDefn,Bool)] -> IO ()
+solveDefns gs env defns = do
+  let sols = tcDefns gs env defns
   mapM_ showSolved (zip defns sols)
 
 showGathered :: ( (RawDefn,Bool)

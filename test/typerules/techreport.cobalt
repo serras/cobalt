@@ -1,0 +1,37 @@
+import append :: {a} [a] -> [a] -> [a];
+import Nil    :: {a} [a];
+import Cons   :: {a} a -> [a] -> [a];
+
+import listOfInt  :: ['Int];
+import listOfBool :: ['Bool];
+
+rule append2
+case append #lst1 #lst2
+when #lst2 ~ [#lst1] {
+  repair { "Did you intend to use (:)?" }
+};
+
+rule append1
+case #a1@(#a0@(append) #lst1) #lst2 {
+  fresh #e1 #e2,
+  join {
+    ordered {
+      constraints #lst1,
+      #lst1 ~ [#e1] error { "First argument is not a list" }
+    },
+    ordered {
+      constraints #lst2,
+      #lst2 ~ [#e2] error { "Second argument is not a list" }
+    }
+  },
+  #e1 ~ #e2 error { "The types of lists do not coincide" },
+
+  #a0   ~ [#e1] -> [#e1] -> [#e1],
+  #a1   ~ [#e1] -> [#e1],
+  #this ~ [#e1]
+};
+
+right  = append listOfInt listOfInt;
+wrong1 = append listOfInt listOfBool;
+wrong2 = append 1 2;
+wrong3 = append 1 listOfInt;

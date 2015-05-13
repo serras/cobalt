@@ -4,6 +4,7 @@
 module Cobalt.U.Gather (
   Syn(..)
 , Gathered
+, GatheringScheme(..)
 , mainTypeRules
 ) where
 
@@ -22,18 +23,21 @@ import Cobalt.Language
 import Cobalt.U.Attributes
 import Util.ExceptTIsFresh ()
 
-mainTypeRules :: [TypeRule]
-mainTypeRules = [ intLiteralRule
-                , strLiteralRule
-                , varRule
-                , absRule
-                , absAnnRule
-                , appRule
-                , letRule
-                , letAnnRule
-                , matchRule
-                , caseRule
-                ]
+data GatheringScheme = TreeScheme | FlatScheme
+
+mainTypeRules :: GatheringScheme -> [TypeRule]
+mainTypeRules s = map ($ s)
+                      [ intLiteralRule
+                      , strLiteralRule
+                      , varRule
+                      , absRule
+                      , absAnnRule
+                      , appRule
+                      , letRule
+                      , letAnnRule
+                      , matchRule
+                      , caseRule
+                      ]
 
 pattern SingletonC c     p = Singleton c p Nothing
 pattern SingUnifyC m1 m2 p = SingletonC (Constraint_Unify m1 m2) p
@@ -51,8 +55,12 @@ l .=. r = l .= [r]
 ty :: UTerm ((SourcePos,SourcePos),TyVar) -> TyVar
 ty = snd . ann
 
-intLiteralRule :: TypeRule
-intLiteralRule = rule0 $
+asymOrJoin :: GatheringScheme -> TyScript -> TyScript -> TyScriptPos -> TyScript
+asymOrJoin TreeScheme x y p = AsymJoin x y p
+asymOrJoin FlatScheme x y p = Join [x,y] p
+
+intLiteralRule :: GatheringScheme -> TypeRule
+intLiteralRule _ = rule0 $
   inj (UTerm_IntLiteral_ __ __) ->>> \theThing@(UTerm_IntLiteral _ (p,thisTy)) -> do
     this.syn._Term.given  .= []
     this.syn._Term.me     .= [theThing]
@@ -61,8 +69,8 @@ intLiteralRule = rule0 $
                                              , customVars = []
                                              }
 
-strLiteralRule :: TypeRule
-strLiteralRule = rule0 $
+strLiteralRule :: GatheringScheme -> TypeRule
+strLiteralRule _ = rule0 $
   inj (UTerm_StrLiteral_ __ __) ->>> \theThing@(UTerm_StrLiteral _ (p,thisTy)) -> do
     this.syn._Term.given  .= []
     this.syn._Term.me     .= [theThing]
@@ -71,8 +79,8 @@ strLiteralRule = rule0 $
                                              , customVars = []
                                              }
 
-varRule :: TypeRule
-varRule = rule0 $
+varRule :: GatheringScheme -> TypeRule
+varRule _ = rule0 $
   inj (UTerm_Var_ __ __) ->>> \theThing@(UTerm_Var v (p,thisTy)) -> do
     env <- use (this.inh_.theEnv.fnE)
     case lookup (translate v) env of
@@ -84,8 +92,8 @@ varRule = rule0 $
                                                                 , customVars = []
                                                                 }
 
-absRule :: TypeRule
-absRule = rule $ \inner ->
+absRule :: GatheringScheme -> TypeRule
+absRule gs = rule $ \inner ->
   inj (UTerm_Abs_ __ __ (inner <<- any_) __) ->>> \theThing@(UTerm_Abs v (_,vty) _ (p,thisTy)) -> do
     copy [inner]
     at inner . inh_ . theEnv . fnE %= ((translate v, var vty) : ) -- Add to environment
@@ -95,11 +103,11 @@ absRule = rule $ \inner ->
     this.syn._Term.wanted .=. case innerSyn of
       GatherTerm _g [ity] [i] -> do
         gg@(GatherTermInfo w _ _ ) <- i
-        return $ gg { tree = AsymJoin w (SingUnifyC (var thisTy) (var vty :-->: var (ty ity)) p) p }
+        return $ gg { tree = asymOrJoin gs w (SingUnifyC (var thisTy) (var vty :-->: var (ty ity)) p) p }
       _ -> thisIsNotOk
 
-absAnnRule :: TypeRule
-absAnnRule = rule $ \inner ->
+absAnnRule :: GatheringScheme -> TypeRule
+absAnnRule gs = rule $ \inner ->
   inj (UTerm_AbsAnn_ __ __ (inner <<- any_) __ __) ->>> \theThing@(UTerm_AbsAnn v (vpos,vty) _ (tyAnn,_) (p,thisTy)) -> do
     copy [inner]
     at inner . inh_ . theEnv . fnE %= ((translate v, tyAnn) : ) -- Add to environment
@@ -110,13 +118,13 @@ absAnnRule = rule $ \inner ->
       GatherTerm _g [ity] [i] -> do
         gg@(GatherTermInfo w _ _ ) <- i
         return $ gg { tree = case tyAnn of
-                        PolyType_Mono [] m -> AsymJoin w (SingUnifyC (var thisTy) (m :-->: var (ty ity)) p) p
-                        _ -> AsymJoin w (Join [ SingUnifyC (var thisTy) (var vty :-->: var (ty ity)) p
-                                              , SingEqualC (var vty) tyAnn vpos ] p) p }
+                        PolyType_Mono [] m -> asymOrJoin gs w (SingUnifyC (var thisTy) (m :-->: var (ty ity)) p) p
+                        _ -> asymOrJoin gs w (Join [ SingUnifyC (var thisTy) (var vty :-->: var (ty ity)) p
+                                                   , SingEqualC (var vty) tyAnn vpos ] p) p }
       _ -> thisIsNotOk
 
-appRule :: TypeRule
-appRule = rule $ \(e1, e2) ->
+appRule :: GatheringScheme -> TypeRule
+appRule gs = rule $ \(e1, e2) ->
   inj (UTerm_App_ (e1 <<- any_) (e2 <<- any_) __) ->>> \theThing@(UTerm_App _ _ (p,thisTy)) -> do
     copy [e1, e2]
     e1Syn <- use (at e1 . syn)
@@ -127,14 +135,14 @@ appRule = rule $ \(e1, e2) ->
       (GatherTerm _g1 [ity1] [i1], GatherTerm _g2 [ity2] [i2]) -> do
          GatherTermInfo w1 c1 cv1 <- i1
          GatherTermInfo w2 c2 cv2 <- i2
-         return $ GatherTermInfo { tree = AsymJoin (Join [w1,w2] p) (SingUnifyC (var (ty ity1)) (var (ty ity2) :-->: var thisTy) p) p
+         return $ GatherTermInfo { tree = asymOrJoin gs (Join [w1,w2] p) (SingUnifyC (var (ty ity1)) (var (ty ity2) :-->: var thisTy) p) p
                                  , custom = c1 ++ c2
                                  , customVars = cv1 `union` cv2
                                  }
       _ -> thisIsNotOk
 
-letRule :: TypeRule
-letRule = rule $ \(e1, e2) ->
+letRule :: GatheringScheme -> TypeRule
+letRule _ = rule $ \(e1, e2) ->
   inj (UTerm_Let_ __ (e1 <<- any_) (e2 <<- any_) __) ->>> \theThing@(UTerm_Let x _ _ (p,thisTy)) -> do
     copy [e1, e2]
     e1Syn <- use (at e1 . syn)
@@ -155,8 +163,8 @@ letRule = rule $ \(e1, e2) ->
                                 }
       _ -> thisIsNotOk
 
-letAnnRule :: TypeRule
-letAnnRule = rule $ \(e1, e2) ->
+letAnnRule :: GatheringScheme -> TypeRule
+letAnnRule _ = rule $ \(e1, e2) ->
   inj (UTerm_LetAnn_ __ (e1 <<- any_) (e2 <<- any_) __ __) ->>>
     \theThing@(UTerm_LetAnn x _ _ (tyAnn,(q1,t1,_)) (p,thisTy)) -> do
       let isMono = case tyAnn of
@@ -193,8 +201,8 @@ letAnnRule = rule $ \(e1, e2) ->
                                   }
         _ -> thisIsNotOk
 
-matchRule :: TypeRule
-matchRule = rule $ \(e, branches) ->
+matchRule :: GatheringScheme -> TypeRule
+matchRule gs = rule $ \(e, branches) ->
   inj (UTerm_Match_ (e <<- any_) __ __ [branches <<- any_] __) ->>> \theThing@(UTerm_Match _ k mk _ (p,thisTy)) -> do
         copy [e]
         copy [branches]
@@ -214,7 +222,7 @@ matchRule = rule $ \(e, branches) ->
         -- Do the final thing
         this.syn._Term.given  .= case (einfo, binfo, mk) of
           (GatherTerm g _ _, GatherCase cases, Just mko) ->
-            let caseInfos = map (generateCase (nub (fv env)) thisTy p mko) cases in
+            let caseInfos = map (generateCase gs (nub (fv env)) thisTy p mko) cases in
             case filter (is _Nothing) caseInfos of
               [] -> g ++ concatMap (fst . fromJust) caseInfos
               _ -> thisIsNotOk
@@ -223,40 +231,39 @@ matchRule = rule $ \(e, branches) ->
         -- And now the wanted part
         this.syn._Term.wanted .=. case (einfo, binfo, mk) of
           (GatherTerm _ [te] [i], GatherCase cases, Just mko) ->
-            let caseInfos = map (generateCase (nub (fv env)) thisTy p mko) cases in
+            let caseInfos = map (generateCase gs (nub (fv env)) thisTy p mko) cases in
             case filter (is _Nothing) caseInfos of
               [] -> do GatherTermInfo we c cv <- i
                        caseInfosJust <- sequence $ map (snd . fromJust) caseInfos
                        let (caseWs, caseCs, caseCVs) = unzip3 caseInfosJust
-                       return $ GatherTermInfo { tree = AsymJoin (Join (we : caseWs) p)
-                                                                 (SingUnifyC (var (ty te)) mko p) p
+                       return $ GatherTermInfo { tree = asymOrJoin gs (Join (we : caseWs) p)
+                                                                      (SingUnifyC (var (ty te)) mko p) p
                                                , custom = c ++ concat caseCs
                                                , customVars = cv ++ concat caseCVs
                                                }
               _ -> thisIsNotOk
           _ -> thisIsNotOk
 
-generateCase :: [TyVar] -> TyVar -> (SourcePos,SourcePos) -> MonoType -> GatherCaseInfo
+generateCase :: GatheringScheme -> [TyVar] -> TyVar -> (SourcePos,SourcePos) -> MonoType -> GatherCaseInfo
              -> Maybe ([Constraint], FreshM (TyScript, [Constraint], [TyVar]))
--- generateCase envVars thisTy p (MonoType_Con k vars) (GatherCaseInfo g betaVars q (MonoType_Con kc varsc) s c cv caseTy)
-generateCase envVars thisTy p (MonoType_Con k vars) (GatherCaseInfo g betaVars q (MonoType_Con kc varsc) sc caseTy)
+generateCase gs envVars thisTy p (MonoType_Con k vars) (GatherCaseInfo g betaVars q (MonoType_Con kc varsc) sc caseTy)
   | k == kc, [] <- betaVars, [] <- q =
      Just (g, do GatherTermInfo s c cv <- sc
-                 return ( AsymJoin (foldr (\(MonoType_Var v1, v2) curS -> substScript v1 v2 curS) s (zip varsc vars))
-                                   (SingUnifyC (var thisTy) (var caseTy) p) p
+                 return ( asymOrJoin gs (foldr (\(MonoType_Var v1, v2) curS -> substScript v1 v2 curS) s (zip varsc vars))
+                                        (SingUnifyC (var thisTy) (var caseTy) p) p
                         , c, cv) )
   | k == kc =  -- Existential case
      Just ([], do GatherTermInfo s c _cv <- sc
                   let evars = nub (union (fv varsc) (fvScript s)) \\ union envVars (fv vars)
                   return ( Exists evars (g ++ q ++ zipWith Constraint_Unify vars varsc)
-                                  (AsymJoin (foldr (\(MonoType_Var v1, v2) curS -> substScript v1 v2 curS) s (zip varsc vars))
-                                            (SingUnifyC (var thisTy) (var caseTy) p) p) p
+                                  (asymOrJoin gs (foldr (\(MonoType_Var v1, v2) curS -> substScript v1 v2 curS) s (zip varsc vars))
+                                                 (SingUnifyC (var thisTy) (var caseTy) p) p) p
                          , c, [] ) )
   | otherwise = Nothing
-generateCase _ _ _ _ _ = thisIsNotOk
+generateCase _ _ _ _ _ _ = thisIsNotOk
 
-caseRule :: TypeRule
-caseRule = rule $ \e ->
+caseRule :: GatheringScheme -> TypeRule
+caseRule _ = rule $ \e ->
   inj (UCaseAlternative_ __ __ __ (e <<- any_) __) ->>> \(UCaseAlternative con vs caseTy _ _) -> do
     let caseTy' = case caseTy of
                     Just (_,(q, arr -> (argsT, MonoType_Con dname convars), boundvars)) -> Just (q, argsT, dname, convars, boundvars)

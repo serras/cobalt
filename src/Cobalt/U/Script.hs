@@ -7,6 +7,7 @@
 module Cobalt.U.Script (
   Script(..)
 , TyScript
+, TyScriptPos
 , TyScriptInfo
 , toConstraintList
 , toConstraintList'
