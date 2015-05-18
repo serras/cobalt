@@ -34,6 +34,7 @@ module Cobalt.Core.Types (
 , _Constraint_Equal
 , _Constraint_Class
 , _Constraint_Exists
+, _Constraint_Later
 , showConstraintList
 , Axiom(..)
 , isTresspasable
@@ -118,7 +119,11 @@ orderConstraint _ (Constraint_Class _ _) = GT
 orderConstraint (Constraint_Exists _) (Constraint_Exists _) = EQ
 orderConstraint (Constraint_Exists _) _ = LT
 orderConstraint _ (Constraint_Exists _) = GT
+orderConstraint (Constraint_Later _ _) (Constraint_Later _ _) = EQ
+orderConstraint (Constraint_Later _ _) _ = LT
+orderConstraint _ (Constraint_Later _ _) = GT
 orderConstraint Constraint_Inconsistent Constraint_Inconsistent = EQ
+-- TODO!!!!
 
 data MonoType = MonoType_Fam   String [MonoType]
               | MonoType_Var   TyVar
@@ -196,6 +201,7 @@ data Constraint = Constraint_Unify MonoType MonoType
                 | Constraint_Equal MonoType PolyType
                 | Constraint_Class String [MonoType]
                 | Constraint_Exists (Bind [TyVar] ([Constraint],[Constraint]))
+                | Constraint_Later String [Constraint]
                 | Constraint_Inconsistent
 
 $(makePrisms ''Constraint)
@@ -211,6 +217,7 @@ instance Eq Constraint where
       Just (_,c1,_,c2) -> return $ c1 == c2
       Nothing          -> return False
   Constraint_Inconsistent == Constraint_Inconsistent = True
+  Constraint_Later _ l1   == Constraint_Later _ l2   = l1 == l2
   _ == _ = False
 
 data Axiom = Axiom_Unify (Bind [TyVar] (MonoType, MonoType))
@@ -290,6 +297,8 @@ showConstraint (Constraint_Exists b)  = do (x, (q,c)) <- unbind b
                                            c' <- showConstraintList' c
                                            return $ "∃" ++ show x ++ "(" ++ q' ++ " => " ++ c' ++ ")"
 showConstraint (Constraint_Inconsistent) = return "⊥"
+showConstraint (Constraint_Later s l) = do l' <- showConstraintList' l
+                                           return $ "later \"" ++ s ++ "\" " ++ show l'
 
 instance Show Axiom where
   show = runFreshM . showAxiom

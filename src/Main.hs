@@ -277,6 +277,10 @@ showJsonConstraint (Constraint_Exists b) = do
                                         , "nodes" .= oW ] ] ]
 showJsonConstraint (Constraint_Inconsistent) =
   return $ object [ "text" .= ("⊥" :: String) ]
+showJsonConstraint (Constraint_Later s l) = do
+  oL <- showJsonConstraintList l
+  return $ object [ "text"  .= ("later \"" ++ s ++ "\"" :: String)
+                  , "nodes" .= oL ]
 
 showJsonGraph :: Graph -> [Constraint] -> Value
 showJsonGraph g blamed =

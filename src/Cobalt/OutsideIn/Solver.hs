@@ -107,19 +107,22 @@ simpl given wanted =
                   return (interactedG, apGIU || apGI)) ccTop
                 (reactedG, apRG) <- stepOverAxioms "topReact" (\ax _ -> topReact True defP injP ax) axioms [] interactedG2
                 return (reactedG, apIG2 || apRG)) given
-     (s,_) <- whileApplicable (\ccTop -> do
-                (simplified2,apS2) <- whileApplicable (\c -> do
-                  (interacted,apI) <- whileApplicable (\cc -> do
-                    (interactedU,apU) <- whileApplicable (\ccc -> do
-                      (canonical2,apC2)  <- whileApplicable (stepOverList "canonw" (canon False injP) g) ccc
-                      (interacted2,apI2) <- stepOverProductList "unifyw" (unifyInteract injP) g canonical2
-                      return (interacted2, apC2 || apI2)) cc
-                    (interacted2,apI2) <- stepOverProductListDeleteBoth "interw" interact_ g interactedU
-                    return (interacted2, apU || apI2)) c
-                  (simplified,apS) <- stepOverTwoLists "simplw" (simplifies injP) g interacted
-                  return (simplified, apI || apS)) ccTop
-                (reactedW, apRW) <- stepOverAxioms "topReact" (\ax _ -> topReact True defP injP ax) axioms g simplified2
-                return (reactedW, apS2 || apRW)) wanted
+     (s,_) <- whileApplicable (\ccLater -> do
+                (reacted2,apR2) <- whileApplicable (\ccTop -> do
+                  (simplified2,apS2) <- whileApplicable (\c -> do
+                    (interacted,apI) <- whileApplicable (\cc -> do
+                      (interactedU,apU) <- whileApplicable (\ccc -> do
+                        (canonical2,apC2)  <- whileApplicable (stepOverList "canonw" (canon False injP) g) ccc
+                        (interacted2,apI2) <- stepOverProductList "unifyw" (unifyInteract injP) g canonical2
+                        return (interacted2, apC2 || apI2)) cc
+                      (interacted2,apI2) <- stepOverProductListDeleteBoth "interw" interact_ g interactedU
+                      return (interacted2, apU || apI2)) c
+                    (simplified,apS) <- stepOverTwoLists "simplw" (simplifies injP) g interacted
+                    return (simplified, apI || apS)) ccTop
+                  (reactedW, apRW) <- stepOverAxioms "topReact" (\ax _ -> topReact True defP injP ax) axioms g simplified2
+                  return (reactedW, apS2 || apRW)) ccLater
+                (laterW, apLW) <- stepOverList "later" (const doLater) g reacted2
+                return (laterW, apR2 || apLW)) wanted
      -- Output information
      v <- get
      myTrace ("touchables: " ++ show v) $ return (g,s,v)
@@ -235,8 +238,10 @@ canon isGiven _ _ (Constraint_Class c ts)
                                      return $ Applied (Constraint_Class c ts2 : cons)
   | otherwise = return NotApplicable
 -- Rest
-canon _ _ _ (Constraint_Exists _) = return NotApplicable
+canon _ _ _ (Constraint_Exists _)   = return NotApplicable
 canon _ _ _ Constraint_Inconsistent = throwError SolverError_Inconsistency
+canon True _ _ (Constraint_Later _ l) = return $ Applied l   -- on given, later is no-op
+canon _    _ _ (Constraint_Later _ _) = return NotApplicable -- on wanted, later is taken care... later
 
 instantiate :: PolyType -> Bool -> SMonad ([Constraint], MonoType)
 instantiate (PolyType_Bind b) tch = do
@@ -470,6 +475,10 @@ topReact _ _ _ ax@(Axiom_Class b) (Constraint_Class c ms)
                  `catchError` (\_ -> return NotApplicable)
          else return NotApplicable -- Not same class
 topReact _ _ _ _ _ = return NotApplicable
+
+doLater :: Constraint -> SMonad SolutionStep
+doLater (Constraint_Later _ l) = return $ Applied l
+doLater _                      = return NotApplicable
 
 -- Phase 2b: convert to solution
 

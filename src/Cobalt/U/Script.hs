@@ -106,9 +106,11 @@ simplifyScript (Label i s)         = Label i (simplifyScript s)
 simplifyScript (Join ss p)         = case filter notEmpty $ map simplifyScript ss of
                                        []  -> Empty
                                        [m] -> m
-                                       ms  -> Join ms p
+                                       ms  -> Join (concatMap innerConstraints ms) p
                                      where notEmpty Empty = False
                                            notEmpty _     = True
+                                           innerConstraints (Join is _) = is
+                                           innerConstraints other       = [other]
 simplifyScript (AsymJoin c1 c2 p)  = let s1 = simplifyScript c1
                                          s2 = simplifyScript c2
                                       in case (s1, s2) of

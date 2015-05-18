@@ -201,6 +201,10 @@ showJsonScript Empty =
 showJsonScript (Label i s) =
   let Object inner = showJsonScript s
    in Object (insert "tags" (toJSON [i]) inner)
+showJsonScript (Singleton (Constraint_Later s l) p i) =  -- Special case for later
+  object [ "text"  .= ("later" :: String)
+         , "tags"  .= toList s
+         , "nodes" .= map (showJsonScript . (\n -> Singleton n p i)) l ]
 showJsonScript (Singleton c _ i) =
   object [ "text" .= textJsonConstraint c
          , "tags" .= toList i ]
@@ -230,6 +234,7 @@ textJsonConstraint (Constraint_Equal t1 t2) = showWithGreek t1 ++ " = " ++ showW
 textJsonConstraint (Constraint_Class c  ts) = "$" ++ c ++ " " ++ intercalate " " (map (doParens . showWithGreek) ts)
 textJsonConstraint (Constraint_Exists _)    = error "This should never happen"
 textJsonConstraint Constraint_Inconsistent  = "⊥"
+textJsonConstraint (Constraint_Later s l)   = "later \"" ++ s ++ "\" [" ++ intercalate ", " (map textJsonConstraint l) ++ "]"
 
 
 showAnnTermJson :: Show t => AnnUTerm t -> [Value]

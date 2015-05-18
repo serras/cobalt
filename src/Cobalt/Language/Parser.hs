@@ -191,6 +191,8 @@ createPolyTypeBind x p = PolyType_Bind $ bind (string2Name x) p
 
 parseConstraint :: Parsec String s Constraint
 parseConstraint = Constraint_Inconsistent <$ reservedOp "_|_"
+              <|> Constraint_Later <$> stringLiteral
+                                   <*> brackets (commaSep1 parseConstraint)
               <|> try (Constraint_Inst  <$> (var . string2Name <$> parseVarName)
                                         <*  reservedOp ">"
                                         <*> parsePolyType)
@@ -505,7 +507,7 @@ lexer = T.makeTokenParser $ haskellDef { T.reservedNames = "rule" : "strict" : "
                                                            : "call" : "returning"                  -- Type tree
                                                            : "inout" : "outin"                     -- Type tree ordering
                                                            : "injective" : "defer" : "synonym"     -- Axioms
-                                                           : "do" : "with"                         -- Syntax
+                                                           : "do" : "with" : "later"               -- Syntax
                                                            : T.reservedNames haskellDef }
 
 parens :: Parsec String s a -> Parsec String s a
