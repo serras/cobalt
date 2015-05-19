@@ -1,0 +1,15 @@
+import map :: {fn} {lst} {r} {e} {d}
+              later "Second argument must be a list" [
+                lst ~ [e],
+                later "First argument must be a function" [
+                  fn ~ d -> r,
+                  later "Fn. does not have the correct domain" [
+                    d ~ e ]]] => fn -> lst -> [r];
+
+import listOfInt  :: ['Int];
+import fnOfInt    :: 'Int -> 'IntResult;
+import listOfBool :: ['Bool];
+import fnOfBool   :: 'Bool -> 'BoolResult;
+
+example1 = map fnOfInt  listOfInt;
+example2 = map fnOfBool listOfInt => fail;

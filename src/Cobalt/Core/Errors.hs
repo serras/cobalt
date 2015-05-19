@@ -1,12 +1,14 @@
 {-# LANGUAGE RecordWildCards #-}
 module Cobalt.Core.Errors (
   Comment(..)
+, NamedSolverError(..)
 , SolverError(..)
 , UnifyErrorReason(..)
 , ErrorExplanation(..)
 , AnnConstraint
 , Blame
 , emptySolverExplanation
+, emptyUnnamedSolverExplanation
 , errorFromPreviousPhase
 , showErrorExplanation
 ) where
@@ -23,6 +25,7 @@ data Comment = Comment_String String
              | Comment_Pos (SourcePos, SourcePos)
              deriving (Show, Eq)
 
+newtype NamedSolverError = NamedSolverError (Maybe String, SolverError)
 data SolverError = SolverError_Unify UnifyErrorReason MonoType MonoType
                  | SolverError_Infinite TyVar MonoType
                  | SolverError_Equiv PolyType PolyType
@@ -30,6 +33,10 @@ data SolverError = SolverError_Unify UnifyErrorReason MonoType MonoType
                  | SolverError_NonTouchable [TyVar]
                  | SolverError_Inconsistency
                  | SolverError_Ambiguous TyVar [Constraint]
+
+instance Show NamedSolverError where
+  show (NamedSolverError (Nothing, e)) = show e
+  show (NamedSolverError (Just m,  e)) = m ++ " ↣ " ++ show e
 
 instance Show SolverError where
   show (SolverError_Unify r m1 m2) = "Could not unify " ++ show m1 ++ " ~ " ++ show m2 ++ " (" ++ show r ++ ")"
@@ -59,8 +66,11 @@ data ErrorExplanation = SolverError { theError      :: SolverError
                       | ErrorFromPreviousPhase { thePoint   :: Maybe (SourcePos, SourcePos)
                                                , theMessage :: Maybe String }
 
-emptySolverExplanation :: SolverError -> ErrorExplanation
-emptySolverExplanation err = SolverError err Nothing Nothing [] []
+emptySolverExplanation :: NamedSolverError -> ErrorExplanation
+emptySolverExplanation (NamedSolverError (msg, err)) = SolverError err Nothing msg [] []
+
+emptyUnnamedSolverExplanation :: SolverError -> ErrorExplanation
+emptyUnnamedSolverExplanation err = emptySolverExplanation (NamedSolverError (Nothing, err))
 
 errorFromPreviousPhase :: String -> ErrorExplanation
 errorFromPreviousPhase s = ErrorFromPreviousPhase Nothing (Just s)

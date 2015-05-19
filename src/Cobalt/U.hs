@@ -64,7 +64,9 @@ gDefn_ gs sat tchs (Env fn dat ax rules) (name,tyv,Just declaredType,Just (q1,t1
                                let (p,v) = ann e
                                    extra = Constraint_Unify (var v) t1
                                    simplifiedW = simplifyScript w
-                                   withExtra = AsymJoin simplifiedW (Singleton extra p Nothing) p
+                                   withExtra = case gs of
+                                                 TreeScheme -> AsymJoin simplifiedW (Singleton extra p Nothing) p
+                                                 FlatScheme -> Join [simplifiedW, Singleton extra p Nothing] p
                                -- Chose whether to apply exists removal or not -> look above
                                return (Right (g ++ q1, [e], GatherTermInfo withExtra c cv), tyv, v : fvScript simplifiedW)
     _ -> error "This should never happen"
@@ -111,7 +113,7 @@ tcDefn_ gs extra tchs env@(Env _ _ ax _) defn@(_,_,annotation,_) = do
                                                : errs
                                          , graph)
                                        , tyvTerm {- newTerm -}, Nothing )
-             Left moreErrors -> return ((inn, emptySolverExplanation moreErrors : errs, graph), tyvTerm {- newTerm -}, Nothing)
+             Left moreErrors -> return ((inn, emptyUnnamedSolverExplanation moreErrors : errs, graph), tyvTerm {- newTerm -}, Nothing)
              Right _ -> return (s, newTerm, Just finalT)
         _ -> -- Error, we could not discharge everything
              return ( ( inn

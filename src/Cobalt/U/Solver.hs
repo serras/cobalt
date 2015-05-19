@@ -8,6 +8,7 @@ module Cobalt.U.Solver (
 , OIn.Solution(..)
 ) where
 
+import Control.Applicative ((<|>))
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State
@@ -101,11 +102,11 @@ simpl ax g tch cm prev (Sequence s1 s2 _pos) = do
   ((sol2,errs2,g2), ex2) <- {- trace ("using: " ++ show sol1) -} simpl ax g tch cm (Just result1) s2
   return ((sol2,errs2 ++ errs1,g2), ex1 ++ ex2)
 
-makeExplanation :: SolverError -> (SourcePos, SourcePos) -> Maybe String -> Graph -> ErrorExplanation
-makeExplanation err pos msg graph =
+makeExplanation :: NamedSolverError -> (SourcePos, SourcePos) -> Maybe String -> Graph -> ErrorExplanation
+makeExplanation (NamedSolverError (laterMsg, err)) pos msg graph =
   SolverError { theError = err
               , thePoint = Just pos
-              , theMessage = msg
+              , theMessage = msg <|> laterMsg
               , theBlame = blameConstraints graph Constraint_Inconsistent
               , theDominators = getDominators graph Constraint_Inconsistent }
 
@@ -121,7 +122,7 @@ emptySolution g tch = (g, [], tch)
 
 -- Adapter for multiple OutsideIn solver
 simplMany' :: [Axiom] -> [ScriptSolution]
-           -> FreshM (Either SolverError OInState, Graph)
+           -> FreshM (Either NamedSolverError OInState, Graph)
 simplMany' ax lst =
   let given  = unions $ map (\((g,_,_),_,_) -> g) lst
       wanted = unions $ map (\((_,w,_),_,_) -> w) lst
@@ -130,7 +131,7 @@ simplMany' ax lst =
    in runWriterT $
         runExceptT $
           flip runReaderT ax $
-            flip evalStateT tch $ do
+            flip evalStateT (tch, Nothing) $ do
               mapM_ tell graphs
               OIn.simpl given wanted
 

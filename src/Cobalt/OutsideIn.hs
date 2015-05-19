@@ -88,9 +88,9 @@ tcDefn h e (n,t,annP) = do
                           -- trace (show (restC,finalT,smallG ++ rs,thisAnn)) $
                           finalCheck <- runExceptT $ tcCheckErrors restC finalT
                           case finalCheck of
-                            Left errF -> return (Left (emptySolverExplanation errF), graph)
+                            Left errF -> return (Left (emptyUnnamedSolverExplanation errF), graph)
                             Right _   -> return (Right ((n',thisAnn,finalT),rs),graph)
-            Just p  -> if not (null rs) then return (Left (emptySolverExplanation (SolverError_CouldNotDischarge rs)), graph)
+            Just p  -> if not (null rs) then return (Left (emptyUnnamedSolverExplanation (SolverError_CouldNotDischarge rs)), graph)
                                         else return (Right ((n',thisAnn,p),rs),graph)
 
 tcCheckErrors :: [Constraint] -> PolyType -> ExceptT SolverError FreshM ()

@@ -24,7 +24,7 @@ import Debug.Trace
 
 import Cobalt.Core
 
-type SMonad = (StateT [TyVar] (ReaderT [Axiom] (ExceptT SolverError (WriterT Graph FreshM))))
+type SMonad = (StateT ([TyVar], Maybe String) (ReaderT [Axiom] (ExceptT NamedSolverError (WriterT Graph FreshM))))
 data SolutionStep = NotApplicable | Applied [Constraint]
 
 whileApplicable :: ([Constraint] -> SMonad ([Constraint], Bool))

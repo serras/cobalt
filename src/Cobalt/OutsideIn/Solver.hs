@@ -1,4 +1,5 @@
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE FlexibleContexts #-}
 module Cobalt.OutsideIn.Solver (
   SMonad
 , Solution(..)
@@ -29,8 +30,8 @@ data Solution = Solution { smallGiven   :: [Constraint]
                          , touchable    :: [TyVar]
                          } deriving Show
 
-solve :: [Axiom] -> [Constraint] -> [Constraint] -> [TyVar] -> FreshM (Either SolverError Solution, Graph)
-solve a g w t = runWriterT (runExceptT (runReaderT (evalStateT (solve' g w) t) a))
+solve :: [Axiom] -> [Constraint] -> [Constraint] -> [TyVar] -> FreshM (Either NamedSolverError Solution, Graph)
+solve a g w t = runWriterT (runExceptT (runReaderT (evalStateT (solve' g w) (t, Nothing)) a))
 
 entails :: [Axiom] -> [Constraint] -> [Constraint] -> [TyVar] -> Bool
 entails a g w t = case runFreshM $ solve a g w t of
@@ -63,7 +64,7 @@ solveImpl g (existsC@(Constraint_Exists b) : rest) = do
       mapM_ (\x -> tell $ singletonEdge existsC x "exists") (q ++ c)
       -- Continue with the rest, if possible
       if null rs then solveImpl g rest
-                 else throwError (SolverError_CouldNotDischarge c)
+                 else throwError $ NamedSolverError (Nothing, SolverError_CouldNotDischarge c)
 solveImpl _ _ = error "This should never happen (solveImpl)"
 
 solveApartWithAxioms :: [Constraint] -> [Constraint] -> [TyVar] -> SMonad Solution
@@ -84,11 +85,24 @@ solveApartWithoutAxioms given wanted vars = do
 
 -- Utils for touchable variables
 
-makeTouchable :: Monad m => TyVar -> StateT [TyVar] m ()
-makeTouchable x = modify (insert x)
+makeTouchable :: Monad m => TyVar -> StateT ([TyVar], a) m ()
+makeTouchable x = modify $ \(v,y) -> (insert x v, y)
 
-isTouchable :: Monad m => TyVar -> StateT [TyVar] m Bool
-isTouchable x = gets (x `elem`)
+isTouchable :: Monad m => TyVar -> StateT ([TyVar], a) m Bool
+isTouchable x = gets $ \(v,_) -> x `elem` v
+
+getTchVars :: Monad m => StateT ([TyVar], a) m [TyVar]
+getTchVars = gets fst
+
+setLaterMessage :: Monad m => String -> StateT (a, Maybe String) m ()
+setLaterMessage m = modify $ \(v, _) -> (v, Just m)
+
+--- Utils for throwing errors
+
+throwNamedError :: (MonadState (a, Maybe String) m, MonadError NamedSolverError m)
+                => SolverError -> m b
+throwNamedError e = do theLater <- gets snd
+                       throwError $ NamedSolverError (theLater, e)
 
 -- Phase 2a: simplifier
 
@@ -124,7 +138,7 @@ simpl given wanted =
                 (laterW, apLW) <- stepOverList "later" (const doLater) g reacted2
                 return (laterW, apR2 || apLW)) wanted
      -- Output information
-     v <- get
+     v <- getTchVars
      myTrace ("touchables: " ++ show v) $ return (g,s,v)
 
 isInjectiveFamily :: [Axiom] -> String -> Bool
@@ -157,8 +171,8 @@ canon isGiven injectiveP rest (Constraint_Unify t1 t2) = case (t1,t2) of
                              possible2 = filter (findVar v2) rest
                          let errMsg = SolverError_NonTouchable [v1,v2]
                          ps <- case (possible1, possible2) of
-                           ([],_) -> throwError errMsg
-                           (_,[]) -> throwError errMsg
+                           ([],_) -> throwNamedError errMsg
+                           (_,[]) -> throwNamedError errMsg
                            ([Constraint_Inst  (MonoType_Var _) p1],[Constraint_Inst  (MonoType_Var _) p2]) -> return $ Just (p1,p2)
                            ([Constraint_Equal (MonoType_Var _) p1],[Constraint_Equal (MonoType_Var _) p2]) -> return $ Just (p1,p2)
                            _ -> return Nothing
@@ -166,7 +180,7 @@ canon isGiven injectiveP rest (Constraint_Unify t1 t2) = case (t1,t2) of
                            Nothing -> return NotApplicable
                            Just (p1,p2) -> do equiv <- areEquivalent rest p1 p2
                                               if equiv then return NotApplicable
-                                                       else throwError errMsg
+                                                       else throwNamedError errMsg
                        (True,  False) -> return NotApplicable
                        (False, True)  -> return $ Applied [Constraint_Unify t2 t1]
                        (True,  True)  -> if v1 > v2 then return $ Applied [Constraint_Unify t2 t1]  -- Orient
@@ -174,11 +188,11 @@ canon isGiven injectiveP rest (Constraint_Unify t1 t2) = case (t1,t2) of
     | otherwise -> return NotApplicable
   (MonoType_Var v, _)
     | v `elem` fv t2, isFamilyFree t2
-                      -> throwError (SolverError_Infinite v t2)
+                      -> throwNamedError (SolverError_Infinite v t2)
     | isFamilyFree t2 -> do b <- isTouchable v  -- Check touchability when no family
                             if b || isGiven
                                then return NotApplicable
-                               else throwError (SolverError_NonTouchable [v])
+                               else throwNamedError (SolverError_NonTouchable [v])
     | otherwise -> case t2 of
                      MonoType_Con c vs -> do (vs2, cons, vars) <- unfamilys vs
                                              unless isGiven (mapM_ makeTouchable vars)
@@ -192,7 +206,7 @@ canon isGiven injectiveP rest (Constraint_Unify t1 t2) = case (t1,t2) of
   -- Type families
   (MonoType_Fam f1 ts1, MonoType_Fam f2 ts2) -- Injective type families
     | f1 == f2, injectiveP f1, length ts1 == length ts2 -> return $ Applied (zipWith Constraint_Unify ts1 ts2)
-    | f1 == f2, injectiveP f1, length ts1 /= length ts2 -> throwError (SolverError_Unify UnifyErrorReason_NumberOfArgs t1 t2)
+    | f1 == f2, injectiveP f1, length ts1 /= length ts2 -> throwNamedError (SolverError_Unify UnifyErrorReason_NumberOfArgs t1 t2)
   (MonoType_Fam f ts, _) | any (not . isFamilyFree) ts -> -- ts has type families we can get out
                    do (ts2, cons, vars) <- unfamilys ts
                       unless isGiven (mapM_ makeTouchable vars)
@@ -200,12 +214,12 @@ canon isGiven injectiveP rest (Constraint_Unify t1 t2) = case (t1,t2) of
   -- Next are Tdec and Faildec
   (s1 :-->: r1, s2 :-->: r2) ->
     return $ Applied [Constraint_Unify s1 s2, Constraint_Unify r1 r2]
-  (_ :-->: _, MonoType_Con _ _) -> throwError (SolverError_Unify UnifyErrorReason_Head t1 t2)
-  (MonoType_Con _ _, _ :-->: _) -> throwError (SolverError_Unify UnifyErrorReason_Head t1 t2)
+  (_ :-->: _, MonoType_Con _ _) -> throwNamedError (SolverError_Unify UnifyErrorReason_Head t1 t2)
+  (MonoType_Con _ _, _ :-->: _) -> throwNamedError (SolverError_Unify UnifyErrorReason_Head t1 t2)
   (MonoType_Con c1 a1, MonoType_Con c2 a2)
     | c1 == c2, length a1 == length a2 -> return $ Applied $ zipWith Constraint_Unify a1 a2
-    | c1 /= c2 -> throwError (SolverError_Unify UnifyErrorReason_Head t1 t2)
-    | length a1 /= length a2 -> throwError (SolverError_Unify UnifyErrorReason_NumberOfArgs t1 t2)
+    | c1 /= c2 -> throwNamedError (SolverError_Unify UnifyErrorReason_Head t1 t2)
+    | length a1 /= length a2 -> throwNamedError (SolverError_Unify UnifyErrorReason_NumberOfArgs t1 t2)
   -- Orient
   (_, _) | t1 > t2   -> return $ Applied [Constraint_Unify t2 t1]
          | otherwise -> return NotApplicable
@@ -239,7 +253,7 @@ canon isGiven _ _ (Constraint_Class c ts)
   | otherwise = return NotApplicable
 -- Rest
 canon _ _ _ (Constraint_Exists _)   = return NotApplicable
-canon _ _ _ Constraint_Inconsistent = throwError SolverError_Inconsistency
+canon _ _ _ Constraint_Inconsistent = throwNamedError SolverError_Inconsistency
 canon True _ _ (Constraint_Later _ l) = return $ Applied l   -- on given, later is no-op
 canon _    _ _ (Constraint_Later _ _) = return NotApplicable -- on wanted, later is taken care... later
 
@@ -392,7 +406,7 @@ findLub ctx p1 p2 =
           (q2,t2,v2) <- split p2
           tau <- fresh $ string2Name "tau"
           let cs = [Constraint_Unify (var tau) t1, Constraint_Unify (var tau) t2]
-          tch <- get
+          tch <- getTchVars
           Solution _ r s _ <- solveApartWithAxioms ctx (cs ++ q1 ++ q2) (tau : tch ++ v1 ++ v2)
           let s' = substitutionInTermsOf tch s
               r' = map (substs s') r ++ map (\(v,t) -> Constraint_Unify (MonoType_Var v) t) s'
@@ -407,7 +421,7 @@ checkSubsumption ctx p1 p2 =
   if p1 `aeq` p2 then return (Applied [])
   else do (q1,t1,v1)  <- split p1
           (q2,t2,_v2) <- split p2
-          tch <- get
+          tch <- getTchVars
           Solution _ r s _ <- solveApartWithAxioms (ctx ++ q2) (Constraint_Unify t1 t2 : q1) (tch `union` v1)
           let s' = substitutionInTermsOf tch s
               r' = map (substs s') r ++ map (\(v,t) -> Constraint_Unify (MonoType_Var v) t)
@@ -437,8 +451,8 @@ checkEquivalence ctx p1 p2 = do
   c1 <- checkSubsumption ctx p1 p2
   c2 <- checkSubsumption ctx p2 p1
   case (c1,c2) of
-    (NotApplicable, _) -> throwError (SolverError_Equiv p1 p2)
-    (_, NotApplicable) -> throwError (SolverError_Equiv p1 p2)
+    (NotApplicable, _) -> throwNamedError (SolverError_Equiv p1 p2)
+    (_, NotApplicable) -> throwNamedError (SolverError_Equiv p1 p2)
     (Applied a1, Applied a2) -> return $ Applied (a1 ++ a2)
 
 topReact :: Bool -> (String -> Bool) -> (String -> Bool) -> Axiom -> Constraint -> SMonad SolutionStep
@@ -477,7 +491,7 @@ topReact _ _ _ ax@(Axiom_Class b) (Constraint_Class c ms)
 topReact _ _ _ _ _ = return NotApplicable
 
 doLater :: Constraint -> SMonad SolutionStep
-doLater (Constraint_Later _ l) = return $ Applied l
+doLater (Constraint_Later m l) = setLaterMessage m >> return (Applied l)
 doLater _                      = return NotApplicable
 
 -- Phase 2b: convert to solution
