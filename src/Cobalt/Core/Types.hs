@@ -298,7 +298,7 @@ showConstraint (Constraint_Exists b)  = do (x, (q,c)) <- unbind b
                                            return $ "∃" ++ show x ++ "(" ++ q' ++ " => " ++ c' ++ ")"
 showConstraint (Constraint_Inconsistent) = return "⊥"
 showConstraint (Constraint_Later s l) = do l' <- showConstraintList' l
-                                           return $ "later \"" ++ s ++ "\" " ++ show l'
+                                           return $ "later \"" ++ s ++ "\" [" ++ l' ++ "]"
 
 instance Show Axiom where
   show = runFreshM . showAxiom

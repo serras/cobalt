@@ -191,7 +191,8 @@ createPolyTypeBind x p = PolyType_Bind $ bind (string2Name x) p
 
 parseConstraint :: Parsec String s Constraint
 parseConstraint = Constraint_Inconsistent <$ reservedOp "_|_"
-              <|> Constraint_Later <$> stringLiteral
+              <|> Constraint_Later <$  reserved "later"
+                                   <*> stringLiteral
                                    <*> brackets (commaSep1 parseConstraint)
               <|> try (Constraint_Inst  <$> (var . string2Name <$> parseVarName)
                                         <*  reservedOp ">"
