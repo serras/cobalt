@@ -353,6 +353,8 @@ syntaxConstraintToScript (Constraint_Exists _) _ =
   error "Existential constraints not allowed"
 syntaxConstraintToScript (Constraint_Later _ _) _ =
   error "Later constraints not allowed"
+syntaxConstraintToScript (Constraint_Cond _ _ _) _ =
+  error "Cond constraints not allowed"
 syntaxConstraintToScript Constraint_Inconsistent _ =
   Constraint_Inconsistent
 

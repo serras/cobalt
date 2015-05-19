@@ -35,6 +35,7 @@ module Cobalt.Core.Types (
 , _Constraint_Class
 , _Constraint_Exists
 , _Constraint_Later
+, _Constraint_Cond
 , showConstraintList
 , Axiom(..)
 , isTresspasable
@@ -122,6 +123,9 @@ orderConstraint _ (Constraint_Exists _) = GT
 orderConstraint (Constraint_Later _ _) (Constraint_Later _ _) = EQ
 orderConstraint (Constraint_Later _ _) _ = LT
 orderConstraint _ (Constraint_Later _ _) = GT
+orderConstraint (Constraint_Cond _ _ _) (Constraint_Cond _ _ _) = EQ
+orderConstraint (Constraint_Cond _ _ _) _ = LT
+orderConstraint _ (Constraint_Cond _ _ _) = GT
 orderConstraint Constraint_Inconsistent Constraint_Inconsistent = EQ
 -- TODO!!!!
 
@@ -202,22 +206,24 @@ data Constraint = Constraint_Unify MonoType MonoType
                 | Constraint_Class String [MonoType]
                 | Constraint_Exists (Bind [TyVar] ([Constraint],[Constraint]))
                 | Constraint_Later String [Constraint]
+                | Constraint_Cond  [Constraint] [Constraint] [Constraint]
                 | Constraint_Inconsistent
 
 $(makePrisms ''Constraint)
 
 instance Eq Constraint where
-  Constraint_Unify m1 m2  == Constraint_Unify n1 n2 = m1 == n1 && m2 == n2
-  Constraint_Inst  m1 m2  == Constraint_Inst  n1 n2 = m1 == n1 && m2 == n2
-  Constraint_Equal m1 m2  == Constraint_Equal n1 n2 = m1 == n1 && m2 == n2
-  Constraint_Class c1 a1  == Constraint_Class c2 a2 = c1 == c2 && a1 == a2
-  Constraint_Exists b1    == Constraint_Exists b2 = runFreshM $ do
+  Constraint_Unify m1 m2 == Constraint_Unify n1 n2 = m1 == n1 && m2 == n2
+  Constraint_Inst  m1 m2 == Constraint_Inst  n1 n2 = m1 == n1 && m2 == n2
+  Constraint_Equal m1 m2 == Constraint_Equal n1 n2 = m1 == n1 && m2 == n2
+  Constraint_Class c1 a1 == Constraint_Class c2 a2 = c1 == c2 && a1 == a2
+  Constraint_Exists b1   == Constraint_Exists b2   = runFreshM $ do
     s <- unbind2 b1 b2
     case s of
       Just (_,c1,_,c2) -> return $ c1 == c2
       Nothing          -> return False
-  Constraint_Inconsistent == Constraint_Inconsistent = True
-  Constraint_Later _ l1   == Constraint_Later _ l2   = l1 == l2
+  Constraint_Inconsistent  == Constraint_Inconsistent  = True
+  Constraint_Later _ l1    == Constraint_Later _ l2    = l1 == l2
+  Constraint_Cond c1 t1 e1 == Constraint_Cond c2 t2 e2 = c1 == c2 && t1 == t2 && e1 == e2
   _ == _ = False
 
 data Axiom = Axiom_Unify (Bind [TyVar] (MonoType, MonoType))
@@ -297,8 +303,12 @@ showConstraint (Constraint_Exists b)  = do (x, (q,c)) <- unbind b
                                            c' <- showConstraintList' c
                                            return $ "∃" ++ show x ++ "(" ++ q' ++ " => " ++ c' ++ ")"
 showConstraint (Constraint_Inconsistent) = return "⊥"
-showConstraint (Constraint_Later s l) = do l' <- showConstraintList' l
-                                           return $ "later \"" ++ s ++ "\" [" ++ l' ++ "]"
+showConstraint (Constraint_Later s l)  = do l' <- showConstraintList' l
+                                            return $ "later \"" ++ s ++ "\" [" ++ l' ++ "]"
+showConstraint (Constraint_Cond c t e) = do c' <- showConstraintList' c
+                                            t' <- showConstraintList' t
+                                            e' <- showConstraintList' e
+                                            return $ "cond [" ++ c' ++ "] [" ++ t' ++ "] [" ++ e' ++ "]"
 
 instance Show Axiom where
   show = runFreshM . showAxiom

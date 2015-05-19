@@ -254,8 +254,10 @@ canon isGiven _ _ (Constraint_Class c ts)
 -- Rest
 canon _ _ _ (Constraint_Exists _)   = return NotApplicable
 canon _ _ _ Constraint_Inconsistent = throwNamedError SolverError_Inconsistency
-canon True _ _ (Constraint_Later _ l) = return $ Applied l   -- on given, later is no-op
-canon _    _ _ (Constraint_Later _ _) = return NotApplicable -- on wanted, later is taken care... later
+canon True  _ _ (Constraint_Later _ l) = return $ Applied l   -- on given, later is no-op
+canon False _ _ (Constraint_Later _ _) = return NotApplicable -- on wanted, later is taken care... later
+canon True  _ _ (Constraint_Cond _ _ e) = return $ Applied e   -- on given, return the else part
+canon False _ _ (Constraint_Cond _ _ _) = return NotApplicable -- on wanted, cond is taken care... also later
 
 instantiate :: PolyType -> Bool -> SMonad ([Constraint], MonoType)
 instantiate (PolyType_Bind b) tch = do
@@ -491,8 +493,9 @@ topReact _ _ _ ax@(Axiom_Class b) (Constraint_Class c ms)
 topReact _ _ _ _ _ = return NotApplicable
 
 doLater :: Constraint -> SMonad SolutionStep
-doLater (Constraint_Later m l) = setLaterMessage m >> return (Applied l)
-doLater _                      = return NotApplicable
+doLater (Constraint_Later m l)  = setLaterMessage m >> return (Applied l)
+doLater (Constraint_Cond _ _ _) = error "Cond should not appear here!"
+doLater _                       = return NotApplicable
 
 -- Phase 2b: convert to solution
 

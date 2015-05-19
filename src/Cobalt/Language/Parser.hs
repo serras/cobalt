@@ -194,6 +194,10 @@ parseConstraint = Constraint_Inconsistent <$ reservedOp "_|_"
               <|> Constraint_Later <$  reserved "later"
                                    <*> stringLiteral
                                    <*> brackets (commaSep1 parseConstraint)
+              <|> Constraint_Cond  <$  reserved "cond"
+                                   <*> brackets (commaSep1 parseConstraint)
+                                   <*> brackets (commaSep1 parseConstraint)
+                                   <*> brackets (commaSep1 parseConstraint)
               <|> try (Constraint_Inst  <$> (var . string2Name <$> parseVarName)
                                         <*  reservedOp ">"
                                         <*> parsePolyType)
@@ -508,7 +512,7 @@ lexer = T.makeTokenParser $ haskellDef { T.reservedNames = "rule" : "strict" : "
                                                            : "call" : "returning"                  -- Type tree
                                                            : "inout" : "outin"                     -- Type tree ordering
                                                            : "injective" : "defer" : "synonym"     -- Axioms
-                                                           : "do" : "with" : "later"               -- Syntax
+                                                           : "do" : "with" : "later" : "cond"      -- Syntax
                                                            : T.reservedNames haskellDef }
 
 parens :: Parsec String s a -> Parsec String s a

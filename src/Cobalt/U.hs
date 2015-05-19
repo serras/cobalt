@@ -22,6 +22,7 @@ import Unbound.LocallyNameless hiding (name, union)
 
 import Cobalt.Core
 import Cobalt.Language
+import Cobalt.OutsideIn (entails)
 import Cobalt.U.Gather
 import Cobalt.U.Attributes
 import Cobalt.U.Solver
@@ -144,6 +145,11 @@ tcDefns gs env terms = runFreshM $ tcDefns_ env terms
             Nothing -> (result :) <$> tcDefns_ env_ ds
             Just p  -> (result :) <$> tcDefns_ (Env ((translate name, p):fn) da ax ru) ds
 
+resolveCond :: [Constraint] -> [TyVar] -> Env -> Constraint -> [Constraint]
+resolveCond sat tch (Env _ _ ax _) (Constraint_Cond c t e)
+  | null c || entails ax sat c tch = t
+  | otherwise                      = e
+resolveCond _ _ _ c = [c]  -- Do nothing on the rest
 
 -- COPIED FROM Cobalt.OutsideIn.Top
 -- ================================
