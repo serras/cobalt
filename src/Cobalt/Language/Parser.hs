@@ -182,7 +182,7 @@ parsePolyType' = createPolyTypeBind <$> braces identifier
 
 parseClosedPolyType :: Parsec String s PolyType
 parseClosedPolyType = do t <- parsePolyType
-                         if null $ fvAny t
+                         if null (fvAny t :: [AnyName])
                             then return t
                             else fail "Closed type expected"
 

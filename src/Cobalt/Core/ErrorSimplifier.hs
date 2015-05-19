@@ -1,9 +1,14 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE FlexibleContexts #-}
 module Cobalt.Core.ErrorSimplifier (
   simplifyErrorExplanation
 ) where
 
+#if MIN_VERSION_base(4,8,0)
+#else
 import Control.Applicative
+#endif
 import Data.List (find, nub)
 import Data.Maybe (isNothing)
 import Unbound.LocallyNameless
@@ -42,9 +47,10 @@ doOneSimplifyBlame (Constraint_Inst  v (PolyType_Mono [] m), info) b = (Just ((C
 doOneSimplifyBlame cc@(Constraint_Unify (MonoType_Var v) m, info) b | noComments info = loop b
   where loop [] = (Nothing, True)
         loop ((c, info2) : rest)
-          | v `elem` fv c = let mixed = (subst v m c, mixInfo info info2) in case loop rest of
-                              (Just (_,rst), del) -> (Just (cc, mixed : rst),  del)
-                              (Nothing,      del) -> (Just (cc, mixed : rest), del)
+          | v `elem` (fv c :: [TyVar])
+                      = let mixed = (subst v m c, mixInfo info info2) in case loop rest of
+                          (Just (_,rst), del) -> (Just (cc, mixed : rst),  del)
+                          (Nothing,      del) -> (Just (cc, mixed : rest), del)
           | otherwise = let (rst, del) = loop rest
                             changeRst (_, info3) = (cc, (c,info2) : info3)
                          in (changeRst <$> rst, del)

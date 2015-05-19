@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE FlexibleContexts #-}
 module Cobalt.OutsideIn.Solver (
@@ -9,7 +10,10 @@ module Cobalt.OutsideIn.Solver (
 , simpl
 ) where
 
+#if MIN_VERSION_base(4,8,0)
+#else
 import Control.Applicative ((<$>))
+#endif
 import Control.Lens.Extras
 import Control.Monad.Except
 import Control.Monad.Reader
@@ -187,7 +191,7 @@ canon isGiven injectiveP rest (Constraint_Unify t1 t2) = case (t1,t2) of
                                                     else return NotApplicable
     | otherwise -> return NotApplicable
   (MonoType_Var v, _)
-    | v `elem` fv t2, isFamilyFree t2
+    | v `elem` (fv t2 :: [TyVar]), isFamilyFree t2
                       -> throwNamedError (SolverError_Infinite v t2)
     | isFamilyFree t2 -> do b <- isTouchable v  -- Check touchability when no family
                             if b || isGiven
@@ -294,10 +298,10 @@ unifyInteract' :: (String -> Bool) -> Constraint -> Constraint -> SMonad Solutio
 unifyInteract' injectiveP (Constraint_Unify t1 s1) (Constraint_Unify t2 s2) = case (t1,t2) of
   (MonoType_Var v1, MonoType_Var v2)
     | v1 == v2, isFamilyFree s1, isFamilyFree s2 -> return $ Applied [Constraint_Unify s1 s2]
-    | v1 `elem` fv s2, isFamilyFree s1, isFamilyFree s2 -> return $ Applied [Constraint_Unify t2 (subst v1 s1 s2)]
+    | v1 `elem` (fv s2 :: [TyVar]), isFamilyFree s1, isFamilyFree s2 -> return $ Applied [Constraint_Unify t2 (subst v1 s1 s2)]
     | otherwise -> return NotApplicable
   (MonoType_Var v1, MonoType_Fam _ args)
-    | isFamilyFree s1, all isFamilyFree args, v1 `elem` fv t2 || v1 `elem` fv s2, isFamilyFree s2 ->
+    | isFamilyFree s1, all isFamilyFree args, v1 `elem` (fv t2 :: [TyVar]) || v1 `elem` (fv s2 :: [TyVar]), isFamilyFree s2 ->
         return $ Applied [Constraint_Unify (subst v1 s1 t2) (subst v1 s1 s2)]
     | otherwise -> return NotApplicable
   (MonoType_Fam f1 a1, MonoType_Fam f2 a2)
@@ -307,13 +311,13 @@ unifyInteract' injectiveP (Constraint_Unify t1 s1) (Constraint_Unify t2 s2) = ca
   _ -> return NotApplicable
 -- Replace something over another constraint
 unifyInteract' _ (Constraint_Unify (MonoType_Var v1) s1) (Constraint_Inst t2 s2)
-  | v1 `elem` fv t2 || v1 `elem` fv s2, isFamilyFree s1
+  | v1 `elem` (fv t2 :: [TyVar]) || v1 `elem` (fv s2 :: [TyVar]), isFamilyFree s1
   = return $ Applied [Constraint_Inst (subst v1 s1 t2) (subst v1 s1 s2)]
 unifyInteract' _ (Constraint_Unify (MonoType_Var v1) s1) (Constraint_Equal t2 s2)
-  | v1 `elem` fv t2 || v1 `elem` fv s2, isFamilyFree s1
+  | v1 `elem` (fv t2 :: [TyVar]) || v1 `elem` (fv s2 :: [TyVar]), isFamilyFree s1
   = return $ Applied [Constraint_Equal (subst v1 s1 t2) (subst v1 s1 s2)]
 unifyInteract' _ (Constraint_Unify (MonoType_Var v1) s1) (Constraint_Class c ss2)
-  | v1 `elem` fv ss2, all isFamilyFree ss2
+  | v1 `elem` (fv ss2 :: [TyVar]), all isFamilyFree ss2
   = return $ Applied [Constraint_Class c (subst v1 s1 ss2)]
 -- Special case for instantiating a variable appearing in a type family
 unifyInteract' _ (Constraint_Unify (MonoType_Fam _ vs) _) (Constraint_Inst v@(MonoType_Var _) p)
@@ -412,7 +416,7 @@ findLub ctx p1 p2 =
           Solution _ r s _ <- solveApartWithAxioms ctx (cs ++ q1 ++ q2) (tau : tch ++ v1 ++ v2)
           let s' = substitutionInTermsOf tch s
               r' = map (substs s') r ++ map (\(v,t) -> Constraint_Unify (MonoType_Var v) t) s'
-              (floatR, closeR) = partition (all (`elem` tch) . fv) r'
+              (floatR, closeR) = partition (\x -> all (`elem` tch) (fv x :: [TyVar])) r'
               (closedR, _) = closeExn closeR (substs s' (var tau)) (`elem` tch)
           return (Applied floatR, closedR)
 
@@ -459,7 +463,7 @@ checkEquivalence ctx p1 p2 = do
 
 topReact :: Bool -> (String -> Bool) -> (String -> Bool) -> Axiom -> Constraint -> SMonad SolutionStep
 topReact _ deferP _ (Axiom_Unify _) (Constraint_Unify (MonoType_Fam f ms) (MonoType_Var v))
-  | deferP f, v `notElem` fv ms = return NotApplicable  -- deferred type family
+  | deferP f, v `notElem` (fv ms :: [TyVar]) = return NotApplicable  -- deferred type family
 topReact _ _ injP ax@(Axiom_Unify b) (Constraint_Unify fam@(MonoType_Fam f ms) t)
   | all isFamilyFree ms, isFamilyFree t = do
       (aes, (lhs, rhs)) <- unbind b

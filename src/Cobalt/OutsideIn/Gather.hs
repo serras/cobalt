@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -8,7 +9,10 @@ module Cobalt.OutsideIn.Gather (
 , gather
 ) where
 
+#if MIN_VERSION_base(4,8,0)
+#else
 import Control.Applicative
+#endif
 import Control.Lens
 import Control.Monad.Except
 import Control.Monad.Reader

@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -5,14 +6,19 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE OverlappingInstances #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+#if __GLASGOW_HASKELL__ < 710
+{-# LANGUAGE OverlappingInstances #-}
+#endif
 module Cobalt.U.Rules.Check (
   check
 , checkEnv
 ) where
 
+#if MIN_VERSION_base(4,8,0)
+#else
 import Control.Applicative
+#endif
 import Control.Monad (replicateM)
 import Data.List (nub, (\\), intercalate)
 import Data.MultiGenerics
@@ -59,7 +65,7 @@ checkEnv env@(Sy.Env _ _ ax rules) = case checkEnv_ rules (1 :: Integer) of
             _                -> Nothing
 
 
-astGenerator :: Rx.Regex (Rx.Wrap Integer) (UTerm_ ((SourcePos,SourcePos),TyVar)) IsATerm
+astGenerator :: Rx.Regex (Rx.Wrap Integer) (UTerm_ ((SourcePos,SourcePos),TyVar)) 'IsATerm
              -> Gen (AnnUTerm TyVar)
 astGenerator = Rx.arbitraryFromRegexAndGen generateVar
 

@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Cobalt.U (
@@ -12,7 +13,10 @@ module Cobalt.U (
 , tcDefns
 ) where
 
+#if MIN_VERSION_base(4,8,0)
+#else
 import Control.Applicative ((<$>))
+#endif
 import Control.Lens.Extras
 import Control.Monad.Except
 import Data.List (nub)

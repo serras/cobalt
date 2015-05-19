@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -13,7 +14,10 @@ import Control.Lens.Extras
 import Control.Monad.State (MonadState)
 import Data.List (insert, (\\), nub)
 import Data.Maybe (fromJust)
+#if MIN_VERSION_base(4,8,0)
+#else
 import Data.Monoid
+#endif
 import Data.Regex.MultiGenerics hiding (var)
 import Data.Regex.MultiRules
 import Unbound.LocallyNameless

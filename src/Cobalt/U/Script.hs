@@ -1,9 +1,12 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE PatternGuards #-}
-{-# LANGUAGE OverlappingInstances #-}
 {-# LANGUAGE DeriveFunctor #-}
+#if __GLASGOW_HASKELL__ < 710
+{-# LANGUAGE OverlappingInstances #-}
+#endif
 module Cobalt.U.Script (
   Script(..)
 , TyScript

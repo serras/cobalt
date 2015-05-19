@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE GADTs #-}
@@ -7,15 +8,19 @@ module Cobalt.U.Rules.Translation (
 , syntaxRuleToScriptRule
 ) where
 
+#if MIN_VERSION_base(4,8,0)
+import Data.Foldable (fold)
+#else
 import Control.Applicative
+import Data.Foldable (fold, foldMap)
+import Data.Monoid
+#endif
 import Control.Lens
 import Control.Lens.Extras (is)
 import Control.Monad.State
-import Data.Foldable (fold, foldMap)
 import Data.Function (on)
 import Data.List (elemIndex, union, sortBy)
 import Data.Maybe (fromJust)
-import Data.Monoid
 import Data.Regex.MultiGenerics hiding (var)
 import qualified Data.Regex.MultiRules as Rx
 import Unbound.LocallyNameless hiding (union, GT)
@@ -100,8 +105,8 @@ syntaxMapToTy :: TranslationInfoEnv -> TranslationTypeEnv
 syntaxMapToTy = map (\(v, GatherTerm _ exprs _) -> (v, map (var . snd . ann) exprs))
 
 -- Translation of "case" block
-syntaxRegexToScriptRegex :: RuleRegex -> [(RuleRegexVar, c IsATerm)]
-                         -> CaptureVarList -> Regex' c WI UTermWithPos IsATerm
+syntaxRegexToScriptRegex :: RuleRegex -> [(RuleRegexVar, c 'IsATerm)]
+                         -> CaptureVarList -> Regex' c WI UTermWithPos 'IsATerm
 syntaxRegexToScriptRegex (RuleRegex_Square v) capturevars _tyvars =
   square $ fromJust $ lookup v capturevars
 syntaxRegexToScriptRegex (RuleRegex_Iter   b) capturevars tyvars = runFreshM $ do

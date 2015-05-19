@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RecordWildCards #-}
 module Cobalt.Core.Graph (
@@ -17,7 +18,10 @@ module Cobalt.Core.Graph (
 import qualified Data.Graph.Inductive as D
 import Data.List
 import Data.Maybe
+#if MIN_VERSION_base(4,8,0)
+#else
 import Data.Monoid
+#endif
 
 import Cobalt.Core.Errors
 import Cobalt.Core.Types

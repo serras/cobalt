@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -6,10 +7,12 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE OverlappingInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+#if __GLASGOW_HASKELL__ < 710
+{-# LANGUAGE OverlappingInstances #-}
+#endif
 module Cobalt.Language.Syntax (
   -- * Terms
   RawTermVar
@@ -51,7 +54,10 @@ module Cobalt.Language.Syntax (
 
 import Control.Lens hiding ((.=), from, to)
 import Data.List (intercalate, union)
+#if MIN_VERSION_base(4,8,0)
+#else
 import Data.Monoid
+#endif
 import Text.Parsec.Pos
 import Unbound.LocallyNameless hiding (close, union)
 

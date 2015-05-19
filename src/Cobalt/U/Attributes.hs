@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -27,7 +28,10 @@ module Cobalt.U.Attributes (
 
 import Control.Lens hiding (at)
 import Data.List (union)
+#if MIN_VERSION_base(4,8,0)
+#else
 import Data.Monoid
+#endif
 import Data.Regex.MultiGenerics hiding (var)
 import qualified Data.Regex.MultiRules as Rx
 import Unbound.LocallyNameless (FreshM)
@@ -39,8 +43,8 @@ import Cobalt.U.Script
 type Errors = [String]
 data Syn (ix :: Ix) where
   Error      :: Errors -> Syn ix
-  GatherTerm :: [Constraint] -> [UTerm ((SourcePos,SourcePos),TyVar)] -> [FreshM GatherTermInfo] -> Syn IsATerm
-  GatherCase :: [GatherCaseInfo] -> Syn IsACaseAlternative
+  GatherTerm :: [Constraint] -> [UTerm ((SourcePos,SourcePos),TyVar)] -> [FreshM GatherTermInfo] -> Syn 'IsATerm
+  GatherCase :: [GatherCaseInfo] -> Syn 'IsACaseAlternative
 
 data GatherTermInfo = GatherTermInfo { tree :: TyScript
                                      , custom :: [Constraint]
@@ -55,14 +59,14 @@ data GatherCaseInfo = GatherCaseInfo { _extraConstraints :: [Constraint]
                                      , _thisVar :: TyVar
                                      }
 
-type Gathered = Syn IsATerm
+type Gathered = Syn 'IsATerm
 
 _Error :: Prism' (Syn ix) Errors
 _Error = prism Error (\x -> case x of
                               Error e -> Right e
                               _       -> Left x)
 
-_Term :: Prism' (Syn IsATerm) ([Constraint], [UTerm ((SourcePos,SourcePos),TyVar)], [FreshM GatherTermInfo])
+_Term :: Prism' (Syn 'IsATerm) ([Constraint], [UTerm ((SourcePos,SourcePos),TyVar)], [FreshM GatherTermInfo])
 _Term = prism (\(g,v,i) -> GatherTerm g v i)
               (\x -> case x of
                        GatherTerm g v i -> Right (g,v,i)
@@ -83,20 +87,20 @@ wanted :: Functor f => ([FreshM GatherTermInfo] -> f [FreshM GatherTermInfo])
        -> f ([Constraint], [UTerm ((SourcePos,SourcePos),TyVar)], [FreshM GatherTermInfo])
 wanted = _3
 
-_Case :: Prism' (Syn IsACaseAlternative) [GatherCaseInfo]
+_Case :: Prism' (Syn 'IsACaseAlternative) [GatherCaseInfo]
 _Case = prism GatherCase
               (\x -> case x of
                        GatherCase g -> Right g
                        _            -> Left x)
 
-instance Monoid (Syn IsATerm) where
+instance Monoid (Syn 'IsATerm) where
   mempty = GatherTerm [] [] []
   (Error e1) `mappend` (Error e2) = Error (e1 `union` e2)
   e@(Error _) `mappend` _ = e
   _ `mappend` e@(Error _) = e
   (GatherTerm g1 v1 i1) `mappend` (GatherTerm g2 v2 i2) = GatherTerm (g1 ++ g2) (v1 ++ v2) (i1 ++ i2)
 
-instance Monoid (Syn IsACaseAlternative) where
+instance Monoid (Syn 'IsACaseAlternative) where
   mempty = GatherCase []
   (Error e1) `mappend` (Error e2) = Error (e1 `union` e2)
   e@(Error _) `mappend` _ = e

@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -41,7 +42,10 @@ module Cobalt.Core.Types (
 , isTresspasable
 ) where
 
+#if MIN_VERSION_base(4,8,0)
+#else
 import Control.Applicative ((<$>))
+#endif
 import Control.Lens hiding ((.=), from, to)
 import Data.List (insert, intercalate, find, nub, sortBy, (\\))
 import Data.Maybe (isJust)
@@ -101,8 +105,8 @@ nf = runFreshM . nf' []
            reverseBind :: [TyVar] -> PolyType -> PolyType
            reverseBind [] p = p
            reverseBind (x:xs) p
-             | x `elem` fv p = reverseBind xs $ PolyType_Bind (bind x p)
-             | otherwise     = p
+             | x `elem` (fv p :: [TyVar]) = reverseBind xs $ PolyType_Bind (bind x p)
+             | otherwise                  = p
 
 orderConstraint :: Constraint -> Constraint -> Ordering
 orderConstraint (Constraint_Unify t1 t2) (Constraint_Unify s1 s2) = compare (t1,t2) (s1,s2)
@@ -191,10 +195,11 @@ closeExn cs m except = let (cns, vars) = closeTypeA (filter (hasCsFv (fv m)) cs)
                                  _  -> let (finalCs, finalVrs) = closeTypeA (preCs ++ filtC)
                                         in (finalCs ++ filtC, (fv filtC) ++ finalVrs)
         -- check if fv are there
+        hasCsFv :: [TyVar] -> Constraint -> Bool
         hasCsFv lst (Constraint_Inst  (MonoType_Var v) _) = v `elem` lst
         hasCsFv lst (Constraint_Equal (MonoType_Var v) _) = v `elem` lst
-        hasCsFv lst (Constraint_Unify t1 t2) = any (`elem` lst) (fv t1) || any (`elem` lst) (fv t2)
-        hasCsFv lst (Constraint_Class _ t)   = any (`elem` lst) (fv t)
+        hasCsFv lst (Constraint_Unify t1 t2) = any (`elem` lst) (fv t1 :: [TyVar]) || any (`elem` lst) (fv t2 :: [TyVar])
+        hasCsFv lst (Constraint_Class _ t)   = any (`elem` lst) (fv t :: [TyVar])
         hasCsFv _ _ = False
         -- final close
         finalClose []     p = p

@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE RankNTypes #-}
@@ -42,10 +43,13 @@ module Cobalt.Language.UnboundSyntax (
 , atUAnn
 ) where
 
+#if MIN_VERSION_base(4,8,0)
+#else
 import Control.Applicative (Applicative, (<$>), (<*>), pure)
+import Data.Traversable (traverse)
+#endif
 import Data.List (intercalate)
 import Data.MultiGenerics
-import Data.Traversable (traverse)
 import Text.Parsec.Pos (SourcePos)
 import Unbound.LocallyNameless hiding (close)
 
@@ -54,32 +58,32 @@ import Cobalt.Language.Syntax
 
 data Ix = IsATerm | IsACaseAlternative
 data instance Sing (a :: Ix) where
-  SIsATerm            :: Sing IsATerm
-  SIsACaseAlternative :: Sing IsACaseAlternative
+  SIsATerm            :: Sing 'IsATerm
+  SIsACaseAlternative :: Sing 'IsACaseAlternative
 deriving instance Eq (Sing (a :: Ix))
 
-instance SingI IsATerm where
+instance SingI 'IsATerm where
   sing = SIsATerm
-instance SingI IsACaseAlternative where
+instance SingI 'IsACaseAlternative where
   sing = SIsACaseAlternative
 
 type UnboundPolyType = (PolyType, ([Constraint], MonoType, [TyVar]))
 
 data UTerm_ t (f :: Ix -> *) (ix :: Ix) where
-  UTerm_IntLiteral_ :: Integer -> t -> UTerm_ t f IsATerm
-  UTerm_Var_        :: UTermVar t -> t -> UTerm_ t f IsATerm
-  UTerm_Abs_        :: UTermVar t -> t -> f IsATerm -> t -> UTerm_ t f IsATerm
-  UTerm_AbsAnn_     :: UTermVar t -> t -> f IsATerm -> UnboundPolyType -> t -> UTerm_ t f IsATerm
-  UTerm_App_        :: f IsATerm -> f IsATerm -> t -> UTerm_ t f IsATerm
-  UTerm_Let_        :: UTermVar t -> f IsATerm -> f IsATerm -> t -> UTerm_ t f IsATerm
-  UTerm_LetAnn_     :: UTermVar t -> f IsATerm -> f IsATerm -> UnboundPolyType -> t -> UTerm_ t f IsATerm
-  UTerm_Match_      :: f IsATerm -> String -> Maybe MonoType -> [f IsACaseAlternative] -> t -> UTerm_ t f IsATerm
-  UTerm_StrLiteral_ :: String -> t -> UTerm_ t f IsATerm
-  UCaseAlternative_ :: UTermVar t -> [UTermVar t] -> Maybe UnboundPolyType -> f IsATerm -> t -> UTerm_ t f IsACaseAlternative
+  UTerm_IntLiteral_ :: Integer -> t -> UTerm_ t f 'IsATerm
+  UTerm_Var_        :: UTermVar t -> t -> UTerm_ t f 'IsATerm
+  UTerm_Abs_        :: UTermVar t -> t -> f 'IsATerm -> t -> UTerm_ t f 'IsATerm
+  UTerm_AbsAnn_     :: UTermVar t -> t -> f 'IsATerm -> UnboundPolyType -> t -> UTerm_ t f 'IsATerm
+  UTerm_App_        :: f 'IsATerm -> f 'IsATerm -> t -> UTerm_ t f 'IsATerm
+  UTerm_Let_        :: UTermVar t -> f 'IsATerm -> f 'IsATerm -> t -> UTerm_ t f 'IsATerm
+  UTerm_LetAnn_     :: UTermVar t -> f 'IsATerm -> f 'IsATerm -> UnboundPolyType -> t -> UTerm_ t f 'IsATerm
+  UTerm_Match_      :: f 'IsATerm -> String -> Maybe MonoType -> [f 'IsACaseAlternative] -> t -> UTerm_ t f 'IsATerm
+  UTerm_StrLiteral_ :: String -> t -> UTerm_ t f 'IsATerm
+  UCaseAlternative_ :: UTermVar t -> [UTermVar t] -> Maybe UnboundPolyType -> f 'IsATerm -> t -> UTerm_ t f 'IsACaseAlternative
 
-type UTerm t = Fix (UTerm_ t) IsATerm
+type UTerm t = Fix (UTerm_ t) 'IsATerm
 type UTermVar t = Name (UTerm t)
-type UCaseAlternative t = Fix (UTerm_ t) IsACaseAlternative
+type UCaseAlternative t = Fix (UTerm_ t) 'IsACaseAlternative
 
 instance Show t => Show (UTerm t) where
   show = intercalate "\n" . showL
@@ -112,7 +116,7 @@ showU (UCaseAlternative k vs _ e a) =
   ("| " ++ intercalate " " (map show (k:vs)) ++ " => " ++ show a) : map ("  " ++) (showL e)
 showU _ = error "You should never get here"
 
-type AnnUTerm t = Fix (UTerm_ ((SourcePos,SourcePos),t)) IsATerm
+type AnnUTerm t = Fix (UTerm_ ((SourcePos,SourcePos),t)) 'IsATerm
 type AnnUTermVar t = Name (AnnUTerm t)
 
 pattern UTerm_IntLiteral n        a = Fix (UTerm_IntLiteral_ n a)
@@ -247,16 +251,16 @@ atUAnn _ _ = error "You should never get here"
 --   This is required to use tree regular expressions.
 instance Generic1m (UTerm_ t) where
   type Rep1m (UTerm_ t) =
-         Tag1m (K1m () Integer :**: K1m () t) IsATerm
-    :++: Tag1m (K1m () (UTermVar t) :**: K1m () t) IsATerm
-    :++: Tag1m (K1m () (UTermVar t) :**: K1m () t :**: Par1m IsATerm :**: K1m () t) IsATerm
-    :++: Tag1m (K1m () (UTermVar t) :**: K1m () t :**: Par1m IsATerm :**: K1m () UnboundPolyType :**: K1m () t) IsATerm
-    :++: Tag1m (Par1m IsATerm :**: Par1m IsATerm :**: K1m () t) IsATerm
-    :++: Tag1m (K1m () (UTermVar t) :**: Par1m IsATerm :**: Par1m IsATerm :**: K1m () t) IsATerm
-    :++: Tag1m (K1m () (UTermVar t) :**: Par1m IsATerm :**: Par1m IsATerm :**: K1m () UnboundPolyType :**: K1m () t) IsATerm
-    :++: Tag1m (Par1m IsATerm :**: K1m () String :**: K1m () (Maybe MonoType) :**: Rec1m [] IsACaseAlternative :**: K1m () t) IsATerm
-    :++: Tag1m (K1m () (UTermVar t) :**: K1m () [UTermVar t] :**: K1m () (Maybe UnboundPolyType) :**: Par1m IsATerm :**: K1m () t) IsACaseAlternative
-    :++: Tag1m (K1m () String :**: K1m () t) IsATerm
+         Tag1m (K1m () Integer :**: K1m () t) 'IsATerm
+    :++: Tag1m (K1m () (UTermVar t) :**: K1m () t) 'IsATerm
+    :++: Tag1m (K1m () (UTermVar t) :**: K1m () t :**: Par1m 'IsATerm :**: K1m () t) 'IsATerm
+    :++: Tag1m (K1m () (UTermVar t) :**: K1m () t :**: Par1m 'IsATerm :**: K1m () UnboundPolyType :**: K1m () t) 'IsATerm
+    :++: Tag1m (Par1m 'IsATerm :**: Par1m 'IsATerm :**: K1m () t) 'IsATerm
+    :++: Tag1m (K1m () (UTermVar t) :**: Par1m 'IsATerm :**: Par1m 'IsATerm :**: K1m () t) 'IsATerm
+    :++: Tag1m (K1m () (UTermVar t) :**: Par1m 'IsATerm :**: Par1m 'IsATerm :**: K1m () UnboundPolyType :**: K1m () t) 'IsATerm
+    :++: Tag1m (Par1m 'IsATerm :**: K1m () String :**: K1m () (Maybe MonoType) :**: Rec1m [] 'IsACaseAlternative :**: K1m () t) 'IsATerm
+    :++: Tag1m (K1m () (UTermVar t) :**: K1m () [UTermVar t] :**: K1m () (Maybe UnboundPolyType) :**: Par1m 'IsATerm :**: K1m () t) 'IsACaseAlternative
+    :++: Tag1m (K1m () String :**: K1m () t) 'IsATerm
 
   from1k (UTerm_IntLiteral_ n        a) = L1m $ Tag1m (K1m n :**: K1m a)
   from1k (UTerm_Var_ v               a) = R1m $ L1m $ Tag1m (K1m v :**: K1m a)
