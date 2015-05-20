@@ -194,6 +194,9 @@ parseConstraint = Constraint_Inconsistent <$ reservedOp "_|_"
               <|> Constraint_Later <$  reserved "later"
                                    <*> stringLiteral
                                    <*> brackets (commaSep1 parseConstraint)
+              <|> (\m -> Constraint_Later m [Constraint_Inconsistent])
+                                   <$  reserved "repair"
+                                   <*> stringLiteral
               <|> Constraint_Cond  <$  reserved "cond"
                                    <*> brackets (commaSep1 parseConstraint)
                                    <*> brackets (commaSep1 parseConstraint)

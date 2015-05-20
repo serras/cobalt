@@ -13,10 +13,10 @@ import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Writer
-import Data.List (union, foldl')
+import Data.List (union, foldl', sortBy)
 import Data.Maybe (maybeToList)
 import Text.Parsec.Pos (SourcePos)
-import Unbound.LocallyNameless hiding (union)
+import Unbound.LocallyNameless hiding (union, GT)
 
 import Cobalt.Core
 import qualified Cobalt.OutsideIn as OIn
@@ -87,13 +87,11 @@ simpl ax g tch cm prev (Join lst pos) = do
       errs = map (\(_,e,_) -> e) results
   solved <- simplMany' ax results
   case solved of
-    (Left err, graph) ->
-       -- TODO: should be changed to use an heuristic
-       let (fstSol, _, fstGraph) = head results
-        in return ( ( fstSol
-                    , makeExplanation err pos cm graph : concat errs
-                    , fstGraph )
-                  , concat exs )
+    (Left err, graph) -> do
+       (Right prunedS, prunedG) <- pruneJoin ax results
+       return ( ( prunedS
+                , makeExplanation err pos cm graph : concat errs
+                , prunedG), concat exs)
     (Right s, graph) -> return ((s, concat errs, graph), concat exs)
 simpl ax g tch cm prev (AsymJoin s1 s2 pos) =
   simpl ax g tch cm prev (Join [s1,s2] pos)
@@ -101,6 +99,21 @@ simpl ax g tch cm prev (Sequence s1 s2 _pos) = do
   (result1@(_sol1,errs1,_), ex1) <- simpl ax g tch cm prev s1
   ((sol2,errs2,g2), ex2) <- {- trace ("using: " ++ show sol1) -} simpl ax g tch cm (Just result1) s2
   return ((sol2,errs2 ++ errs1,g2), ex1 ++ ex2)
+
+pruneJoin :: [Axiom] -> [ScriptSolution] -> FreshM (Either NamedSolverError OInState, Graph)
+pruneJoin ax sols = let _:powerset = filterM (const [True, False]) sols
+                        sorty = if length sols > 15  -- heuristic: having more than 2^25 lists in memory is too much
+                                   then powerset
+                                   else sortBy (\x y -> compare (length y) (length x)) $ reverse powerset
+                     in {- trace ("prunning " ++ show (unions $ map (\((_,w,_),_,_) -> w) sols)) $ -} pruneJoin' ax sorty
+
+pruneJoin' :: [Axiom] -> [[ScriptSolution]] -> FreshM (Either NamedSolverError OInState, Graph)
+pruneJoin' _  [] = error "This should never happen"
+pruneJoin' ax (s:ss) = do solved <- simplMany' ax s
+                          case solved of
+                            r@(Right _, _) -> {- trace ("using " ++ show (unions $ map (\((_,w,_),_,_) -> w) s)) $ -} return r
+                            (Left _, _)    -> pruneJoin' ax ss
+
 
 makeExplanation :: NamedSolverError -> (SourcePos, SourcePos) -> Maybe String -> Graph -> ErrorExplanation
 makeExplanation (NamedSolverError (laterMsg, err)) pos msg graph =

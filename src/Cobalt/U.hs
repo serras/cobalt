@@ -33,7 +33,7 @@ import Cobalt.U.Solver
 import Cobalt.U.Rules.Translation
 import Cobalt.U.Rules.Check
 
-import Debug.Trace
+-- import Debug.Trace
 
 type RawUnboundDefn = ( RawTermVar
                       , AnnUTerm TyVar
@@ -158,8 +158,8 @@ resolveCondScript sat tch env p = mapConstraintScript $ \c cp i ->
 
 resolveCond :: [Constraint] -> [TyVar] -> Env -> Constraint -> [Constraint]
 resolveCond sat tch env@(Env _ _ ax _) (Constraint_Cond c t e)
-  | null c || trace (show sat ++ "\nentails?\n" ++ show c ++ "\n") (entails ax sat c tch) = concatMap (resolveCond sat tch env) t
---  | null c || entails ax sat c tch = concatMap (resolveCond sat tch env) t
+--  | null c || trace (show sat ++ "\nentails?\n" ++ show c ++ "\n") (entails ax sat c tch) = concatMap (resolveCond sat tch env) t
+  | null c || entails ax sat c tch = concatMap (resolveCond sat tch env) t
   | otherwise                      = concatMap (resolveCond sat tch env) e
 resolveCond sat tch env (Constraint_Later s cs)
   = [Constraint_Later s $ concatMap (resolveCond sat tch env) cs]
@@ -179,7 +179,7 @@ resolveCondPolyType addToTch mt sat tch env (PolyType_Bind b) =
      rest' <- resolveCondPolyType addToTch mt sat newTch env rest
      return $ PolyType_Bind (bind v rest')
 resolveCondPolyType _ mt sat tch env (PolyType_Mono c m) =
-  return $ PolyType_Mono (concatMap (resolveCond (Constraint_Unify m mt : sat) tch env) c) m
+  return $ PolyType_Mono (concatMap (resolveCond (Constraint_Unify mt m : sat) tch env) c) m
 resolveCondPolyType _ _ _ _ _ PolyType_Bottom = return PolyType_Bottom
 
 -- COPIED FROM Cobalt.OutsideIn.Top

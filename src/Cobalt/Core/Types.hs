@@ -38,6 +38,7 @@ module Cobalt.Core.Types (
 , _Constraint_Later
 , _Constraint_Cond
 , showConstraintList
+, orderConstraint
 , Axiom(..)
 , isTresspasable
 ) where
@@ -106,7 +107,7 @@ nf = runFreshM . nf' []
            reverseBind [] p = p
            reverseBind (x:xs) p
              | x `elem` (fv p :: [TyVar]) = reverseBind xs $ PolyType_Bind (bind x p)
-             | otherwise                  = p
+             | otherwise                  = reverseBind xs p
 
 orderConstraint :: Constraint -> Constraint -> Ordering
 orderConstraint (Constraint_Unify t1 t2) (Constraint_Unify s1 s2) = compare (t1,t2) (s1,s2)
@@ -131,7 +132,6 @@ orderConstraint (Constraint_Cond _ _ _) (Constraint_Cond _ _ _) = EQ
 orderConstraint (Constraint_Cond _ _ _) _ = LT
 orderConstraint _ (Constraint_Cond _ _ _) = GT
 orderConstraint Constraint_Inconsistent Constraint_Inconsistent = EQ
--- TODO!!!!
 
 data MonoType = MonoType_Fam   String [MonoType]
               | MonoType_Var   TyVar

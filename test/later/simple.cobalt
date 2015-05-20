@@ -36,8 +36,8 @@ alex = plus (field name aString) (field age 26);
 jur  = field name aString;
 
 import get :: {f} {a} {b} {r}
-              cond [^ElemR f r ~ 'No]
-                   [later "Cannot find field" [_|_]]
+              cond [^Elem f r ~ 'No]
+                   [repair "Cannot find field"]
                    [^Elem f r ~ 'Yes, f ~ 'Field a b] => f -> 'Record r -> b;
 
 f1 = get age alex;
