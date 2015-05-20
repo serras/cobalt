@@ -52,7 +52,7 @@ import get2 :: {key} {r} {e}
 g1_ = get2 (MkPersonKey 1);
 g2_ = get2 1 => fail;
 
-import update_ :: {key} {val} {r} {s1}
+import update_ :: {key} {val} {s1}
                   later "The first argument is not a key" [
                     key ~ 'Key s1,
                     later "Key and entity types are not equal" [

@@ -33,7 +33,7 @@ import Cobalt.U.Solver
 import Cobalt.U.Rules.Translation
 import Cobalt.U.Rules.Check
 
--- import Debug.Trace
+import Debug.Trace
 
 type RawUnboundDefn = ( RawTermVar
                       , AnnUTerm TyVar
@@ -158,7 +158,8 @@ resolveCondScript sat tch env p = mapConstraintScript $ \c cp i ->
 
 resolveCond :: [Constraint] -> [TyVar] -> Env -> Constraint -> [Constraint]
 resolveCond sat tch env@(Env _ _ ax _) (Constraint_Cond c t e)
-  | null c || entails ax sat c tch = concatMap (resolveCond sat tch env) t
+  | null c || trace (show sat ++ "\nentails?\n" ++ show c ++ "\n") (entails ax sat c tch) = concatMap (resolveCond sat tch env) t
+--  | null c || entails ax sat c tch = concatMap (resolveCond sat tch env) t
   | otherwise                      = concatMap (resolveCond sat tch env) e
 resolveCond sat tch env (Constraint_Later s cs)
   = [Constraint_Later s $ concatMap (resolveCond sat tch env) cs]
@@ -166,19 +167,20 @@ resolveCond sat tch env (Constraint_Exists b) = (:[]) . Constraint_Exists $ runF
   (v, (c1,c2)) <- unbind b
   return $ bind v (concatMap (resolveCond sat tch env) c1, concatMap (resolveCond sat tch env) c2)
 resolveCond sat tch env (Constraint_Inst m p) = (:[]) . Constraint_Inst m $ runFreshM $
-  resolveCondPolyType sat tch env p
+  resolveCondPolyType True m sat tch env p
 resolveCond sat tch env (Constraint_Equal m p) = (:[]) . Constraint_Equal m $ runFreshM $
-  resolveCondPolyType sat tch env p
+  resolveCondPolyType False m sat tch env p
 resolveCond _ _ _ c = [c]  -- Do nothing on the rest
 
-resolveCondPolyType :: [Constraint] -> [TyVar] -> Env -> PolyType -> FreshM PolyType
-resolveCondPolyType sat tch env (PolyType_Bind b) =
+resolveCondPolyType :: Bool -> MonoType -> [Constraint] -> [TyVar] -> Env -> PolyType -> FreshM PolyType
+resolveCondPolyType addToTch mt sat tch env (PolyType_Bind b) =
   do (v, rest) <- unbind b
-     rest' <- resolveCondPolyType sat tch env rest
+     let newTch = if addToTch then v:tch else tch
+     rest' <- resolveCondPolyType addToTch mt sat newTch env rest
      return $ PolyType_Bind (bind v rest')
-resolveCondPolyType sat tch env (PolyType_Mono c m) =
-  return $ PolyType_Mono (concatMap (resolveCond sat tch env) c) m
-resolveCondPolyType _ _ _ PolyType_Bottom = return PolyType_Bottom
+resolveCondPolyType _ mt sat tch env (PolyType_Mono c m) =
+  return $ PolyType_Mono (concatMap (resolveCond (Constraint_Unify m mt : sat) tch env) c) m
+resolveCondPolyType _ _ _ _ _ PolyType_Bottom = return PolyType_Bottom
 
 -- COPIED FROM Cobalt.OutsideIn.Top
 -- ================================
