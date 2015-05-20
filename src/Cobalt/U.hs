@@ -33,6 +33,8 @@ import Cobalt.U.Solver
 import Cobalt.U.Rules.Translation
 import Cobalt.U.Rules.Check
 
+-- import Debug.Trace
+
 type RawUnboundDefn = ( RawTermVar
                       , AnnUTerm TyVar
                       , Maybe PolyType
@@ -163,7 +165,20 @@ resolveCond sat tch env (Constraint_Later s cs)
 resolveCond sat tch env (Constraint_Exists b) = (:[]) . Constraint_Exists $ runFreshM $ do
   (v, (c1,c2)) <- unbind b
   return $ bind v (concatMap (resolveCond sat tch env) c1, concatMap (resolveCond sat tch env) c2)
+resolveCond sat tch env (Constraint_Inst m p) = (:[]) . Constraint_Inst m $ runFreshM $
+  resolveCondPolyType sat tch env p
+resolveCond sat tch env (Constraint_Equal m p) = (:[]) . Constraint_Equal m $ runFreshM $
+  resolveCondPolyType sat tch env p
 resolveCond _ _ _ c = [c]  -- Do nothing on the rest
+
+resolveCondPolyType :: [Constraint] -> [TyVar] -> Env -> PolyType -> FreshM PolyType
+resolveCondPolyType sat tch env (PolyType_Bind b) =
+  do (v, rest) <- unbind b
+     rest' <- resolveCondPolyType sat tch env rest
+     return $ PolyType_Bind (bind v rest')
+resolveCondPolyType sat tch env (PolyType_Mono c m) =
+  return $ PolyType_Mono (concatMap (resolveCond sat tch env) c) m
+resolveCondPolyType _ _ _ PolyType_Bottom = return PolyType_Bottom
 
 -- COPIED FROM Cobalt.OutsideIn.Top
 -- ================================

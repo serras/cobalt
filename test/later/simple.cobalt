@@ -13,3 +13,32 @@ import fnOfBool   :: 'Bool -> 'BoolResult;
 
 example1 = map fnOfInt  listOfInt;
 example2 = map fnOfBool listOfInt => fail;
+
+
+axiom {a} {lst} ^ElemR a ('Record lst) ~ ^Elem a lst;
+
+axiom {a} ^Elem a 'Nil ~ 'No;
+axiom {a} {b} ^Elem a ('Cons a b) ~ 'Yes;
+axiom {a} {b} {c} ^Elem a ('Cons b c) ~ ^Elem a c;
+
+axiom {a} ^Concat 'Nil a ~ a;
+axiom {a} {b} {c} ^Concat ('Cons a b) c ~ 'Cons a (^Concat b c);
+
+import name :: 'Field 'Name 'String;
+import age  :: 'Field 'Age  'Int;
+
+import field :: {a} {b} 'Field a b -> b -> 'Record ('Cons ('Field a b) 'Nil);
+import plus  :: {a} {b} 'Record a -> 'Record b -> 'Record (^Concat a b);
+
+import aString :: 'String;
+
+alex = plus (field name aString) (field age 26);
+jur  = field name aString;
+
+import get :: {f} {a} {b} {r}
+              cond [^ElemR f r ~ 'No]
+                   [later "Cannot find field" [_|_]]
+                   [^Elem f r ~ 'Yes, f ~ 'Field a b] => f -> 'Record r -> b;
+
+f1 = get age alex;
+f2 = get age jur => fail;
