@@ -281,6 +281,17 @@ showJsonConstraint (Constraint_Later s l) = do
   oL <- showJsonConstraintList l
   return $ object [ "text"  .= ("later \"" ++ s ++ "\"" :: String)
                   , "nodes" .= oL ]
+showJsonConstraint (Constraint_Cond c t e) = do
+  cT <- showJsonConstraintList c
+  tT <- showJsonConstraintList t
+  eT <- showJsonConstraintList e
+  return $ object [ "text"  .= ("cond" :: String)
+                  , "nodes" .= [ object [ "text"  .= ("condition" :: String)
+                                        , "nodes" .= cT ]
+                               , object [ "text"  .= ("then" :: String)
+                                        , "nodes" .= tT ]
+                               , object [ "text"  .= ("else" :: String)
+                                        , "nodes" .= eT ] ] ]
 
 showJsonGraph :: Graph -> [Constraint] -> Value
 showJsonGraph g blamed =

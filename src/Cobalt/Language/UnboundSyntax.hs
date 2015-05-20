@@ -50,7 +50,7 @@ import Data.Traversable (traverse)
 #endif
 import Data.List (intercalate)
 import Data.MultiGenerics
-import Text.Parsec.Pos (SourcePos)
+-- import Text.Parsec.Pos (SourcePos)
 import Unbound.LocallyNameless hiding (close)
 
 import Cobalt.Core

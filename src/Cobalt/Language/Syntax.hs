@@ -24,6 +24,7 @@ module Cobalt.Language.Syntax (
 , Term(..)
 , atAnn
 , getAnn
+, SourcePos
   -- * Rules
 , Rule(..)
 , RuleStrictness(..)

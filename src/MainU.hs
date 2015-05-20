@@ -205,6 +205,15 @@ showJsonScript (Singleton (Constraint_Later s l) p i) =  -- Special case for lat
   object [ "text"  .= ("later" :: String)
          , "tags"  .= toList s
          , "nodes" .= map (showJsonScript . (\n -> Singleton n p i)) l ]
+showJsonScript (Singleton (Constraint_Cond c t e) p i) =  -- Special case for cond
+  object [ "text"  .= ("cond" :: String)
+         , "tags"  .= toList i
+         , "nodes" .= [ object [ "text"  .= ("condition" :: String)
+                               , "nodes" .= map (showJsonScript . (\n -> Singleton n p i)) c ]
+                      , object [ "text"  .= ("then" :: String)
+                               , "nodes" .= map (showJsonScript . (\n -> Singleton n p i)) t ]
+                      , object [ "text"  .= ("else" :: String)
+                               , "nodes" .= map (showJsonScript . (\n -> Singleton n p i)) e ] ] ]
 showJsonScript (Singleton c _ i) =
   object [ "text" .= textJsonConstraint c
          , "tags" .= toList i ]
@@ -235,7 +244,9 @@ textJsonConstraint (Constraint_Class c  ts) = "$" ++ c ++ " " ++ intercalate " "
 textJsonConstraint (Constraint_Exists _)    = error "This should never happen"
 textJsonConstraint Constraint_Inconsistent  = "⊥"
 textJsonConstraint (Constraint_Later s l)   = "later \"" ++ s ++ "\" [" ++ intercalate ", " (map textJsonConstraint l) ++ "]"
-
+textJsonConstraint (Constraint_Cond c t e)  = "cond [" ++ intercalate ", " (map textJsonConstraint c)
+                                              ++ "] [" ++ intercalate ", " (map textJsonConstraint t)
+                                              ++ "] [" ++ intercalate ", " (map textJsonConstraint e) ++ "]"
 
 showAnnTermJson :: Show t => AnnUTerm t -> [Value]
 showAnnTermJson (UTerm_IntLiteral n (_,t)) =

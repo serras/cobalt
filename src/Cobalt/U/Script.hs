@@ -14,6 +14,7 @@ module Cobalt.U.Script (
 , TyScriptInfo
 , toConstraintList
 , toConstraintList'
+, mapConstraintScript
 , fvScript
 , substScript
 , substsScript
@@ -54,6 +55,17 @@ foldConstraint c ex (Join ss _)        = mconcat $ map (foldConstraint c ex) ss
 foldConstraint c ex (AsymJoin s1 s2 _) = foldConstraint c ex s1 <> foldConstraint c ex s2
 foldConstraint c ex (Sequence s1 s2 _) = foldConstraint c ex s1 <> foldConstraint c ex s2
 foldConstraint c ex (Exists v q s _)   = ex v q (foldConstraint c ex s)
+
+mapConstraintScript :: (constraint -> Maybe pos -> (Maybe info) -> Script var pos info constraint)
+                    -> Script var pos info constraint -> Script var pos info constraint
+mapConstraintScript _ Empty = Empty
+mapConstraintScript f (Label i s) = Label i (mapConstraintScript f s)
+mapConstraintScript f (Singleton c p i) = f c (Just p) i
+mapConstraintScript f (Join ss p) = Join (map (mapConstraintScript f) ss) p
+mapConstraintScript f (AsymJoin s1 s2 p) = AsymJoin (mapConstraintScript f s1) (mapConstraintScript f s2) p
+mapConstraintScript f (Sequence s1 s2 p) = Sequence (mapConstraintScript f s1) (mapConstraintScript f s2) p
+mapConstraintScript f (Exists v c s p) = let c' = concatMap (toConstraintList' . (\x -> f x Nothing Nothing)) c
+                                          in Exists v c' (mapConstraintScript f s) p
 
 toConstraintList :: ([var] -> [constraint] -> [constraint] -> [constraint])  -- Exists
                  -> Script var pos info constraint  -- Script

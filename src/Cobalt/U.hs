@@ -55,11 +55,11 @@ gDefn_ :: GatheringScheme -> [Constraint] -> [TyVar] -> Env -> RawUnboundDefn ->
 gDefn_ gs sat tchs env@(Env _ _ ax rules) (_name,tyv,_,Nothing) =
   case eval (map (syntaxRuleToScriptRule ax) rules ++ mainTypeRules gs) (IndexIndependent (env,sat,tchs)) tyv of
     Error err -> return (Left err, tyv, [])
-    GatherTerm g e [i] -> do GatherTermInfo w c cv <- i
-                             -- Chose whether to apply exists removal or not
-                             let simplifiedW = simplifyScript w
-                                 v = map (snd . ann) e
-                             return (Right (g, e, GatherTermInfo simplifiedW c cv), tyv, v ++ fvScript simplifiedW)
+    GatherTerm g [e] [i] -> do GatherTermInfo w c cv <- i
+                               -- Chose whether to apply exists removal or not
+                               let (p,v) = ann e
+                                   simplifiedW = simplifyScript $ resolveCondScript sat tchs env p w
+                               return (Right (g, [e], GatherTermInfo simplifiedW c cv), tyv, v : fvScript simplifiedW)
     _ -> error "This should never happen"
 gDefn_ gs sat tchs (Env fn dat ax rules) (name,tyv,Just declaredType,Just (q1,t1,_)) = do
   let env' = Env ((name,declaredType) : fn) dat ax rules
@@ -68,8 +68,8 @@ gDefn_ gs sat tchs (Env fn dat ax rules) (name,tyv,Just declaredType,Just (q1,t1
     GatherTerm g [e] [i] -> do GatherTermInfo w c cv <- i
                                let (p,v) = ann e
                                    extra = Constraint_Unify (var v) t1
-                                   simplifiedW = simplifyScript w
-                                   withExtra = case gs of
+                                   simplifiedW = simplifyScript $ resolveCondScript sat tchs env' p w
+                                   withExtra = simplifyScript $ case gs of
                                                  TreeScheme -> AsymJoin simplifiedW (Singleton extra p Nothing) p
                                                  FlatScheme -> Join [simplifiedW, Singleton extra p Nothing] p
                                -- Chose whether to apply exists removal or not -> look above
@@ -149,10 +149,20 @@ tcDefns gs env terms = runFreshM $ tcDefns_ env terms
             Nothing -> (result :) <$> tcDefns_ env_ ds
             Just p  -> (result :) <$> tcDefns_ (Env ((translate name, p):fn) da ax ru) ds
 
+resolveCondScript :: [Constraint] -> [TyVar] -> Env -> (SourcePos,SourcePos) -> TyScript -> TyScript
+resolveCondScript sat tch env p = mapConstraintScript $ \c cp i ->
+  let thePos = case cp of { Just cp' -> cp'; Nothing -> p }
+   in Join (map (\x -> Singleton x thePos i) $ resolveCond sat tch env c) thePos
+
 resolveCond :: [Constraint] -> [TyVar] -> Env -> Constraint -> [Constraint]
-resolveCond sat tch (Env _ _ ax _) (Constraint_Cond c t e)
-  | null c || entails ax sat c tch = t
-  | otherwise                      = e
+resolveCond sat tch env@(Env _ _ ax _) (Constraint_Cond c t e)
+  | null c || entails ax sat c tch = concatMap (resolveCond sat tch env) t
+  | otherwise                      = concatMap (resolveCond sat tch env) e
+resolveCond sat tch env (Constraint_Later s cs)
+  = [Constraint_Later s $ concatMap (resolveCond sat tch env) cs]
+resolveCond sat tch env (Constraint_Exists b) = (:[]) . Constraint_Exists $ runFreshM $ do
+  (v, (c1,c2)) <- unbind b
+  return $ bind v (concatMap (resolveCond sat tch env) c1, concatMap (resolveCond sat tch env) c2)
 resolveCond _ _ _ c = [c]  -- Do nothing on the rest
 
 -- COPIED FROM Cobalt.OutsideIn.Top
