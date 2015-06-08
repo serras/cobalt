@@ -257,6 +257,7 @@ canon isGiven _ _ (Constraint_Class c ts)
   | otherwise = return NotApplicable
 -- Rest
 canon _ _ _ (Constraint_Exists _)   = return NotApplicable
+canon _ _ _ (Constraint_FType _)    = return NotApplicable
 canon _ _ _ Constraint_Inconsistent = throwNamedError SolverError_Inconsistency
 canon True  _ _ (Constraint_Later _ l) = return $ Applied l   -- on given, later is no-op
 canon False _ _ (Constraint_Later _ _) = return NotApplicable -- on wanted, later is taken care... later

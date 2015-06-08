@@ -275,8 +275,10 @@ showJsonConstraint (Constraint_Exists b) = do
                                         , "nodes" .= oG ]
                                , object [ "text"  .= ("implies" :: String)
                                         , "nodes" .= oW ] ] ]
-showJsonConstraint (Constraint_Inconsistent) =
+showJsonConstraint Constraint_Inconsistent =
   return $ object [ "text" .= ("⊥" :: String) ]
+showJsonConstraint (Constraint_FType v) =
+  return $ object [ "text" .= ("ftype[" ++ show v ++ "]" :: String) ]
 showJsonConstraint (Constraint_Later s l) = do
   oL <- showJsonConstraintList l
   return $ object [ "text"  .= ("later \"" ++ s ++ "\"" :: String)

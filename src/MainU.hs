@@ -243,6 +243,7 @@ textJsonConstraint (Constraint_Equal t1 t2) = showWithGreek t1 ++ " = " ++ showW
 textJsonConstraint (Constraint_Class c  ts) = "$" ++ c ++ " " ++ intercalate " " (map (doParens . showWithGreek) ts)
 textJsonConstraint (Constraint_Exists _)    = error "This should never happen"
 textJsonConstraint Constraint_Inconsistent  = "⊥"
+textJsonConstraint (Constraint_FType v)     = "ftype[" ++ show v ++ "]"
 textJsonConstraint (Constraint_Later s l)   = "later \"" ++ s ++ "\" [" ++ intercalate ", " (map textJsonConstraint l) ++ "]"
 textJsonConstraint (Constraint_Cond c t e)  = "cond [" ++ intercalate ", " (map textJsonConstraint c)
                                               ++ "] [" ++ intercalate ", " (map textJsonConstraint t)

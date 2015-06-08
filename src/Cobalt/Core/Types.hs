@@ -11,6 +11,7 @@ module Cobalt.Core.Types (
   -- ** Polytypes
 , PolyType(..)
 , nf
+, ftype
   -- ** Monotypes
 , MonoType(..)
 , MonoTypes
@@ -109,6 +110,39 @@ nf = runFreshM . nf' []
              | x `elem` (fv p :: [TyVar]) = reverseBind xs $ PolyType_Bind (bind x p)
              | otherwise                  = reverseBind xs p
 
+-- System F type with less inner polymirphism possible
+-- Based on Daan Leijen's Flexible Types paper
+ftype :: PolyType -> PolyType
+ftype = nf . runFreshM . ft . nf
+        where ft :: (Fresh m, Monad m, Functor m) => PolyType -> m PolyType
+              ft PolyType_Bottom     = return PolyType_Bottom
+              ft (PolyType_Bind b)   = do (x, r) <- unbind b
+                                          ftR <- ft r
+                                          return $ PolyType_Bind (bind x ftR)
+              ft (PolyType_Mono c m) = do (c', m', v') <- ftMono m c [] []
+                                          return $ foldr (\x ftR -> PolyType_Bind (bind x ftR)) (PolyType_Mono c' m') v'
+              -- Embed > constraints
+              ftMono m [] c v = return (c, m, v)  -- We have finished
+              ftMono m (Constraint_Inst (MonoType_Var v) p : cs) csAccum vs = do
+                (m', c', v') <- ftReplacement v p m (cs ++ csAccum)
+                ftMono m' c' [] (v' ++ vs)
+              ftMono _ (Constraint_Inst _ _ : _) _ _ = error "Cannot handle non-variable > in ftype"
+              ftMono m (c : cs) csAccum vs = ftMono m cs (c : csAccum) vs
+              -- Introduce the constraints
+              ftReplacement :: (Fresh m, Monad m, Functor m)
+                            => TyVar -> PolyType -> MonoType -> [Constraint]
+                            -> m (MonoType, [Constraint], [TyVar])
+              ftReplacement _ PolyType_Bottom   m c = return (m, c, [])
+              ftReplacement v (PolyType_Bind b) m c = do
+                (x, r) <- unbind b
+                (m', c', v') <- ftReplacement v r m c
+                return (m', c', x:v')
+              ftReplacement v (PolyType_Mono cs inner) m c =
+                let m' = subst v inner m
+                    c' = subst v inner c
+                 in return (m', c' ++ cs, [])
+
+
 orderConstraint :: Constraint -> Constraint -> Ordering
 orderConstraint (Constraint_Unify t1 t2) (Constraint_Unify s1 s2) = compare (t1,t2) (s1,s2)
 orderConstraint (Constraint_Unify _ _) _ = LT
@@ -125,6 +159,9 @@ orderConstraint _ (Constraint_Class _ _) = GT
 orderConstraint (Constraint_Exists _) (Constraint_Exists _) = EQ
 orderConstraint (Constraint_Exists _) _ = LT
 orderConstraint _ (Constraint_Exists _) = GT
+orderConstraint (Constraint_FType v1) (Constraint_FType v2) = compare v1 v2
+orderConstraint (Constraint_FType _) _ = LT
+orderConstraint _ (Constraint_FType _) = GT
 orderConstraint (Constraint_Later _ _) (Constraint_Later _ _) = EQ
 orderConstraint (Constraint_Later _ _) _ = LT
 orderConstraint _ (Constraint_Later _ _) = GT
@@ -210,6 +247,7 @@ data Constraint = Constraint_Unify MonoType MonoType
                 | Constraint_Equal MonoType PolyType
                 | Constraint_Class String [MonoType]
                 | Constraint_Exists (Bind [TyVar] ([Constraint],[Constraint]))
+                | Constraint_FType TyVar
                 | Constraint_Later String [Constraint]
                 | Constraint_Cond  [Constraint] [Constraint] [Constraint]
                 | Constraint_Inconsistent
@@ -227,6 +265,7 @@ instance Eq Constraint where
       Just (_,c1,_,c2) -> return $ c1 == c2
       Nothing          -> return False
   Constraint_Inconsistent  == Constraint_Inconsistent  = True
+  Constraint_FType v1      == Constraint_FType v2      = v1 == v2
   Constraint_Later _ l1    == Constraint_Later _ l2    = l1 == l2
   Constraint_Cond c1 t1 e1 == Constraint_Cond c2 t2 e2 = c1 == c2 && t1 == t2 && e1 == e2
   _ == _ = False
@@ -308,6 +347,7 @@ showConstraint (Constraint_Exists b)  = do (x, (q,c)) <- unbind b
                                            c' <- showConstraintList' c
                                            return $ "∃" ++ show x ++ "(" ++ q' ++ " => " ++ c' ++ ")"
 showConstraint (Constraint_Inconsistent) = return "⊥"
+showConstraint (Constraint_FType v)    = return $ "ftype[" ++ show v ++ "]"
 showConstraint (Constraint_Later s l)  = do l' <- showConstraintList' l
                                             return $ "later \"" ++ s ++ "\" [" ++ l' ++ "]"
 showConstraint (Constraint_Cond c t e) = do c' <- showConstraintList' c

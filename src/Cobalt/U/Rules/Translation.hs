@@ -356,6 +356,8 @@ syntaxConstraintToScript (Constraint_Class c ms) captures =
   Constraint_Class c (map (\m -> syntaxMonoTypeToScript m captures) ms)
 syntaxConstraintToScript (Constraint_Exists _) _ =
   error "Existential constraints not allowed"
+syntaxConstraintToScript (Constraint_FType _) _ =
+  error "F-type constraints not allowed"
 syntaxConstraintToScript (Constraint_Later _ _) _ =
   error "Later constraints not allowed"
 syntaxConstraintToScript (Constraint_Cond _ _ _) _ =
