@@ -15,7 +15,7 @@ import Control.Monad.State
 import Control.Monad.Writer
 import Data.List (union, foldl', sortBy)
 import Data.Maybe (maybeToList)
-import Text.Parsec.Pos (SourcePos)
+import Text.Parsec.Pos (SourcePos, newPos)
 import Unbound.LocallyNameless hiding (union, GT)
 
 import Cobalt.Core
@@ -40,9 +40,14 @@ solve_ :: [Axiom] -> [Constraint] -> [TyVar]
        -> Maybe TyScriptInfo -> TyScript
        -> FreshM FinalSolution
 solve_ ax g tch info w = do
-  (((simplG,rs,vars),err,graph), extraExists) <- simpl ax g tch info Nothing w
-  let s@(OIn.Solution _simplG' rs' subst' _vars') = OIn.toSolution simplG rs vars
-  solveImpl ax (g ++ rs') (map (\(i_, s_) -> (i_, substsScript subst' s_)) extraExists) (s,err,graph)
+  (((simplG,rs,vars),err,graph), extraExists, extraFTypes) <- simpl ax g tch info Nothing w
+  let zeroPos = (newPos "" 0 0, newPos "" 0 0)
+      ftypeScript = Join (map (\c -> Singleton c zeroPos Nothing) (rs ++ extraFTypes)) zeroPos
+  (((simplG2,rs2,vars2),err2,graph2), _, _) <- simpl ax simplG vars info Nothing ftypeScript
+  let s@(OIn.Solution _simplG' rs' subst' _vars') = OIn.toSolution simplG2 rs2 vars2
+  solveImpl ax (g ++ rs')
+            (map (\(i_, s_) -> (i_, substsScript subst' s_)) extraExists)
+            (s, err ++ err2, mappend graph graph2)
 
 solveImpl :: [Axiom] -> [Constraint] -> [(Maybe TyScriptInfo, TyScript)]
           -> FinalSolution -> FreshM FinalSolution
@@ -65,11 +70,13 @@ simpl :: [Axiom] -> [Constraint] -> [TyVar]
       -> Maybe TyScriptInfo    -- label information
       -> Maybe ScriptSolution  -- previous solution (for sequencing)
       -> TyScript
-      -> FreshM (ScriptSolution, [(Maybe TyScriptInfo, TyScript)])
+      -> FreshM (ScriptSolution, [(Maybe TyScriptInfo, TyScript)], [Constraint])
 simpl _ g tch _ _ Empty =
-  return ((emptySolution g tch, [], emptyGraph), [])
+  return ((emptySolution g tch, [], emptyGraph), [], [])
 simpl _ g tch info _ me@(Exists { }) =
-  return ((emptySolution g tch, [], emptyGraph), [(info, me)])
+  return ((emptySolution g tch, [], emptyGraph), [(info, me)], [])
+simpl _ g tch _    _    (Singleton c@(Constraint_FType _) _ _) =
+  return ((emptySolution g tch, [], emptyGraph), [], [c])
 simpl ax g tch _ prev (Label i c) = simpl ax g tch (Just i) prev c
 simpl ax g tch cm prev (Singleton c pos expl) = do
   let comment = (Comment_Pos pos) : map Comment_String (maybeToList expl)
@@ -79,11 +86,11 @@ simpl ax g tch cm prev (Singleton c pos expl) = do
     (Left err, graph) -> return ( ( emptySolution g tch
                                   , [makeExplanation err pos cm graph]
                                   , emptyGraph )
-                                , [] )
-    (Right s,  graph) -> return ((s, [], graph), [])
+                                , [], [] )
+    (Right s,  graph) -> return ((s, [], graph), [], [])
 simpl ax g tch cm prev (Join lst pos) = do
   simpls <- mapM (simpl ax g tch cm prev) lst
-  let (results, exs) = unzip simpls
+  let (results, exs, ftypes) = unzip3 simpls
       errs = map (\(_,e,_) -> e) results
   solved <- simplMany' ax results
   case solved of
@@ -91,14 +98,14 @@ simpl ax g tch cm prev (Join lst pos) = do
        (Right prunedS, prunedG) <- pruneJoin ax results
        return ( ( prunedS
                 , makeExplanation err pos cm graph : concat errs
-                , prunedG), concat exs)
-    (Right s, graph) -> return ((s, concat errs, graph), concat exs)
+                , prunedG), concat exs, concat ftypes)
+    (Right s, graph) -> return ((s, concat errs, graph), concat exs, concat ftypes)
 simpl ax g tch cm prev (AsymJoin s1 s2 pos) =
   simpl ax g tch cm prev (Join [s1,s2] pos)
 simpl ax g tch cm prev (Sequence s1 s2 _pos) = do
-  (result1@(_sol1,errs1,_), ex1) <- simpl ax g tch cm prev s1
-  ((sol2,errs2,g2), ex2) <- {- trace ("using: " ++ show sol1) -} simpl ax g tch cm (Just result1) s2
-  return ((sol2,errs2 ++ errs1,g2), ex1 ++ ex2)
+  (result1@(_sol1,errs1,_), ex1, ft1) <- simpl ax g tch cm prev s1
+  ((sol2,errs2,g2), ex2, ft2) <- {- trace ("using: " ++ show sol1) -} simpl ax g tch cm (Just result1) s2
+  return ((sol2,errs2 ++ errs1,g2), ex1 ++ ex2, ft1 ++ ft2)
 
 pruneJoin :: [Axiom] -> [ScriptSolution] -> FreshM (Either NamedSolverError OInState, Graph)
 pruneJoin ax sols = let _:powerset = filterM (const [True, False]) sols

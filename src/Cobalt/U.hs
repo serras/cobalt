@@ -53,19 +53,22 @@ doTyvaring (Env fn dat _ _) (name,term,Just p) = do
 
 type GDefnGathered = Either Errors ([Constraint], [AnnUTerm TyVar], GatherTermInfo)
 
-gDefn_ :: GatheringScheme -> [Constraint] -> [TyVar] -> Env -> RawUnboundDefn -> FreshM (GDefnGathered, AnnUTerm TyVar, [TyVar])
-gDefn_ gs sat tchs env@(Env _ _ ax rules) (_name,tyv,_,Nothing) =
-  case eval (map (syntaxRuleToScriptRule ax) rules ++ mainTypeRules gs) (IndexIndependent (env,sat,tchs)) tyv of
+gDefn_ :: GatheringScheme -> SystemFScheme -> [Constraint] -> [TyVar] -> Env -> RawUnboundDefn -> FreshM (GDefnGathered, AnnUTerm TyVar, [TyVar])
+gDefn_ gs fs sat tchs env@(Env _ _ ax rules) (_name,tyv,_,Nothing) =
+  case eval (map (syntaxRuleToScriptRule ax) rules ++ mainTypeRules gs fs) (IndexIndependent (env,sat,tchs)) tyv of
     Error err -> return (Left err, tyv, [])
     GatherTerm g [e] [i] -> do GatherTermInfo w c cv <- i
                                -- Chose whether to apply exists removal or not
                                let (p,v) = ann e
                                    simplifiedW = simplifyScript $ resolveCondScript sat tchs env p w
-                               return (Right (g, [e], GatherTermInfo simplifiedW c cv), tyv, v : fvScript simplifiedW)
+                                   withExtra = case fs of
+                                     UseAnyType -> simplifiedW
+                                     UseOnlySystemFTypes -> simplifyScript $ Join [simplifiedW, Singleton (Constraint_FType (var v)) p Nothing] p
+                               return (Right (g, [e], GatherTermInfo withExtra c cv), tyv, v : fvScript withExtra)
     _ -> error "This should never happen"
-gDefn_ gs sat tchs (Env fn dat ax rules) (name,tyv,Just declaredType,Just (q1,t1,_)) = do
+gDefn_ gs fs sat tchs (Env fn dat ax rules) (name,tyv,Just declaredType,Just (q1,t1,_)) = do
   let env' = Env ((name,declaredType) : fn) dat ax rules
-  case eval (map (syntaxRuleToScriptRule ax) rules ++ mainTypeRules gs) (IndexIndependent (env',sat,tchs)) tyv of
+  case eval (map (syntaxRuleToScriptRule ax) rules ++ mainTypeRules gs fs) (IndexIndependent (env',sat,tchs)) tyv of
     Error err -> return (Left err, tyv, [])
     GatherTerm g [e] [i] -> do GatherTermInfo w c cv <- i
                                let (p,v) = ann e
@@ -77,25 +80,25 @@ gDefn_ gs sat tchs (Env fn dat ax rules) (name,tyv,Just declaredType,Just (q1,t1
                                -- Chose whether to apply exists removal or not -> look above
                                return (Right (g ++ q1, [e], GatherTermInfo withExtra c cv), tyv, v : fvScript simplifiedW)
     _ -> error "This should never happen"
-gDefn_ _ _ _ _ _ = error "This should never happen"
+gDefn_ _ _ _ _ _ _ = error "This should never happen"
 
-gDefns :: GatheringScheme -> Env -> [(RawDefn,Bool)] -> [(GDefnGathered, AnnUTerm TyVar, [TyVar], [Constraint])]
-gDefns gs env terms = runFreshM $
+gDefns :: GatheringScheme -> SystemFScheme -> Env -> [(RawDefn,Bool)] -> [(GDefnGathered, AnnUTerm TyVar, [TyVar], [Constraint])]
+gDefns gs fs env terms = runFreshM $
   forM terms $ \(term,_fail) -> do
     tyv <- doTyvaring env term
-    ((Solution gg rs sb tchs,_,_),_,_) <- tcDefn_ gs (Just []) (Just []) env tyv
+    ((Solution gg rs sb tchs,_,_),_,_) <- tcDefn_ gs fs (Just []) (Just []) env tyv
     let extra = nub $ gg ++ rs ++ map (\(x,y) -> Constraint_Unify (var x) y) sb
-    (g,au,vrs) <- gDefn_ gs extra tchs env tyv
+    (g,au,vrs) <- gDefn_ gs fs extra tchs env tyv
     return (g,au,vrs,extra)
 
-tcDefn :: GatheringScheme -> Env -> RawUnboundDefn
+tcDefn :: GatheringScheme -> SystemFScheme -> Env -> RawUnboundDefn
        -> FreshM (FinalSolution, AnnUTerm MonoType, Maybe PolyType)
-tcDefn gs = tcDefn_ gs Nothing Nothing
+tcDefn gs fs = tcDefn_ gs fs Nothing Nothing
 
-tcDefn_ :: GatheringScheme -> Maybe [Constraint] -> Maybe [TyVar] -> Env -> RawUnboundDefn
+tcDefn_ :: GatheringScheme -> SystemFScheme -> Maybe [Constraint] -> Maybe [TyVar] -> Env -> RawUnboundDefn
         -> FreshM (FinalSolution, AnnUTerm MonoType, Maybe PolyType)
-tcDefn_ gs extra tchs env@(Env _ _ ax _) defn@(_,_,annotation,_) = do
-  (gatherResult, term, tch) <- gDefn_ gs (fromMaybe [] extra) (fromMaybe [] tchs) env defn  -- pass extra information
+tcDefn_ gs fs extra tchs env@(Env _ _ ax _) defn@(_,_,annotation,_) = do
+  (gatherResult, term, tch) <- gDefn_ gs fs (fromMaybe [] extra) (fromMaybe [] tchs) env defn  -- pass extra information
   let (thePosition, _) = ann term
   case gatherResult of
     Left errs -> return ( (Solution [] [] [] [], map errorFromPreviousPhase errs, emptyGraph)
@@ -135,18 +138,18 @@ tcDefn_ gs extra tchs env@(Env _ _ ax _) defn@(_,_,annotation,_) = do
         (_, Just _)  -> return result  -- already in second pass
         (_, Nothing) -> let resultExtra = nub $ resultGiven ++ resultResidual
                                                 ++ map (\(x,y) -> Constraint_Unify (var x) y) resultSubst
-                         in tcDefn_ gs (Just resultExtra) (Just resultTchs) env defn
+                         in tcDefn_ gs fs (Just resultExtra) (Just resultTchs) env defn
     _ -> error "This should never happen"
 
 getFromSubst :: TyVar -> [(TyVar, MonoType)] -> MonoType
 getFromSubst v s = fromMaybe (var v) (lookup v s)
 
-tcDefns :: GatheringScheme -> Env -> [(RawDefn,Bool)] -> [(FinalSolution, AnnUTerm MonoType, Maybe PolyType)]
-tcDefns gs env terms = runFreshM $ tcDefns_ env terms
+tcDefns :: GatheringScheme -> SystemFScheme -> Env -> [(RawDefn,Bool)] -> [(FinalSolution, AnnUTerm MonoType, Maybe PolyType)]
+tcDefns gs fs env terms = runFreshM $ tcDefns_ env terms
   where tcDefns_ _env [] = return []
         tcDefns_ env_@(Env fn da ax ru) ((d@(name,_,_),_):ds) = do
           tyv <- doTyvaring env_ d
-          result@(_,_,typ) <- tcDefn gs env_ tyv
+          result@(_,_,typ) <- tcDefn gs fs env_ tyv
           case typ of
             Nothing -> (result :) <$> tcDefns_ env_ ds
             Just p  -> (result :) <$> tcDefns_ (Env ((translate name, p):fn) da ax ru) ds
