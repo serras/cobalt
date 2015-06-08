@@ -45,8 +45,20 @@ fixMT2 :: {r} {s} {t} r > {a} {b} (a -> b) -> 'Term a -> 'Term b,
           t > {a} {b} (a -> b) -> 'Term a -> 'Term b =>
           (r -> s) -> t = \f -> f (fixMT2 f);
 
-mapT f t :: {a} {b} (a -> b) -> 'Term a -> 'Term b 
+mapT f t :: {a} {b} (a -> b) -> 'Term a -> 'Term b
   = match t with 'Term
     | Var x -> Var (f x)
     | App t1 t2 -> App (mapT f t1) (mapT f t2)
     | Lam l -> Lam (mapT (mapI f) l);
+
+
+
+fixMTF :: {s} {t} {v} s = {a} {b} (a -> b) -> 'Term a -> 'Term b,
+                      t = {a} {b} (a -> b) -> 'Term a -> 'Term b,
+                      v = {a} {b} (a -> b) -> 'Term a -> 'Term b
+          => (s -> t) -> v = fix;
+
+fixMTF2 :: {s} {t} {v} s = {a} {b} (a -> b) -> 'Term a -> 'Term b,
+                       t = {a} {b} (a -> b) -> 'Term a -> 'Term b,
+                       v = {a} {b} (a -> b) -> 'Term a -> 'Term b
+           => (s -> t) -> v = \f -> f (fixMTF2 f);

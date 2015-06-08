@@ -5,6 +5,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Cobalt.Core.Types (
   -- * Types
   TyVar
@@ -12,6 +13,7 @@ module Cobalt.Core.Types (
 , PolyType(..)
 , nf
 , ftype
+, showPolyTypeAsSystemF
   -- ** Monotypes
 , MonoType(..)
 , MonoTypes
@@ -49,8 +51,9 @@ module Cobalt.Core.Types (
 #else
 import Control.Applicative ((<$>))
 #endif
-import Control.Lens hiding ((.=), from, to)
-import Data.List (insert, intercalate, find, nub, sortBy, (\\))
+import Control.Lens hiding ((.=), from, to, mapping)
+import Control.Lens.Extras (is)
+import Data.List (insert, intercalate, find, nub, sortBy, (\\), partition)
 import Data.Maybe (isJust)
 import Unbound.LocallyNameless hiding (close, GT)
 
@@ -310,6 +313,47 @@ showPolyType' (PolyType_Bind b) = do
 showPolyType' (PolyType_Mono [] m) = return $ show m
 showPolyType' (PolyType_Mono cs m) = return $ showConstraintList cs ++ " => " ++ show m
 showPolyType' PolyType_Bottom   = return "⊥"
+
+showPolyTypeAsSystemF :: PolyType -> String
+showPolyTypeAsSystemF = fst . runFreshM . sptF [] . nf
+  where -- For polytypes
+        sptF :: (Fresh m, Functor m, Monad m)
+             => [(TyVar, String)] -> PolyType -> m (String, [TyVar])
+        sptF mapping (PolyType_Bind b) = do
+          (x, r) <- unbind b
+          (typ, removed) <- sptF mapping r
+          let typ' = if x `notElem` removed then "{" ++ show x ++ "} " ++ typ else typ
+          return (typ', removed)
+        sptF _ PolyType_Bottom = do
+          v :: TyVar <- fresh (s2n "a")
+          return ("{" ++ show v ++ "} " ++ show v, [])
+        sptF mapping (PolyType_Mono cs m) = do
+          let (inner, qs) = partition (is _Constraint_Equal) cs
+          newMapping <- flip mapM inner $ \(Constraint_Equal (MonoType_Var v) p) ->
+                                             do { pF <- sptF mapping p ; return (v, fst pF) }
+          let completeMapping = mapping ++ newMapping
+              qsF = map (sptFConstraint completeMapping) qs
+              mF  = sptFMono completeMapping m
+              typ = if null qs then mF else intercalate ", " qsF ++ " => " ++ mF
+          return ( typ, map fst newMapping )  -- return variables replaced in this round
+        -- For monotypes
+        sptFMono :: [(TyVar, String)] -> MonoType -> String
+        sptFMono m (MonoType_List t)      = "[" ++ sptFMono m t ++ "]"
+        sptFMono m (MonoType_Tuple t1 t2) = "(" ++ sptFMono m t1 ++ "," ++ sptFMono m t2 ++ ")"
+        sptFMono m (MonoType_Con c a)     = '\'':c ++ concatMap (\x -> " " ++ doParens (sptFMono m x)) a
+        sptFMono m (MonoType_Fam c a)     = '^':c ++ concatMap (\x -> " " ++ doParens (sptFMono m x)) a
+        sptFMono m (s :-->: t)            = doParens (sptFMono m s) ++ " -> " ++ sptFMono m t
+        sptFMono m (MonoType_Var v)       = case lookup v m of
+                                              Just p  -> p
+                                              Nothing -> show v
+        sptFMono _ _                      = error "Pattern matching check is not that good"
+        -- For constraints
+        sptFConstraint :: [(TyVar, String)] -> Constraint -> String
+        sptFConstraint m (Constraint_Unify t p) = sptFMono m t ++ " ~ " ++ sptFMono m p
+        sptFConstraint m (Constraint_Class c t) = "$" ++ c ++ " " ++ intercalate " " (map (doParens . sptFMono m) t)
+        sptFConstraint m (Constraint_Inst  v p) = show v ++ " > " ++ fst (runFreshM (sptF m p))
+        sptFConstraint _ (Constraint_Equal _ _) = error "this should never happen"
+        sptFConstraint _ c                      = error ("constraint " ++ show c ++ " must not appear in a System F type")
 
 instance Show MonoType where
   show (MonoType_List t)      = "[" ++ show t ++ "]"

@@ -153,6 +153,9 @@
           <div class="checkbox"><label><input type="checkbox" id="checksystemf" />
             <div>Infer System F types</div>
           </label></div>
+          <div class="checkbox"><label><input type="checkbox" id="checkprintsystemf" />
+            <div>Print System F types</div>
+          </label></div>
           <div class="checkbox"><label><input type="checkbox" id="checkflat" />
             <div>Flat gathering scheme (for <tt>later</tt> constraints)</div>
           </label></div>
@@ -170,6 +173,7 @@
               <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('outsidein/expr.cobalt');">Expression language using GADTs</a></li>
               <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('outsidein/listmatch.cobalt');">Pattern matching on lists</a></li>
               <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('outsidein/tyfams.cobalt');">Type families and classes</a></li>
+              <li role="presentation"><a role="menuitem" tabindex="-1" href="#" onClick="loadExample('outsidein/from-flexible-types.cobalt');">Examples from &quot;Flexible Types&quot; paper</a></li>
             </ul>
         </div>
         <div class="dropdown" id="dropdownie">
@@ -231,7 +235,8 @@
         $("#result-panel").hide();
         var chk = $("#checkflat").is(":checked") ? "flat" : "tree";
         var systemf = $("#checksystemf").is(":checked") ? "only" : "any";
-        $.post(rule, { code : editor.getValue(), scheme : chk, systemf : systemf }, function (data) {
+        var printsystemf = $("#checkprintsystemf").is(":checked") ? "yes" : "no";
+        $.post(rule, { code : editor.getValue(), scheme : chk, systemf : systemf, printsystemf : printsystemf }, function (data) {
           $("#working-panel").hide();  // Hide "working" message
           if (data.status == "error") {
             $("#result-panel").hide();

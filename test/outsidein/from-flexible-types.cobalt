@@ -1,0 +1,41 @@
+import true :: 'Bool;
+import tuple :: {a} {b} a -> b -> 'Tuple a b;
+
+poly = \(f :: {a} a -> a) -> tuple (f 1) (f true);
+id = \a -> a;
+apply = \f -> \x -> f x;
+revapp = \x -> \f -> f x;
+
+import inc :: 'Int -> 'Int;
+import single :: {a} a -> [a];
+import append :: {a} [a] -> [a] -> [a];
+import map :: {a} {b} (a -> b) -> [a] -> [b];
+
+f = map poly (single id);
+g = append (single inc) (single id);
+h = let ids = single id in tuple (map poly ids) (append (single inc) ids) => fail;
+i1 = let ids :: {b} b > {a} a -> a => [b] = single id
+      in tuple (map poly ids) (append (single inc) ids);
+i2 = let ids :: {b} b = {a} a -> a => [b] = single id
+      in tuple (map poly ids) (append (single inc) ids) => fail;
+
+import choose :: {a} a -> a -> a;
+
+j1 = choose id;
+j2 :: {a} {b} a = {c} c -> c, b = {d} d -> d => a -> b = choose id;
+
+import cons :: {a} a -> [a] -> [a];
+import tail :: {a} [a] -> [a];
+
+k1 = let ids = single id
+      in let xs = cons id ids
+          in let ys = tail ids
+              in map id (tail (cons id ids));
+k2 = let ids :: {a} a = {b} b -> b => [a] = single id
+      in let xs = cons id ids
+          in let ys = tail ids
+              in map id (tail (cons id ids));
+
+l1 = let ids = single id in append (single inc) ids;
+l2 = let ids = single id in map poly ids;
+l3 = let ids :: {a} a = {b} b -> b => [a] = single id in map poly ids;
