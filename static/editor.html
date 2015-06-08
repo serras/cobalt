@@ -43,6 +43,24 @@
     /*margin-top: 5px;*/
   }
 
+  legend {
+    margin-bottom: 0px;
+    font-size: 17px;
+  }
+
+  .checkbox {
+    display: inline-block;
+    margin-right: 10px;
+  }
+
+  .checkbox div, .checkbox div tt {
+    font-size: 15px;
+  }
+
+  .checkbox div tt {
+    font-size: 14px;
+  }
+
   .dropdown-menu {
     width: 100%;
   }
@@ -130,9 +148,15 @@
     <div class="row">
       <div class="col-md-6">
         <div id="editor"></div>
-        <div class="checkbox"><label><input type="checkbox" id="checkflat" />
-          <div style="font-size: 115%; padding-top: 2px;">Flat gathering scheme</div>
-        </label></div>
+        <fieldset>
+          <legend>Options</legend>
+          <div class="checkbox"><label><input type="checkbox" id="checksystemf" />
+            <div>Infer System F types</div>
+          </label></div>
+          <div class="checkbox"><label><input type="checkbox" id="checkflat" />
+            <div>Flat gathering scheme (for <tt>later</tt> constraints)</div>
+          </label></div>
+        </fieldset>
         <button type="button" class="btn btn-primary" id="tc-button">Typecheck!</button>
         <button type="button" class="btn btn-primary" id="gather-button">Gather constraints!</button>
         <div class="dropdown" id="dropdownie">
@@ -206,7 +230,8 @@
         $("#error-panel").hide();
         $("#result-panel").hide();
         var chk = $("#checkflat").is(":checked") ? "flat" : "tree";
-        $.post(rule, { code : editor.getValue(), scheme : chk }, function (data) {
+        var systemf = $("#checksystemf").is(":checked") ? "only" : "any";
+        $.post(rule, { code : editor.getValue(), scheme : chk, systemf : systemf }, function (data) {
           $("#working-panel").hide();  // Hide "working" message
           if (data.status == "error") {
             $("#result-panel").hide();

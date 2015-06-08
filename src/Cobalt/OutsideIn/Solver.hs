@@ -26,6 +26,8 @@ import Cobalt.Core
 import Cobalt.OutsideIn.Solver.Step
 import Util.ExceptTIsFresh ()
 
+-- import Debug.Trace
+
 -- Phase 2: constraint solving
 
 data Solution = Solution { smallGiven   :: [Constraint]
@@ -94,7 +96,8 @@ solveApartWithoutAxioms given wanted vars = do
 
 obtainFTypeConstraint :: [Constraint] -> [TyVar] -> MonoType -> Constraint
 obtainFTypeConstraint cs tch v = let (poly, _) = closeExn cs v (not . (`elem` tch))
-                                  in Constraint_Inst v (ftype poly)
+                                  in -- trace (show v ++ " from " ++ show (nf poly) ++ " to " ++ show (ftype poly)) $
+                                     Constraint_Inst v (ftype poly)
 
 -- Utils for touchable variables
 

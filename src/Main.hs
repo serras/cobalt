@@ -11,7 +11,7 @@ import System.Console.ANSI
 import System.Environment
 import Text.Parsec (parse)
 import Text.Parsec.String
-import Unbound.LocallyNameless
+import Unbound.LocallyNameless hiding (close)
 import Web.Scotty
 
 import Cobalt.Core
@@ -30,9 +30,9 @@ mainCmd :: IO ()
 mainCmd = do
   todo:fname:rest <- getArgs
   let higher = case rest of
-                 []         -> UseHigherRanks
-                 "higher":_ -> UseHigherRanks
-                 _          -> NoHigherRanks
+                 []          -> UseAnyType
+                 "systemf":_ -> UseSystemFTypes
+                 _           -> UseAnyType
   p <- parseFromFile parseFile fname
   case p of
     Left ep -> do setSGR [SetColor Foreground Vivid Red]
@@ -59,20 +59,24 @@ mainServe = do
       file "static/editor.html"
     post "/typecheck" $ do
       code <- param "code"
+      (systemf :: String) <- param "systemf"
+      let sf = if systemf == "only" then UseSystemFTypes else UseAnyType
       case parse parseFile "code" code of
        Left ep -> json $ object [ "status"  .= ("error" :: String)
                                 , "message" .= show ep ]
        Right (env, defns) -> let env' = env & dataE %~ (++ initialDataEnv)
-                                 vals = showJsonAnns (tcDefns UseHigherRanks env' defns)
+                                 vals = showJsonAnns (tcDefns sf env' defns)
                               in json $ object [ "status" .= ("ok" :: String)
                                                , "values" .= vals ]
     post "/gather" $ do
       code <- param "code"
+      (systemf :: String) <- param "systemf"
+      let sf = if systemf == "only" then UseSystemFTypes else UseAnyType
       case parse parseFile "code" code of
        Left ep -> json $ object [ "status"  .= ("error" :: String)
                                 , "message" .= show ep ]
        Right (env, defns) -> let env' = env & dataE %~ (++ initialDataEnv)
-                                 vals = showJsonConstraints (gDefns UseHigherRanks env' defns)
+                                 vals = showJsonConstraints (gDefns sf env' defns)
                               in json $ object [ "status" .= ("ok" :: String)
                                                , "values" .= vals ]
     get "/example/:folder/:file" $ do
@@ -165,73 +169,76 @@ showJsonAnns ((Left (n,e),gr,b):xs) =
                                           else ("#F1B75B" :: String)  -- yellow
                     , "graph" .= showJsonGraph gr (map fst $ blameConstraints gr Constraint_Inconsistent) ]
    in this : showJsonAnns xs
-showJsonAnns ((Right ((n,t,p),_cs),gr,b):xs) =
+showJsonAnns ((Right ((n,t,p),cs),gr,b):xs) =
   let this = object [ "text" .= name2String n
                     , "tags" .= [showWithGreek p]
                     , "color" .= ("white" :: String)
                     , "backColor" .= if b then ("#85C99E" :: String)  -- green
                                           else ("#F58471" :: String)  -- red
-                    , "nodes" .= runFreshM (showAnnTermJson t)
+                    , "nodes" .= runFreshM (showAnnTermJson t cs)
                     , "graph" .= showJsonGraph gr [] ]
    in this : showJsonAnns xs
 
-showAnnTermJson :: Fresh m => TyTerm -> m [Value]
-showAnnTermJson (Term_IntLiteral n t) =
+showAnnTermJson :: Fresh m => TyTerm -> [Constraint] -> m [Value]
+showAnnTermJson (Term_IntLiteral n t) cs =
   return [ object [ "text"  .= show n
-                  , "tags"  .= [showWithGreek t] ] ]
-showAnnTermJson (Term_StrLiteral n t) =
+                  , "tags"  .= [closeAndShowWithGreek cs t] ] ]
+showAnnTermJson (Term_StrLiteral n t) cs =
   return [ object [ "text"  .= show n
-                  , "tags"  .= [showWithGreek t] ] ]
-showAnnTermJson (Term_Var v t) =
+                  , "tags"  .= [closeAndShowWithGreek cs t] ] ]
+showAnnTermJson (Term_Var v t) cs =
   return [ object [ "text"  .= show v
-                  , "tags"  .= [showWithGreek t] ] ]
-showAnnTermJson (Term_Abs b _ t) = do
+                  , "tags"  .= [closeAndShowWithGreek cs t] ] ]
+showAnnTermJson (Term_Abs b _ t) cs = do
   (x,e) <- unbind b
-  inner <- showAnnTermJson e
+  inner <- showAnnTermJson e cs
   return [ object [ "text"  .= ("λ " ++ show x ++ " →")
-                  , "tags"  .= [showWithGreek t]
+                  , "tags"  .= [closeAndShowWithGreek cs t]
                   , "nodes" .= inner ] ]
-showAnnTermJson (Term_AbsAnn b _ p t) = do
+showAnnTermJson (Term_AbsAnn b _ p t) cs = do
   (x,e) <- unbind b
-  inner <- showAnnTermJson e
+  inner <- showAnnTermJson e cs
   return [ object [ "text"  .= ("λ (" ++ show x ++ " :: " ++ showWithGreek p ++ ") →")
-                  , "tags"  .= [showWithGreek t]
+                  , "tags"  .= [closeAndShowWithGreek cs t]
                   , "nodes" .= inner ] ]
-showAnnTermJson (Term_App a b t) = do
-  e1 <- showAnnTermJson a
-  e2 <- showAnnTermJson b
+showAnnTermJson (Term_App a b t) cs = do
+  e1 <- showAnnTermJson a cs
+  e2 <- showAnnTermJson b cs
   return [ object [ "text"  .= ("@" :: String)
-                  , "tags"  .= [showWithGreek t]
+                  , "tags"  .= [closeAndShowWithGreek cs t]
                   , "nodes" .= (e1 ++ e2) ] ]
-showAnnTermJson (Term_Let b t) = do
+showAnnTermJson (Term_Let b t) cs = do
   ((x, unembed -> e1),e2) <- unbind b
-  s1 <- showAnnTermJson e1
-  s2 <- showAnnTermJson e2
+  s1 <- showAnnTermJson e1 cs
+  s2 <- showAnnTermJson e2 cs
   return [ object [ "text"  .= ("let " ++ show x ++ " =")
                   , "nodes" .= s1 ]
          , object [ "text"  .= ("in" :: String)
-                  , "tags"  .= [showWithGreek t]
+                  , "tags"  .= [closeAndShowWithGreek cs t]
                   , "nodes" .= s2 ] ]
-showAnnTermJson (Term_LetAnn b p t) = do
+showAnnTermJson (Term_LetAnn b p t) cs = do
   ((x, unembed -> e1),e2) <- unbind b
-  s1 <- showAnnTermJson e1
-  s2 <- showAnnTermJson e2
+  s1 <- showAnnTermJson e1 cs
+  s2 <- showAnnTermJson e2 cs
   return [ object [ "text"  .= ("let " ++ show x ++ " :: " ++ showWithGreek p ++ " =")
                   , "nodes" .= s1 ]
          , object [ "text"  .= ("in" :: String)
-                  , "tags"  .= [showWithGreek t]
+                  , "tags"  .= [closeAndShowWithGreek cs t]
                   , "nodes" .= s2 ] ]
-showAnnTermJson (Term_Match e c bs t) = do
-  e'  <- showAnnTermJson e
+showAnnTermJson (Term_Match e c bs t) cs = do
+  e'  <- showAnnTermJson e cs
   bs' <- mapM (\(d,b,_) -> do (xs,es) <- unbind b
-                              es' <- showAnnTermJson es
+                              es' <- showAnnTermJson es cs
                               return $ object [ "text"  .= ("| " ++ intercalate " " (map show (d:xs)) ++ " →")
                                               , "nodes" .= es']) bs
   return [ object [ "text"  .= ("match" :: String)
                   , "nodes" .= e' ]
          , object [ "text"  .= ("with '" ++ c)
-                  , "tags"  .= [showWithGreek t]
+                  , "tags"  .= [closeAndShowWithGreek cs t]
                   , "nodes" .= bs' ] ]
+
+closeAndShowWithGreek :: [Constraint] -> MonoType -> String
+closeAndShowWithGreek cs m = showWithGreek $ fst (close cs m)
 
 showJsonConstraints :: [(Either (RawTermVar,String) (TyTermVar,Gathered,[TyVar]), Graph, Bool)] -> [Value]
 showJsonConstraints [] = []
@@ -247,7 +254,7 @@ showJsonConstraints ((Right (n, Gathered t a g w, _),_,_):xs) =
                     , "color" .= ("white" :: String)
                     , "backColor" .= ("#95D6E9" :: String) -- blue
                     , "nodes" .= [ object [ "text"  .= ("annotated ast" :: String)
-                                          , "nodes" .= runFreshM (showAnnTermJson a) ]
+                                          , "nodes" .= runFreshM (showAnnTermJson a []) ]
                                  , object [ "text"  .= ("given" :: String)
                                           , "nodes" .= runFreshM (showJsonConstraintList g) ]
                                  , object [ "text"  .= ("wanted" :: String)

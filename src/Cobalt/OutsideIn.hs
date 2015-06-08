@@ -1,7 +1,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module Cobalt.OutsideIn (
   Gathered(..)
-, UseHigherRanks(..)
+, UseSystemFTypes(..)
 , gDefn
 , gDefns
 , tcDefn
@@ -49,13 +49,14 @@ doPerDefn f nx e (((n,t,p),b):xs) = do r <- f e (n,t,p)
                                                              return $ (Right ok,g,b) : rest
 
 -- | Gather constrains from a definition
-gDefn :: UseHigherRanks -> Env -> RawDefn -> FreshM (Either String (TyTermVar, Gathered, [TyVar]), Graph)
+gDefn :: UseSystemFTypes -> Env -> RawDefn -> FreshM (Either String (TyTermVar, Gathered, [TyVar]), Graph)
 gDefn h e (n,t,Nothing) = do result <- runExceptT $ runReaderT (gather h t) e
                              case result of
                                Left err -> return (Left err, emptyGraph)
-                               Right (Gathered typ a g w) ->
+                               Right (Gathered typ a g w) -> do
+                                 let systemFConstraint = if h == UseSystemFTypes then [Constraint_FType typ] else []
                                  return ( Right ( translate n
-                                                , Gathered typ a g (Constraint_FType typ : w)
+                                                , Gathered typ a g (systemFConstraint ++ w)
                                                 , fv (getAnn a) `union` fv w )
                                         , emptyGraph )
 gDefn h e (n,t,Just p)  = do -- Add the annotated type to the environment
@@ -72,12 +73,12 @@ gDefn h e (n,t,Just p)  = do -- Add the annotated type to the environment
                                         , emptyGraph )
 
 -- | Gather constraints from a list of definitions
-gDefns :: UseHigherRanks -> Env -> [(RawDefn,Bool)]
+gDefns :: UseSystemFTypes -> Env -> [(RawDefn,Bool)]
        -> [(Either (RawTermVar,String) (TyTermVar,Gathered,[TyVar]), Graph, Bool)]
 gDefns higher = doPerDefn' (gDefn higher) const
 
 -- | Typecheck a definition
-tcDefn :: UseHigherRanks -> Env -> RawDefn -> FreshM (Either ErrorExplanation (TyDefn, [Constraint]), Graph)
+tcDefn :: UseSystemFTypes -> Env -> RawDefn -> FreshM (Either ErrorExplanation (TyDefn, [Constraint]), Graph)
 tcDefn h e (n,t,annP) = do
   gResult <- gDefn h e (n,t,annP)
   case gResult of
@@ -132,7 +133,7 @@ checkLeftUnclosed cs = let cs' = filter (\x -> not (is _Constraint_Inst x) && no
                              _  -> throwError (SolverError_CouldNotDischarge cs')
 
 -- | Typecheck some definitions
-tcDefns :: UseHigherRanks -> Env -> [(RawDefn,Bool)]
+tcDefns :: UseSystemFTypes -> Env -> [(RawDefn,Bool)]
         -> [(Either (RawTermVar,ErrorExplanation) (TyDefn,[Constraint]), Graph, Bool)]
 tcDefns higher = doPerDefn' (tcDefn higher) tcNextEnv
 
