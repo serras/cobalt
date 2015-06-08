@@ -46,10 +46,15 @@ entails a g w t = case runFreshM $ solve a g w t of
 
 solve' :: [Constraint] -> [Constraint] -> SMonad Solution
 solve' g w = myTrace ("Solve " ++ show g ++ " ||- " ++ show w) $ do
-  let (implic, simple) = partition (is _Constraint_Exists) w
+  let (implicAndFType, simple) = partition (\x -> is _Constraint_Exists x || is _Constraint_FType x) w
+      (implic, ftyped) = partition (is _Constraint_Exists) implicAndFType
   (g',w',s') <- simpl g simple
-  let s@(Solution _ rs theta _) = toSolution g' w' s'
-  solveImpl (g ++ rs) (substs theta implic)
+  -- FType time
+  let extraCts = map (\(Constraint_FType v) -> obtainFTypeConstraint (g' ++ w') s' v) ftyped
+  (g2,w2,s2) <- simpl g' (w' ++ extraCts)
+  -- Implication time
+  let s@(Solution _ rs theta _) = toSolution g2 w2 s2
+  solveImpl (g2 ++ rs) (substs theta implic)
   return s
 
 solveImpl :: [Constraint] -> [Constraint] -> SMonad ()
@@ -86,6 +91,10 @@ solveApartWithoutAxioms given wanted vars = do
   case result of
     Left  e -> throwError e
     Right s -> return s
+
+obtainFTypeConstraint :: [Constraint] -> [TyVar] -> MonoType -> Constraint
+obtainFTypeConstraint cs tch v = let (poly, _) = closeExn cs v (not . (`elem` tch))
+                                  in Constraint_Inst v (ftype poly)
 
 -- Utils for touchable variables
 

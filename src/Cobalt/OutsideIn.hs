@@ -53,8 +53,11 @@ gDefn :: UseHigherRanks -> Env -> RawDefn -> FreshM (Either String (TyTermVar, G
 gDefn h e (n,t,Nothing) = do result <- runExceptT $ runReaderT (gather h t) e
                              case result of
                                Left err -> return (Left err, emptyGraph)
-                               Right r@(Gathered _ a _ w) ->
-                                 return (Right (translate n, r, fv (getAnn a) `union` fv w), emptyGraph)
+                               Right (Gathered typ a g w) ->
+                                 return ( Right ( translate n
+                                                , Gathered typ a g (Constraint_FType typ : w)
+                                                , fv (getAnn a) `union` fv w )
+                                        , emptyGraph )
 gDefn h e (n,t,Just p)  = do -- Add the annotated type to the environment
                              let e' = e & fnE %~ ((n,p) :)
                              result <- runExceptT $ runReaderT (gather h t) e'
@@ -63,7 +66,10 @@ gDefn h e (n,t,Just p)  = do -- Add the annotated type to the environment
                                Right (Gathered typ a g w) -> do
                                  (q1,t1,_) <- split p
                                  let extra = Constraint_Unify (getAnn a) t1
-                                 return (Right (translate n, Gathered typ a (g ++ q1) (extra:w), fv (getAnn a) `union` fv w), emptyGraph)
+                                 return ( Right ( translate n
+                                                , Gathered typ a (g ++ q1) (extra:w)
+                                                , fv (getAnn a) `union` fv w )
+                                        , emptyGraph )
 
 -- | Gather constraints from a list of definitions
 gDefns :: UseHigherRanks -> Env -> [(RawDefn,Bool)]

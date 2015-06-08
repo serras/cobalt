@@ -36,6 +36,7 @@ module Cobalt.Core.Types (
 , _Constraint_Equal
 , _Constraint_Class
 , _Constraint_Exists
+, _Constraint_FType
 , _Constraint_Later
 , _Constraint_Cond
 , showConstraintList
@@ -247,7 +248,7 @@ data Constraint = Constraint_Unify MonoType MonoType
                 | Constraint_Equal MonoType PolyType
                 | Constraint_Class String [MonoType]
                 | Constraint_Exists (Bind [TyVar] ([Constraint],[Constraint]))
-                | Constraint_FType TyVar
+                | Constraint_FType MonoType
                 | Constraint_Later String [Constraint]
                 | Constraint_Cond  [Constraint] [Constraint] [Constraint]
                 | Constraint_Inconsistent

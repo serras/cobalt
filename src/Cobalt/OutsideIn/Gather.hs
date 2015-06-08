@@ -86,7 +86,7 @@ gather higher (Term_Let b _) =
      Gathered tau1 ann1 ex1 c1 <- gather higher e1
      Gathered tau2 ann2 ex2 c2 <- extendEnv x (PolyType_Mono [] tau1) $ gather higher e2
      return $ Gathered tau2 (Term_Let (bind (translate x, embed ann1) ann2) tau2)
-                       (ex1 ++ ex2) (c1 ++ c2)
+                       (ex1 ++ ex2) (Constraint_FType tau1 : c1 ++ c2)
 gather higher (Term_LetAnn b PolyType_Bottom a) = -- Case bottom
   gather higher (Term_Let b a)
 gather higher (Term_LetAnn b mt@(PolyType_Mono [] m) _) = -- Case monotype
