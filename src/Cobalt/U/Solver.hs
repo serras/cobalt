@@ -41,13 +41,19 @@ solve_ :: [Axiom] -> [Constraint] -> [TyVar]
        -> FreshM FinalSolution
 solve_ ax g tch info w = do
   (((simplG,rs,vars),err,graph), extraExists, extraFTypes) <- simpl ax g tch info Nothing w
-  let zeroPos = (newPos "" 0 0, newPos "" 0 0)
-      ftypeScript = Join (map (\c -> Singleton c zeroPos Nothing) (rs ++ extraFTypes)) zeroPos
+  let ftypeCts = map (\(Constraint_FType v) -> obtainFTypeConstraint (simplG ++ rs) vars v) extraFTypes
+      zeroPos  = (newPos "" 0 0, newPos "" 0 0)
+      ftypeScript = Join (map (\c -> Singleton c zeroPos Nothing) (rs ++ ftypeCts)) zeroPos
   (((simplG2,rs2,vars2),err2,graph2), _, _) <- simpl ax simplG vars info Nothing ftypeScript
   let s@(OIn.Solution _simplG' rs' subst' _vars') = OIn.toSolution simplG2 rs2 vars2
   solveImpl ax (g ++ rs')
             (map (\(i_, s_) -> (i_, substsScript subst' s_)) extraExists)
             (s, err ++ err2, mappend graph graph2)
+
+obtainFTypeConstraint :: [Constraint] -> [TyVar] -> MonoType -> Constraint
+obtainFTypeConstraint cs tch v = let (poly, _) = closeExn cs v (not . (`elem` tch))
+                                  in -- trace (show v ++ " from " ++ show (nf poly) ++ " to " ++ show (ftype poly)) $
+                                     Constraint_Inst v (ftype poly)
 
 solveImpl :: [Axiom] -> [Constraint] -> [(Maybe TyScriptInfo, TyScript)]
           -> FinalSolution -> FreshM FinalSolution

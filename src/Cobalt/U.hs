@@ -6,6 +6,7 @@ module Cobalt.U (
 , checkEnv
 , module Cobalt.U.Attributes
 , GatheringScheme(..)
+, SystemFScheme(..)
 , gDefns
 , FinalSolution
 , Solution(..)

@@ -52,7 +52,6 @@ module Cobalt.Core.Types (
 import Control.Applicative ((<$>))
 #endif
 import Control.Lens hiding ((.=), from, to, mapping)
-import Control.Lens.Extras (is)
 import Data.List (insert, intercalate, find, nub, sortBy, (\\), partition)
 import Data.Maybe (isJust)
 import Unbound.LocallyNameless hiding (close, GT)
@@ -328,7 +327,9 @@ showPolyTypeAsSystemF = fst . runFreshM . sptF [] . nf
           v :: TyVar <- fresh (s2n "a")
           return ("{" ++ show v ++ "} " ++ show v, [])
         sptF mapping (PolyType_Mono cs m) = do
-          let (inner, qs) = partition (is _Constraint_Equal) cs
+          let (inner, qs) = partition (\c -> case c of
+                                               Constraint_Equal (MonoType_Var _) _ -> True
+                                               _ -> False) cs
           newMapping <- flip mapM inner $ \(Constraint_Equal (MonoType_Var v) p) ->
                                              do { pF <- sptF mapping p ; return (v, fst pF) }
           let completeMapping = mapping ++ newMapping
@@ -352,7 +353,7 @@ showPolyTypeAsSystemF = fst . runFreshM . sptF [] . nf
         sptFConstraint m (Constraint_Unify t p) = sptFMono m t ++ " ~ " ++ sptFMono m p
         sptFConstraint m (Constraint_Class c t) = "$" ++ c ++ " " ++ intercalate " " (map (doParens . sptFMono m) t)
         sptFConstraint m (Constraint_Inst  v p) = show v ++ " > " ++ fst (runFreshM (sptF m p))
-        sptFConstraint _ (Constraint_Equal _ _) = error "this should never happen"
+        sptFConstraint m (Constraint_Equal s p) = sptFMono m s ++ " = " ++ fst (runFreshM (sptF m p))  -- may happen in intermediate types
         sptFConstraint _ c                      = error ("constraint " ++ show c ++ " must not appear in a System F type")
 
 instance Show MonoType where
