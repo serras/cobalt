@@ -21,6 +21,7 @@ import Control.Monad.State
 import Control.Monad.Writer
 import Data.List (insert, find, delete, partition, nub, (\\))
 import Unbound.LocallyNameless
+import Debug.Trace
 
 import Cobalt.Core
 import Cobalt.OutsideIn.Solver.Step
@@ -55,8 +56,12 @@ solve' g w = myTrace ("Solve " ++ show g ++ " ||- " ++ show w) $ do
   let extraCts = map (\(Constraint_FType v) -> obtainFTypeConstraint (g' ++ w') s' v) ftyped
   (g2,w2,s2) <- simpl g' (w' ++ extraCts)
   -- Implication time
-  let s@(Solution _ rs theta _) = toSolution g2 w2 s2
-  solveImpl (g2 ++ rs) (substs theta implic)
+  let s@(Solution sg rs theta _) = toSolution g2 w2 s2
+  let theta' = concatMap (\x -> case x of
+          (Constraint_Unify (MonoType_Var v) m) -> [(v, m)]
+          _ -> []
+          ) sg
+  solveImpl (g2 ++ rs) (substs (theta ++ theta') implic)
   return s
 
 solveImpl :: [Constraint] -> [Constraint] -> SMonad ()
@@ -70,12 +75,12 @@ solveImpl g (existsC@(Constraint_Exists b) : rest) = do
   tell graph
   case result of
     Left e -> throwError e  -- Rethrow errors
-    Right (Solution _ rs _ _ ) -> do
+    Right (Solution sg rs _ _ ) -> do
       -- Continue with next implications
       mapM_ (\x -> tell $ singletonEdge existsC x "exists") (q ++ c)
       -- Continue with the rest, if possible
-      if null rs then solveImpl g rest
-                 else throwError $ NamedSolverError (Nothing, SolverError_CouldNotDischarge c)
+      if null (rs \\ sg) then solveImpl g rest
+                 else throwError $ NamedSolverError (Nothing, SolverError_CouldNotDischarge rs)
 solveImpl _ _ = error "This should never happen (solveImpl)"
 
 solveApartWithAxioms :: [Constraint] -> [Constraint] -> [TyVar] -> SMonad Solution

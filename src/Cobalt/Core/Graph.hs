@@ -126,8 +126,9 @@ getDominators g@(Graph _ vrtx edges) problem | Just (_,(n,_,_)) <- find ((== pro
       jointDominators = foldl' intersect (map (\(_,(i,_,_)) -> i) vrtx) allDominators
       orderedDominators :: [D.Node]
       orderedDominators = flip sortBy jointDominators $ \a b -> case D.sp a b extGraph of
-                            []  -> LT
-                            [_] -> EQ
-                            _   -> GT
+                            Nothing   -> LT
+                            Just  []  -> LT
+                            Just  [_] -> EQ
+                            Just  _   -> GT
    in delete problem $ map (fromJust . D.lab extGraph) orderedDominators
 getDominators _ _ = []

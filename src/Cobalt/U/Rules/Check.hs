@@ -69,9 +69,6 @@ astGenerator :: Rx.Regex (Rx.Wrap Integer) (UTerm_ ((SourcePos,SourcePos),TyVar)
              -> Gen (AnnUTerm TyVar)
 astGenerator = Rx.arbitraryFromRegexAndGen generateVar
 
-instance Arbitrary ((SourcePos,SourcePos),TyVar) where
-  arbitrary = (,) <$> arbitrary <*> arbitrary
-
 instance Arbitrary Constraint where
   arbitrary = error "Generation of constraints is not possible"
 instance Arbitrary MonoType where

@@ -6,7 +6,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 module Main where
 
-import Control.Lens hiding ((.=))
+import Control.Lens hiding ((.=), Empty)
 import Data.Aeson hiding (json, Error)
 import Data.HashMap.Strict (insert)
 import Data.List (intercalate)

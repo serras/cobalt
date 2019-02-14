@@ -314,7 +314,7 @@ asymMerger asym p =
             let scr = asym prev new p in case msg of
               Nothing   -> scr
               Just msg' -> Label msg' scr)
-        Empty
+        Cobalt.U.Attributes.Empty
 
 -- For FOREACH
 -- Get children ordered by its position -- ugly code, don't look much at it

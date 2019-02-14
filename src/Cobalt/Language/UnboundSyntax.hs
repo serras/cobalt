@@ -205,7 +205,9 @@ tyvared (UTerm_LetAnn v e1 e2 p a) = UTerm_LetAnn <$> pure (translate v) <*> tyv
 tyvared (UTerm_StrLiteral n a)     = UTerm_StrLiteral <$> pure n <*> upgrade a
 tyvared (UTerm_Match e k dt us a)  = UTerm_Match <$> tyvared e <*> pure k <*> pure dt
                                                  <*> traverse caseTyvared us <*> upgrade a
-  where caseTyvared (UCaseAlternative v vs p inner t) = UCaseAlternative <$> pure (translate v)
+  where 
+        caseTyvared :: (Rep t, Fresh f) => Fix (UTerm_ t) ix -> f (Fix (UTerm_ (t, TyVar)) 'IsACaseAlternative)
+        caseTyvared (UCaseAlternative v vs p inner t) = UCaseAlternative <$> pure (translate v)
                                                                          <*> pure (map translate vs)
                                                                          <*> pure p
                                                                          <*> tyvared inner

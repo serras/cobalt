@@ -376,10 +376,10 @@ instance Subst MonoType RuleScriptMessage
 instance (Alpha t, Show t) => Show (Term t) where
   show = showAnnTerm id
 
-showAnnTerm :: (Alpha a, Show b) => (a -> b) -> Term a -> String
+showAnnTerm :: (Alpha a, Show b, Show a) => (a -> b) -> Term a -> String
 showAnnTerm f = unlines . runFreshM . showAnnTerm' f
 
-showAnnTerm' :: (Fresh m, Alpha a, Show b) => (a -> b) -> Term a -> m [String]
+showAnnTerm' :: (Fresh m, Alpha a, Show b, Show a) => (a -> b) -> Term a -> m [String]
 showAnnTerm' f (Term_IntLiteral n t) = return [show n ++ " ==> " ++ show (f t)]
 showAnnTerm' f (Term_Var v t) = return [show v ++ " ==> " ++ show (f t)]
 showAnnTerm' f (Term_Abs b _ t) = do

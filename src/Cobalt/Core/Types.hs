@@ -55,8 +55,10 @@ import Control.Lens hiding ((.=), from, to, mapping)
 import Data.List (insert, intercalate, find, nub, sortBy, (\\), partition)
 import Data.Maybe (isJust)
 import Unbound.LocallyNameless hiding (close, GT)
+import Unbound.LocallyNameless.Types
 
 import Util.Show
+import Debug.Trace
 
 type TyVar = Name MonoType
 data PolyType = PolyType_Bind (Bind TyVar PolyType)
