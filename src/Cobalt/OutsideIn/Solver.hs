@@ -518,7 +518,7 @@ doLater _                       = return NotApplicable
 -- Phase 2b: convert to solution
 
 toSolution :: [Constraint] -> [Constraint] -> [TyVar] -> Solution
-toSolution gs rs vs = let initialSubst = map (\x -> (x, var x)) (fv rs)
+toSolution gs rs vs = let initialSubst = map (\x -> (x, var x)) vs
                           finalSubst   = runSubst initialSubst
                           doFinalSubst = map (substs finalSubst)
                        in Solution (nub $ doFinalSubst gs)
@@ -530,7 +530,7 @@ toSolution gs rs vs = let initialSubst = map (\x -> (x, var x)) (fv rs)
                       in case s of
                            [] -> s
                            _  -> map (\(v,t) -> (v, substs sub t)) s
-        notUnifyConstraints = filter (not . isVarUnifyConstraint (const True))
+        notUnifyConstraints = filter (not . isVarUnifyConstraint (`elem` vs))
 
 isVarUnifyConstraint :: (TyVar -> Bool) -> Constraint -> Bool
 isVarUnifyConstraint extra (Constraint_Unify (MonoType_Var v) _) = extra v
