@@ -11,7 +11,7 @@ Cobalt
 Cobalt comes with a *web interface* which you can use to typecheck a program, but also to inspect the gathered constraints and the solving process. The easiest way to get the interface is by running
 
 ```
-cabal run c -- serve p
+stack run c -- serve p
 ```
 
 where `c` can be either `cobalt` (for using traditional gathering) or `cobalt-u` (for using the extensible implementation). On the other hand `p` must be a number, which is the port in which the web interface will listed. Then, just point your browser to `http://localhost:p` :)
