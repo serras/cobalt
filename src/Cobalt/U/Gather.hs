@@ -14,7 +14,7 @@ import Control.Lens hiding (at)
 import Control.Lens.Extras
 import Control.Monad.State (MonadState)
 import Data.List (insert, (\\), nub)
-import Data.Maybe (fromJust)
+import Data.Maybe (fromJust, isJust)
 #if MIN_VERSION_base(4,8,0)
 #else
 import Data.Monoid
@@ -256,8 +256,8 @@ matchRule gs _ = rule $ \(e, branches) ->
 
 generateCase :: GatheringScheme -> [TyVar] -> TyVar -> (SourcePos,SourcePos) -> MonoType -> GatherCaseInfo
              -> Maybe ([Constraint], FreshM (TyScript, [Constraint], [TyVar]))
-generateCase gs envVars thisTy p (MonoType_Con k vars) (GatherCaseInfo g betaVars q (MonoType_Con kc varsc) sc caseTy)
-  | k == kc, [] <- betaVars, [] <- q =
+generateCase gs envVars thisTy p m1 (GatherCaseInfo g betaVars q m2 sc caseTy)
+  | k == kc, [] <- betaVars, [] <- q=
      Just (g, do GatherTermInfo s c cv <- sc
                  return ( asymOrJoin gs (foldr (\(MonoType_Var v1, v2) curS -> substScript v1 v2 curS) s (zip varsc vars))
                                         (SingUnifyC (var thisTy) (var caseTy) p) p
@@ -270,13 +270,16 @@ generateCase gs envVars thisTy p (MonoType_Con k vars) (GatherCaseInfo g betaVar
                                                  (SingUnifyC (var thisTy) (var caseTy) p) p) p
                          , c, [] ) )
   | otherwise = Nothing
+  where
+    (k, vars) = conList m1
+    (kc, varsc) = conList m2
 generateCase _ _ _ _ _ _ = thisIsNotOk
 
 caseRule :: GatheringScheme -> SystemFScheme -> TypeRule
 caseRule _ _ = rule $ \e ->
   inj (UCaseAlternative_ __ __ __ (e <<- any_) __) ->>> \(UCaseAlternative con vs caseTy _ _) -> do
     let caseTy' = case caseTy of
-                    Just (_,(q, arr -> (argsT, MonoType_Con dname convars), boundvars)) -> Just (q, argsT, dname, convars, boundvars)
+                    Just (_,(q, arr -> (argsT, conList -> (dname, convars)), boundvars)) -> Just (q, argsT, dname, convars, boundvars)
                     _ -> Nothing
     -- Work on new environment
     copy [e]
@@ -294,7 +297,7 @@ caseRule _ _ = rule $ \e ->
         GatherTerm g [eTy] [i] ->
           let -- resultC = Singleton (Constraint_Unify (var thisTy) (var eTy)) (Just p, Nothing)
               betaVars    = boundvars \\ fv convars
-           in GatherCase [GatherCaseInfo g betaVars q (MonoType_Con dname convars) i (ty eTy)]
+           in GatherCase [GatherCaseInfo g betaVars q (conApply' dname convars) i (ty eTy)]
         _ -> thisIsNotOk
 
 thisIsNotOk :: a

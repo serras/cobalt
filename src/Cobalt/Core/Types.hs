@@ -45,6 +45,9 @@ module Cobalt.Core.Types (
 , orderConstraint
 , Axiom(..)
 , isTresspasable
+, conApply
+, conApply'
+, conList
 ) where
 
 #if MIN_VERSION_base(4,8,0)
@@ -177,24 +180,45 @@ orderConstraint Constraint_Inconsistent Constraint_Inconsistent = EQ
 
 data MonoType = MonoType_Fam   String [MonoType]
               | MonoType_Var   TyVar
-              | MonoType_Con   String [MonoType]
-              | MonoType_Arrow MonoType MonoType
+              | MonoType_Con   String 
+              | MonoType_App   MonoType MonoType
+
               deriving (Eq, Ord)
 
 type MonoTypes = [MonoType]
 
-pattern MonoType_Int       = MonoType_Con   "Int"    []
-pattern MonoType_Char      = MonoType_Con   "Char"   []
+pattern MonoType_Int       = MonoType_Con   "Int" 
+pattern MonoType_Char      = MonoType_Con   "Char"
 pattern MonoType_String    = MonoType_List  MonoType_Char
-pattern MonoType_List  t   = MonoType_Con   "List"   [t]
-pattern MonoType_Tuple a b = MonoType_Con   "Tuple2" [a,b]
-pattern s :-->: r          = MonoType_Arrow s r
+pattern MonoType_List  t   = MonoType_App   (MonoType_Con   "List") t
+pattern MonoType_Tuple a b = MonoType_App   (MonoType_App (MonoType_Con "Tuple2") a) b
+pattern s :-->: r          = MonoType_App   (MonoType_App (MonoType_Con "->") s) r
+
+conApply :: String -> [MonoType] -> MonoType
+conApply s = foldl MonoType_App (MonoType_Con s)
+
+conApply' :: MonoType -> [MonoType] -> MonoType
+conApply' = foldl MonoType_App
+
+conList :: MonoType -> (MonoType, [MonoType])
+conList (MonoType_App m1 m2) = let ms = getMonotypeAppList m1 ++ getMonotypeAppList m2 in (head ms, tail ms)
+conList (MonoType_Con s) = (MonoType_Con s, [])
+conList m = error $ "No conList possible for " ++ show m
+
+getMonotypeAppList :: MonoType -> [MonoType]
+getMonotypeAppList (MonoType_App f a) = getMonotypeAppList f ++ getMonotypeAppList a
+getMonotypeAppList x = [x]
+
+getMonoTypeConstructor :: MonoType -> Maybe String
+getMonoTypeConstructor (MonoType_Con s) = Just s
+getMonoTypeConstructor (MonoType_App f _) = getMonoTypeConstructor f
+getMonoTypeConstructor _ = Nothing
 
 isFamilyFree :: MonoType -> Bool
-isFamilyFree (MonoType_Con _ args)  = all isFamilyFree args
+isFamilyFree (MonoType_Con _)       = True
 isFamilyFree (MonoType_Fam _ _)     = False
 isFamilyFree (MonoType_Var _)       = True
-isFamilyFree (MonoType_Arrow a1 a2) = isFamilyFree a1 && isFamilyFree a2
+isFamilyFree (MonoType_App a1 a2)   = isFamilyFree a1 && isFamilyFree a2
 
 arr :: MonoType -> ([MonoType],MonoType)
 arr (s :-->: r) = let (s',r') = arr r in (s:s', r')
@@ -343,9 +367,10 @@ showPolyTypeAsSystemF = fst . runFreshM . sptF [] . nf
         sptFMono :: [(TyVar, String)] -> MonoType -> String
         sptFMono m (MonoType_List t)      = "[" ++ sptFMono m t ++ "]"
         sptFMono m (MonoType_Tuple t1 t2) = "(" ++ sptFMono m t1 ++ "," ++ sptFMono m t2 ++ ")"
-        sptFMono m (MonoType_Con c a)     = '\'':c ++ concatMap (\x -> " " ++ doParens (sptFMono m x)) a
+        sptFMono m (MonoType_Con c)       = '\'':c
         sptFMono m (MonoType_Fam c a)     = '^':c ++ concatMap (\x -> " " ++ doParens (sptFMono m x)) a
         sptFMono m (s :-->: t)            = doParens (sptFMono m s) ++ " -> " ++ sptFMono m t
+        sptFMono m (MonoType_App f a)     = sptFMono m f ++ " " ++ sptFMono m a
         sptFMono m (MonoType_Var v)       = case lookup v m of
                                               Just p  -> p
                                               Nothing -> show v
@@ -361,10 +386,11 @@ showPolyTypeAsSystemF = fst . runFreshM . sptF [] . nf
 instance Show MonoType where
   show (MonoType_List t)      = "[" ++ show t ++ "]"
   show (MonoType_Tuple t1 t2) = "(" ++ show t1 ++ "," ++ show t2 ++ ")"
-  show (MonoType_Con c a)     = '\'':c ++ concatMap (\x -> " " ++ doParens (show x)) a
+  show (MonoType_Con c)       = '\'':c 
   show (MonoType_Fam c a)     = '^':c ++ concatMap (\x -> " " ++ doParens (show x)) a
   show (s :-->: t)            = doParens (show s) ++ " -> " ++ show t
   show (MonoType_Var v)       = show v
+  show (MonoType_App f a)     = show f ++ " " ++ show a
   show _                      = error "Pattern matching check is not that good"
 
 {-

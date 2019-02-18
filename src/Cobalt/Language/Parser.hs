@@ -214,7 +214,7 @@ parseConstraint = Constraint_Inconsistent <$ reservedOp "_|_"
                                    <*> parseMonoType
 
 parseMonoType :: Parsec String s MonoType
-parseMonoType = foldr1 MonoType_Arrow <$> parseMonoAtom `sepBy1` reservedOp "->"
+parseMonoType = foldr1 (:-->:) <$> parseMonoAtom `sepBy1` reservedOp "->"
 
 parseMonoAtom :: Parsec String s MonoType
 parseMonoAtom = MonoType_List <$> brackets parseMonoType
@@ -223,14 +223,14 @@ parseMonoAtom = MonoType_List <$> brackets parseMonoType
                                    <*  comma
                                    <*> parseMonoType))
             <|> parens parseMonoType
-            <|> MonoType_Con <$> parseDataName
-                             <*> many (    (\x -> MonoType_Con x []) <$> parseDataName
+            <|> (conApply <$> parseDataName)
+                             <*> many (    (\x -> MonoType_Con x) <$> parseDataName
                                        <|> (\x -> MonoType_Fam x []) <$> parseFamName
                                        <|> MonoType_List <$> brackets parseMonoType
                                        <|> MonoType_Var . string2Name <$> parseVarName
                                        <|> parens parseMonoType)
             <|> MonoType_Fam <$> parseFamName
-                             <*> many (    (\x -> MonoType_Con x []) <$> parseDataName
+                             <*> many (    (\x -> MonoType_Con x) <$> parseDataName
                                        <|> (\x -> MonoType_Fam x []) <$> parseFamName
                                        <|> MonoType_List <$> brackets parseMonoType
                                        <|> MonoType_Var . string2Name <$> parseVarName

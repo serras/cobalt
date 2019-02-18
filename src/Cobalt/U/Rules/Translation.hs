@@ -369,9 +369,6 @@ syntaxMonoTypeToScript :: MonoType -> TranslationTypeEnv -> MonoType
 syntaxMonoTypeToScript f@(MonoType_Fam _ []) _ = f
 syntaxMonoTypeToScript (MonoType_Fam f ms) captures =
   MonoType_Fam f (map (\m -> syntaxMonoTypeToScript m captures) ms)
-syntaxMonoTypeToScript f@(MonoType_Con _ []) _ = f
-syntaxMonoTypeToScript (MonoType_Con f ms) captures =
-  MonoType_Con f (map (\m -> syntaxMonoTypeToScript m captures) ms)
 syntaxMonoTypeToScript (MonoType_Var v) captures =
   case name2String v of
     -- Variables starting with # refer to captured variables
@@ -381,9 +378,10 @@ syntaxMonoTypeToScript (MonoType_Var v) captures =
                  Just [m] -> m
                  Just _   -> error $ (show v) ++ " has multiple types, whereas only one is expected"
     _       -> MonoType_Var v
-syntaxMonoTypeToScript (MonoType_Arrow t1 t2) captures = do
-  MonoType_Arrow (syntaxMonoTypeToScript t1 captures)
-                 (syntaxMonoTypeToScript t2 captures)
+syntaxMonoTypeToScript (t1 :-->: t2) captures = syntaxMonoTypeToScript t1 captures :-->: syntaxMonoTypeToScript t2 captures
+syntaxMonoTypeToScript f@(MonoType_Con _) _ = f
+syntaxMonoTypeToScript (MonoType_App f a) captures =
+  MonoType_App (syntaxMonoTypeToScript f captures) (syntaxMonoTypeToScript a captures)
 
 syntaxPolyTypeToScript :: PolyType -> TranslationTypeEnv -> FreshM PolyType
 syntaxPolyTypeToScript (PolyType_Bind b) captures = do

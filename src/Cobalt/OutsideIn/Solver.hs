@@ -213,15 +213,13 @@ canon isGiven injectiveP rest (Constraint_Unify t1 t2) = case (t1,t2) of
     | isFamilyFree t2 -> do b <- isTouchable v  -- Check touchability when no family
                             if b || isGiven
                                then return NotApplicable
-                               else throwNamedError (SolverError_NonTouchable [v])
+                               else return NotApplicable --throwNamedError (SolverError_NonTouchable [v])
     | otherwise -> case t2 of
-                     MonoType_Con c vs -> do (vs2, cons, vars) <- unfamilys vs
-                                             unless isGiven (mapM_ makeTouchable vars)
-                                             return $ Applied (Constraint_Unify (MonoType_Var v) (MonoType_Con c vs2) : cons)
-                     s2 :-->: r2       -> do (s2', con1, vars1) <- unfamily s2
-                                             (r2', con2, vars2) <- unfamily r2
+                     MonoType_Con _    -> return NotApplicable
+                     MonoType_App c a  -> do (a2, con1, vars1) <- unfamily a
+                                             (c2, con2, vars2) <- unfamily c
                                              unless isGiven (mapM_ makeTouchable (vars1 ++ vars2))
-                                             return $ Applied (Constraint_Unify (MonoType_Var v) (s2' :-->: r2') : con1 ++ con2)
+                                             return $ Applied (Constraint_Unify (MonoType_Var v) (MonoType_App c2 a2) : con1 ++ con2)
                      _ | t1 > t2   -> return $ Applied [Constraint_Unify t2 t1]  -- Orient
                        | otherwise -> return NotApplicable
   -- Type families
@@ -235,12 +233,12 @@ canon isGiven injectiveP rest (Constraint_Unify t1 t2) = case (t1,t2) of
   -- Next are Tdec and Faildec
   (s1 :-->: r1, s2 :-->: r2) ->
     return $ Applied [Constraint_Unify s1 s2, Constraint_Unify r1 r2]
-  (_ :-->: _, MonoType_Con _ _) -> throwNamedError (SolverError_Unify UnifyErrorReason_Head t1 t2)
-  (MonoType_Con _ _, _ :-->: _) -> throwNamedError (SolverError_Unify UnifyErrorReason_Head t1 t2)
-  (MonoType_Con c1 a1, MonoType_Con c2 a2)
-    | c1 == c2, length a1 == length a2 -> return $ Applied $ zipWith Constraint_Unify a1 a2
-    | c1 /= c2 -> throwNamedError (SolverError_Unify UnifyErrorReason_Head t1 t2)
-    | length a1 /= length a2 -> throwNamedError (SolverError_Unify UnifyErrorReason_NumberOfArgs t1 t2)
+  (_ :-->: _, MonoType_Con _) -> throwNamedError (SolverError_Unify UnifyErrorReason_Head t1 t2)
+  (MonoType_Con _, _ :-->: _) -> throwNamedError (SolverError_Unify UnifyErrorReason_Head t1 t2)
+  (MonoType_Con c1, MonoType_Con c2) 
+    | c1 == c2 -> return $ Applied []
+    | c1 /= c2 -> throwNamedError  (SolverError_Unify UnifyErrorReason_Head (MonoType_Con c1) (MonoType_Con c2))
+  (MonoType_App f1 a1, MonoType_App f2 a2) -> return $ Applied [Constraint_Unify f1 f2, Constraint_Unify a1 a2]
   -- Orient
   (_, _) | t1 > t2   -> return $ Applied [Constraint_Unify t2 t1]
          | otherwise -> return NotApplicable
@@ -300,9 +298,7 @@ unfamilys ts = do (args,cons,vars) <- unzip3 <$> mapM unfamily ts
 unfamily :: MonoType -> SMonad (MonoType, [Constraint], [TyVar])
 unfamily (MonoType_Fam f vs) = do v <- fresh (string2Name "beta")
                                   return (var v, [Constraint_Unify (var v) (MonoType_Fam f vs)], [v])
-unfamily (MonoType_Con c as) = do (args,cons,vars) <- unzip3 <$> mapM unfamily as
-                                  return (MonoType_Con c args, concat cons, concat vars)
-unfamily (s :-->: t)         = do (s',c1,v1) <- unfamily s
+unfamily (MonoType_App s t)  = do (s',c1,v1) <- unfamily s
                                   (t',c2,v2) <- unfamily t
                                   return (s' :-->: t', c1 ++ c2, v1 ++ v2)
 unfamily t                   = return (t, [], [])
@@ -525,9 +521,9 @@ toSolution :: [Constraint] -> [Constraint] -> [TyVar] -> Solution
 toSolution gs rs vs = let initialSubst = map (\x -> (x, var x)) (fv rs)
                           finalSubst   = runSubst initialSubst
                           doFinalSubst = map (substs finalSubst)
-                       in Solution (doFinalSubst gs)
-                                   (doFinalSubst (notUnifyConstraints rs))
-                                   (runSubst initialSubst) vs
+                       in Solution (nub $ doFinalSubst gs)
+                                   (nub $ doFinalSubst (notUnifyConstraints rs))
+                                   (nub $ runSubst initialSubst) (nub vs)
   where runSubst s = let vars = unionMap (\(_,mt) -> fv mt) s
                          unif = concatMap (\v -> filter (isVarUnifyConstraint (== v)) rs) vars
                          sub = map (\(Constraint_Unify (MonoType_Var v) t) -> (v,t)) unif

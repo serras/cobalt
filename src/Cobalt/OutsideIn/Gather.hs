@@ -115,7 +115,7 @@ gather systemf (Term_Match e dname bs _) =
      let allExtras = concatMap (givenC  . snd) alternatives
          allCs     = concatMap (wantedC . snd) alternatives
          bindings  = map (\((con,vars),g) -> (con, bind vars (annTerm g), var resultvar)) alternatives
-         extra     = Constraint_Unify (MonoType_Con dname (map var tyvars)) tau
+         extra     = Constraint_Unify (conApply dname (map var tyvars)) tau
      return $ Gathered (var resultvar) (Term_Match annot dname bindings (var resultvar))
                        (ex ++ allExtras) (extra : c ++ allCs)
 
@@ -124,9 +124,10 @@ gatherAlternative :: UseSystemFTypes -> String -> [TyVar] -> TyVar -> (RawTermVa
 gatherAlternative systemf dname tyvars resultvar (con, b, _) =
   do -- Get information about constructor
      sigma <- lookupFail fnE con
-     (q,arr -> (argsT,resultT),_) <- split sigma
+     (q,arr -> (argsT,resultT'),_) <- split sigma
+     let resultT = conList resultT'
      case resultT of
-       MonoType_Con dname2 convars | dname == dname2 -> do
+       (MonoType_Con dname2, convars) | dname == dname2 -> do
          (args,e) <- unbind b
          let (rest,unifs) = generateExtraUnifications tyvars convars
              argsT' = map (PolyType_Mono [] . substs unifs) argsT

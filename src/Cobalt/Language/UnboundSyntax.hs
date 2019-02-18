@@ -56,6 +56,7 @@ import Unbound.LocallyNameless hiding (close)
 import Cobalt.Core
 import Cobalt.Language.Syntax
 
+
 data Ix = IsATerm | IsACaseAlternative
 data instance Sing (a :: Ix) where
   SIsATerm            :: Sing 'IsATerm
@@ -140,8 +141,10 @@ splitNormaal p = do
   return (p, (q ++ newQs, unarr args newResult, v ++ newVars))
 
 normaalResult :: MonoType -> FreshM (MonoType, [Constraint], [TyVar])
-normaalResult (MonoType_Con k vs) = do (vs2, q, tyv) <- normaalResultVars vs
-                                       return (MonoType_Con k vs2, q, tyv)
+normaalResult fa@(MonoType_App _ _) = do 
+    let (s, m) = conList fa
+    (m', c, v) <- normaalResultVars m
+    return (conApply' s m', c, v)
   where normaalResultVars [] = return ([], [], [])
         normaalResultVars (v@(MonoType_Var _) : r) = do (r2, q, tyv) <- normaalResultVars r
                                                         return (v : r2, q, tyv)
@@ -176,7 +179,7 @@ unbindTerm (Term_LetAnn b p a)   nv dv = do ((v, unembed -> e1),e2) <- unbind b
 unbindTerm (Term_Match e k cs a) nv dv = do us <- mapM (\x -> unbindCase x nv dv) cs
                                             e_ <- unbindTerm e nv dv
                                             dt_ <- case lookup k dv of
-                                              Just vars -> Just <$> (MonoType_Con k <$> (map var <$> mapM fresh vars))
+                                              Just vars -> Just <$> (foldl MonoType_App (MonoType_Con k) <$> (map var <$> mapM fresh vars))
                                               Nothing -> return Nothing
                                             return $ UTerm_Match e_ k dt_ us a
 unbindTerm (Term_StrLiteral n a) _  _  = return $ UTerm_StrLiteral n a
