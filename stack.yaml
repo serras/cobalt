@@ -1,0 +1,11 @@
+resolver: lts-6.35
+packages:
+- .
+extra-deps:
+- t-regex-0.1.0.0
+- unbound-0.5.1.1
+- RepLib-0.5.4.1
+- recursion-schemes-4.1.2
+- comonad-4.2.7.2
+- free-4.12.4
+- fgl-5.7.0.1
